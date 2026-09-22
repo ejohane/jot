@@ -39,6 +39,11 @@ Published builds use GitHub only to check for and download app updates.
 - Escape: flush pending changes and hide
 - Command-Return: finish the active jot and show a new blank composer
 - Command-Q: flush session state and quit
+- Enter in a Markdown list: continue the list; Enter on an empty item exits it
+- Shift-Enter: insert a plain newline without a new list marker
+
+Unordered list markers (`-`, `*`, or `+` followed by a space) display as round
+bullets while the saved and copied text remains ordinary Markdown.
 
 The menu-bar item can change the shortcut or Jots folder, reveal the active jot,
 open the Jots folder, and control launch at login.

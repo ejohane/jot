@@ -1,4 +1,4 @@
-import { markdown } from "@codemirror/lang-markdown";
+import { deleteMarkupBackward, insertNewlineContinueMarkupCommand, markdown } from "@codemirror/lang-markdown";
 import { history, historyKeymap } from "@codemirror/commands";
 import { Annotation, EditorSelection, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
@@ -11,6 +11,7 @@ import { markdownPresentation } from "./presentation";
 type RecoveryAction = "restoreRoot" | "saveCopy" | "reloadExternal";
 type Status = { kind: "idle" | "saving" | "saved" | "error"; message: string; actions?: RecoveryAction[] };
 const loadSession = Annotation.define<boolean>();
+const continueMarkdownList = insertNewlineContinueMarkupCommand({ nonTightLists: false });
 
 export function insertLiteralNewline(view: EditorView): boolean {
   view.dispatch({
@@ -118,7 +119,10 @@ export function Editor() {
               return true;
             },
           },
+          { key: "Enter", run: continueMarkdownList },
           { key: "Enter", run: insertLiteralNewline },
+          { key: "Shift-Enter", run: insertLiteralNewline },
+          { key: "Backspace", run: deleteMarkupBackward },
           {
             key: "Escape",
             run: () => {

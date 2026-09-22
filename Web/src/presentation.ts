@@ -1,6 +1,22 @@
 import { syntaxTree } from "@codemirror/language";
 import { RangeSetBuilder } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from "@codemirror/view";
+
+class BulletWidget extends WidgetType {
+  eq() { return true; }
+
+  toDOM() {
+    const bullet = document.createElement("span");
+    bullet.className = "cm-list-bullet";
+    bullet.textContent = "•";
+    bullet.setAttribute("aria-hidden", "true");
+    return bullet;
+  }
+
+  ignoreEvent() { return false; }
+}
+
+const bulletDecoration = Decoration.replace({ widget: new BulletWidget() });
 
 const markerNodes = new Set([
   "HeaderMark",
@@ -14,7 +30,7 @@ const markerNodes = new Set([
 ]);
 
 function markerDecorations(view: EditorView): DecorationSet {
-  const ranges: Array<{ from: number; to: number; active: boolean }> = [];
+  const ranges: Array<{ from: number; to: number; decoration: Decoration }> = [];
   const selection = view.state.selection.main;
   const activeLine = view.state.doc.lineAt(selection.head);
 
@@ -22,7 +38,14 @@ function markerDecorations(view: EditorView): DecorationSet {
     enter(node) {
       if (!markerNodes.has(node.name) || node.from === node.to) return;
       const active = node.to >= activeLine.from && node.from <= activeLine.to;
-      ranges.push({ from: node.from, to: node.to, active });
+      const isBullet = node.name === "ListMark" && /^[*+-]$/.test(view.state.sliceDoc(node.from, node.to));
+      ranges.push({
+        from: node.from,
+        to: node.to,
+        decoration: isBullet ? bulletDecoration : Decoration.mark({
+          class: active ? "cm-markdown-marker-active" : "cm-markdown-marker",
+        }),
+      });
     },
   });
 
@@ -34,7 +57,7 @@ function markerDecorations(view: EditorView): DecorationSet {
     builder.add(
       range.from,
       range.to,
-      Decoration.mark({ class: range.active ? "cm-markdown-marker-active" : "cm-markdown-marker" }),
+      range.decoration,
     );
     lastTo = range.to;
   }
