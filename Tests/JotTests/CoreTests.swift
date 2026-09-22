@@ -228,12 +228,17 @@ final class CoreTests: XCTestCase {
     @MainActor
     func testRapidPendingEditsCoalesceToNewestSnapshot() async throws {
         let fileSystem = InMemoryFileSystem()
-        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: fileSystem) { _ in }
+        let saved = expectation(description: "Newest coalesced revision is durably saved")
+        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: fileSystem) { event in
+            if case .writeSucceeded(_, 4) = event { saved.fulfill() }
+        }
         await writer.receive(snapshot(revision: 1, text: "1"))
         await writer.receive(snapshot(revision: 2, text: "12"))
         await writer.receive(snapshot(revision: 3, text: "123"))
         await writer.receive(snapshot(revision: 4, text: "1234"))
-        try await Task.sleep(for: .milliseconds(320))
+        // Wait for the writer's acknowledgement, not a guessed scheduling delay.
+        let result = await XCTWaiter.fulfillment(of: [saved], timeout: 5)
+        XCTAssertEqual(result, .completed)
         XCTAssertEqual(fileSystem.writeCount, 2)
         XCTAssertEqual(fileSystem.latestWrittenData, Data("1234".utf8))
         let acknowledgedRevision = await writer.currentJot()?.acknowledgedRevision
