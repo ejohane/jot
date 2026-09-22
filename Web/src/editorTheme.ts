@@ -23,7 +23,7 @@ export const editorTheme = [
       fontFamily: "-apple-system, BlinkMacSystemFont, system-ui, sans-serif",
       fontSize: "var(--editor-size)",
       lineHeight: "1.55",
-      padding: "22px 24px 54px",
+      padding: "44px 24px 54px",
     },
     ".cm-content": { caretColor: "var(--text)", minHeight: "100%" },
     ".cm-line": { padding: "0" },

@@ -8,11 +8,16 @@ let package = Package(
     products: [
         .executable(name: "Jot", targets: ["Jot"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
+    ],
     targets: [
         .executableTarget(
             name: "Jot",
+            dependencies: [.product(name: "Sparkle", package: "Sparkle")],
             path: "Sources/Jot",
-            swiftSettings: [.enableUpcomingFeature("ExistentialAny")]
+            swiftSettings: [.enableUpcomingFeature("ExistentialAny")],
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
         ),
         .testTarget(
             name: "JotTests",

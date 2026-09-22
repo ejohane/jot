@@ -1,0 +1,89 @@
+name: Release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: jot-release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-26
+    permissions:
+      contents: write
+    env:
+      JOT_VERSION: 0.1.${{ github.run_number }}
+      JOT_BUILD: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: Web/package-lock.json
+      - run: npm --prefix Web ci
+      - run: npm --prefix Web test
+      - run: swift test
+      - run: python3 script/test_release.py
+      - name: Import Developer ID certificate
+        env:
+          CERTIFICATE: ${{ secrets.LATTICE_MACOS_CODESIGN_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.LATTICE_MACOS_CODESIGN_CERTIFICATE_PASSWORD }}
+          IDENTITY: ${{ secrets.LATTICE_CODESIGN_IDENTITY }}
+        run: |
+          : "${CERTIFICATE:?Add the Developer ID certificate to repository secrets}"
+          : "${CERTIFICATE_PASSWORD:?Add the certificate password to repository secrets}"
+          : "${IDENTITY:?Add the Developer ID identity to repository secrets}"
+          keychain="$RUNNER_TEMP/jot-release.keychain-db"
+          password="$(openssl rand -hex 32)"
+          echo "::add-mask::$password"
+          certificate_file="$RUNNER_TEMP/jot-certificate.p12"
+          trap 'rm -f "$certificate_file"' EXIT
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$certificate_file"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$certificate_file" -P "$CERTIFICATE_PASSWORD" -k "$keychain" -T /usr/bin/codesign
+          security list-keychains -d user -s "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+      - name: Build universal signed app
+        env:
+          JOT_DISTRIBUTION: '1'
+          JOT_UNIVERSAL: '1'
+          JOT_CODESIGN_IDENTITY: ${{ secrets.LATTICE_CODESIGN_IDENTITY }}
+        run: |
+          ./script/package_app.sh
+          lipo -verify_arch arm64 x86_64 dist/Jot.app/Contents/MacOS/Jot
+      - name: Notarize and staple
+        env:
+          LATTICE_NOTARY_KEY_ID: ${{ secrets.LATTICE_NOTARY_KEY_ID }}
+          LATTICE_NOTARY_ISSUER_ID: ${{ secrets.LATTICE_NOTARY_ISSUER_ID }}
+          LATTICE_NOTARY_PRIVATE_KEY: ${{ secrets.LATTICE_NOTARY_PRIVATE_KEY }}
+        run: ./script/notarize_app.sh
+      - name: Launch the notarized app
+        run: |
+          open -n dist/Jot.app
+          sleep 5
+          pgrep -x Jot
+      - name: Sign update and generate feed
+        env:
+          JOT_SPARKLE_PRIVATE_KEY: ${{ secrets.JOT_SPARKLE_PRIVATE_KEY }}
+        run: python3 script/create_appcast.py
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A rerun of an old commit must never replace the latest update feed.
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          [[ "$current_main" == "$GITHUB_SHA" ]] || { echo 'A newer commit is on main; skipping stale publication.'; exit 0; }
+          gh release create "v$JOT_VERSION" \
+            dist/Jot.zip dist/Jot.zip.sha256 dist/appcast.xml \
+            --target "$GITHUB_SHA" --title "Jot $JOT_VERSION" --generate-notes --latest
+      - name: Remove signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/jot-release.keychain-db" 2>/dev/null || true
