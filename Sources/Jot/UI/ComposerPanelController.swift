@@ -1,0 +1,172 @@
+import AppKit
+import WebKit
+
+@MainActor
+protocol ComposerPanelDelegate: AnyObject {
+    func composerDidResignKey()
+    func composerFrameDidChange(_ frame: NSRect)
+}
+
+final class ComposerPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
+final class WindowDragContainerView: NSView {
+    static let dragHeight: CGFloat = 22
+    static let trafficLightClearance: CGFloat = 76
+
+    override var mouseDownCanMoveWindow: Bool { true }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, alphaValue > 0, bounds.contains(point) else { return nil }
+        let isInDragRegion = point.x >= Self.trafficLightClearance
+            && point.y >= bounds.maxY - Self.dragHeight
+        return isInDragRegion ? self : super.hitTest(point)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window else {
+            super.mouseDown(with: event)
+            return
+        }
+        window.performDrag(with: event)
+    }
+}
+
+@MainActor
+final class ComposerPanelController: NSWindowController, NSWindowDelegate {
+    let bridge = EditorBridge()
+    private let resourceHandler = LocalResourceSchemeHandler()
+    private let webView: WKWebView
+    private var isProgrammaticResize = false
+    private var userHasResized = false
+    private var escapeMonitor: Any?
+    weak var panelDelegate: (any ComposerPanelDelegate)?
+    var onEscape: (() -> Void)?
+
+    init(savedFrame: String?) {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.preferences.setValue(false, forKey: "developerExtrasEnabled")
+        configuration.userContentController.add(bridge, name: "jot")
+        configuration.setURLSchemeHandler(resourceHandler, forURLScheme: "jot")
+
+        webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.setValue(false, forKey: "drawsBackground")
+        let initialFrame = NSRect(x: 0, y: 0, width: 560, height: 260)
+        let panel = ComposerPanel(
+            contentRect: initialFrame,
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = "Jot"
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.isMovable = true
+        panel.isMovableByWindowBackground = true
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.hidesOnDeactivate = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.minSize = NSSize(width: 360, height: 180)
+        panel.maxSize = NSSize(width: 900, height: 900)
+        let contentView = WindowDragContainerView(frame: initialFrame)
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.setAccessibilityElement(false)
+        contentView.addSubview(webView)
+        NSLayoutConstraint.activate([
+            webView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            webView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            webView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+        ])
+        panel.contentView = contentView
+        panel.isReleasedWhenClosed = false
+
+        super.init(window: panel)
+        panel.delegate = self
+        bridge.webView = webView
+        webView.navigationDelegate = bridge
+        if let savedFrame { panel.setFrame(from: savedFrame) }
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53,
+                  let self,
+                  self.window?.isVisible == true,
+                  self.window?.isKeyWindow == true else { return event }
+            self.onEscape?()
+            return nil
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func loadEditor() {
+        webView.load(URLRequest(url: URL(string: "jot://local/index.html")!))
+    }
+
+    func showAndFocus() {
+        guard let panel = window else { return }
+        placeOnActiveDisplayIfNeeded(panel)
+        panel.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKey()
+        webView.focusRingType = .none
+        webView.evaluateJavaScript("document.querySelector('.cm-content')?.focus()")
+    }
+
+    func hide() { window?.orderOut(nil) }
+
+    func send(_ payload: [String: Any]) { bridge.send(payload) }
+
+    func applyPreferredContentHeight(_ requestedHeight: CGFloat) {
+        guard !userHasResized, let panel = window else { return }
+        let contentHeight = min(max(requestedHeight, 180), 700)
+        let frameHeight = panel.frameRect(forContentRect: NSRect(x: 0, y: 0, width: panel.contentLayoutRect.width, height: contentHeight)).height
+        guard abs(panel.frame.height - frameHeight) > 1 else { return }
+        var frame = panel.frame
+        let top = frame.maxY
+        frame.size.height = frameHeight
+        frame.origin.y = top - frameHeight
+        isProgrammaticResize = true
+        panel.setFrame(frame, display: true, animate: false)
+        placeOnActiveDisplayIfNeeded(panel)
+        isProgrammaticResize = false
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        panelDelegate?.composerDidResignKey()
+    }
+
+    func windowDidMove(_ notification: Notification) { recordFrame() }
+    func windowDidResize(_ notification: Notification) {
+        if !isProgrammaticResize { userHasResized = true }
+        recordFrame()
+    }
+
+    private func recordFrame() {
+        guard let frame = window?.frame else { return }
+        panelDelegate?.composerFrameDidChange(frame)
+    }
+
+    private func placeOnActiveDisplayIfNeeded(_ panel: NSWindow) {
+        let mouseLocation = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { NSMouseInRect(mouseLocation, $0.frame, false) } ?? NSScreen.main
+        guard let visibleFrame = screen?.visibleFrame else { return }
+        let frame = Self.clampedFrame(panel.frame, to: visibleFrame)
+        if frame != panel.frame { panel.setFrame(frame, display: true) }
+    }
+
+    static func clampedFrame(_ proposedFrame: NSRect, to visibleFrame: NSRect) -> NSRect {
+        var frame = proposedFrame
+        frame.size.width = min(frame.width, visibleFrame.width)
+        frame.size.height = min(frame.height, visibleFrame.height)
+        frame.origin.x = min(max(frame.minX, visibleFrame.minX), visibleFrame.maxX - frame.width)
+        frame.origin.y = min(max(frame.minY, visibleFrame.minY), visibleFrame.maxY - frame.height)
+        return frame
+    }
+}

@@ -1,0 +1,10 @@
+.build/
+.swiftpm/
+dist/
+Web/dist/
+Web/node_modules/
+*.tsbuildinfo
+.DS_Store
+TestData/
+.playwright-cli/
+CODEX_GOAL_PROMPT.md

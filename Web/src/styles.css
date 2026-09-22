@@ -1,0 +1,69 @@
+:root {
+  color-scheme: light dark;
+  --background: rgba(248, 248, 247, 0.94);
+  --text: #20201e;
+  --secondary: #686762;
+  --marker: #a6a49d;
+  --link: #315f91;
+  --selection: rgba(70, 126, 190, 0.24);
+  --error: #a43127;
+  --editor-size: 16px;
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: rgba(31, 31, 30, 0.95);
+    --text: #f2f1ed;
+    --secondary: #b5b2aa;
+    --marker: #77746e;
+    --link: #84b6ea;
+    --selection: rgba(88, 157, 230, 0.3);
+    --error: #ff8d82;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root { --marker: var(--secondary); }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root { --background: #f8f8f7; }
+  @media (prefers-color-scheme: dark) { :root { --background: #1f1f1e; } }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+body { background: var(--background); color: var(--text); }
+button, .cm-content { -webkit-font-smoothing: antialiased; }
+
+.composer { height: 100%; position: relative; }
+.editor { height: 100%; }
+.status {
+  align-items: center;
+  bottom: 11px;
+  color: var(--secondary);
+  display: flex;
+  font-size: 11px;
+  gap: 8px;
+  min-height: 22px;
+  position: absolute;
+  right: 16px;
+  z-index: 2;
+}
+.status-idle { visibility: hidden; }
+.status-error { color: var(--error); left: 18px; right: 18px; }
+.status button {
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 3px 7px;
+}
+.status button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
