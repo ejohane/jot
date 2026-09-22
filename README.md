@@ -45,7 +45,18 @@ open the Jots folder, and control launch at login.
 
 ## Install and update
 
-Download `Jot.zip` from the [latest release](https://github.com/ejohane/jot/releases/latest),
+Run this in Terminal (no developer tools needed):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ejohane/jot/main/script/install.sh | sh
+```
+
+The installer downloads the latest release, verifies its checksum, Apple signing
+identity, and notarization, installs it in `/Applications`, and opens Jot. Quit
+Jot first if it is already running. To install without write access to
+`/Applications`, run `export JOT_INSTALL_DIR="$HOME/Applications"` first.
+
+Or download `Jot.zip` from the [latest release](https://github.com/ejohane/jot/releases/latest),
 unzip it, and move **Jot.app** into `/Applications` before opening it. The universal
 app supports Apple Silicon and Intel Macs running macOS 14 or newer.
 
