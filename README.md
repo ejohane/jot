@@ -70,8 +70,8 @@ A run from an older commit never replaces the current update feed.
 
 GitHub Releases hosts `Jot.zip`, its SHA-256 checksum, and `appcast.xml` for
 Sparkle. This requires a public repository. Signing credentials are Actions
-secrets and never belong in source control. The Apple secret names match Lattice
-so the existing credentials can be reused:
+secrets and never belong in source control. The Apple secret names retain the Lattice naming convention, but Jot uses its
+own Developer ID certificate and a dedicated Developer-role notarization key:
 
 - `LATTICE_MACOS_CODESIGN_CERTIFICATE_BASE64`: exported Developer ID Application `.p12`, base64 encoded.
 - `LATTICE_MACOS_CODESIGN_CERTIFICATE_PASSWORD`: password for that export.
@@ -82,6 +82,16 @@ so the existing credentials can be reused:
 `Config/sparkle-public-key.txt` is the matching public key embedded in the app.
 Keep the private key stable across releases. A backup was created in the macOS
 login Keychain under **Jot Sparkle release signing**, account `ejohane/jot`.
+
+The Apple credentials also have local recovery backups:
+
+- The encrypted certificate export is `~/Library/Application Support/Jot Release Setup/Jot-Developer-ID.p12`.
+- Its password and the notarization API key are in the login Keychain under **Jot release credentials**.
+- The notarization key and issuer IDs are in `notarization-metadata.txt` beside the encrypted export.
+
+These files are outside the repository. The unencrypted RSA key and downloaded
+API-key file are removed after configuration. Keep these backups when migrating
+to another development Mac; GitHub Actions secrets cannot be downloaded later.
 
 To build a universal local app without publishing or launching:
 
