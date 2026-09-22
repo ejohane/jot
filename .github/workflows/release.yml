@@ -58,7 +58,7 @@ jobs:
           JOT_CODESIGN_IDENTITY: ${{ secrets.LATTICE_CODESIGN_IDENTITY }}
         run: |
           ./script/package_app.sh
-          lipo -verify_arch arm64 x86_64 dist/Jot.app/Contents/MacOS/Jot
+          lipo dist/Jot.app/Contents/MacOS/Jot -verify_arch arm64 x86_64
       - name: Notarize and staple
         env:
           LATTICE_NOTARY_KEY_ID: ${{ secrets.LATTICE_NOTARY_KEY_ID }}
