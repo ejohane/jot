@@ -93,10 +93,11 @@ export function Editor() {
 
     const sendPreferredHeight = (view: EditorView) => {
       requestAnimationFrame(() => {
+        const { paddingTop, paddingBottom } = getComputedStyle(view.scrollDOM);
         sendToNative({
           version: 1,
           type: "preferredHeightChanged",
-          height: view.contentDOM.scrollHeight + 76,
+          height: view.contentDOM.scrollHeight + parseFloat(paddingTop) + parseFloat(paddingBottom),
         });
       });
     };

@@ -30,8 +30,8 @@ Install the same release bundle into `/Applications` and launch it with:
 ```
 
 The first launch asks for a local Jots folder. The suggested location is
-`~/Documents/Jots`. No server, account, database, telemetry, or network access
-is used at runtime.
+`~/Documents/Jots`. Writing requires no server, account, database, or network connection.
+Published builds use GitHub only to check for and download app updates.
 
 ## Controls
 
@@ -42,3 +42,54 @@ is used at runtime.
 
 The menu-bar item can change the shortcut or Jots folder, reveal the active jot,
 open the Jots folder, and control launch at login.
+
+## Install and update
+
+Download `Jot.zip` from the [latest release](https://github.com/ejohane/jot/releases/latest),
+unzip it, and move **Jot.app** into `/Applications` before opening it. The universal
+app supports Apple Silicon and Intel Macs running macOS 14 or newer.
+
+Published apps are Developer ID signed and notarized. Jot checks for updates
+hourly and offers a download and installation when you choose. **Check for
+Updates…** is available in both the Jot application menu and its menu-bar menu.
+The normal save/recovery gate runs before quitting for an update. Notes remain
+in your chosen folder, outside the app bundle.
+
+Local development builds keep updates disabled so a published build cannot
+replace a working development build. **About Jot** shows the version and build.
+Update checks contact GitHub; note contents are never sent with them.
+
+## Releases
+
+Every push to `main` runs `.github/workflows/release.yml`: tests, universal build,
+Developer ID signing, Apple notarization, signature validation, and publication.
+The release version is `0.1.<workflow run number>`; the build number is that same
+run number. No manual version edit or tag is necessary. A failed run leaves the
+previous release available. Workflow dispatch can retry a release from `main`.
+A run from an older commit never replaces the current update feed.
+
+GitHub Releases hosts `Jot.zip`, its SHA-256 checksum, and `appcast.xml` for
+Sparkle. This requires a public repository. Signing credentials are Actions
+secrets and never belong in source control. The Apple secret names match Lattice
+so the existing credentials can be reused:
+
+- `LATTICE_MACOS_CODESIGN_CERTIFICATE_BASE64`: exported Developer ID Application `.p12`, base64 encoded.
+- `LATTICE_MACOS_CODESIGN_CERTIFICATE_PASSWORD`: password for that export.
+- `LATTICE_CODESIGN_IDENTITY`: full `Developer ID Application: …` identity.
+- `LATTICE_NOTARY_KEY_ID`, `LATTICE_NOTARY_ISSUER_ID`, `LATTICE_NOTARY_PRIVATE_KEY`: Apple notarization API credentials.
+- `JOT_SPARKLE_PRIVATE_KEY`: Jot's own Sparkle Ed25519 signing seed, base64 encoded.
+
+`Config/sparkle-public-key.txt` is the matching public key embedded in the app.
+Keep the private key stable across releases. A backup was created in the macOS
+login Keychain under **Jot Sparkle release signing**, account `ejohane/jot`.
+
+To build a universal local app without publishing or launching:
+
+```sh
+JOT_UNIVERSAL=1 ./script/package_app.sh
+```
+
+CI verifies builds and process launch. Before accepting the first release,
+exercise a real upgrade from an earlier installed release and confirm the
+active note is restored after relaunch. Installation on a managed work Mac
+still follows that machine's application policy.

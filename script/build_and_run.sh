@@ -4,71 +4,17 @@ set -euo pipefail
 MODE="${1:-run}"
 APP_NAME="Jot"
 BUNDLE_ID="com.erikjohansson.Jot"
-MIN_SYSTEM_VERSION="14.0"
-CONFIGURATION="${JOT_CONFIGURATION:-release}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WEB_DIR="$ROOT_DIR/Web"
 DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
-APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
-INFO_PLIST="$APP_CONTENTS/Info.plist"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
-if [[ ! -d "$WEB_DIR/node_modules" ]]; then
-  npm --prefix "$WEB_DIR" ci
-fi
-npm --prefix "$WEB_DIR" run build
-
-swift build -c "$CONFIGURATION" --product "$APP_NAME"
-BUILD_DIR="$(swift build -c "$CONFIGURATION" --show-bin-path)"
-
-rm -rf "$APP_BUNDLE"
-mkdir -p "$APP_MACOS" "$APP_RESOURCES"
-cp "$BUILD_DIR/$APP_NAME" "$APP_BINARY"
-chmod +x "$APP_BINARY"
-
-mkdir -p "$APP_RESOURCES/Editor"
-cp -R "$WEB_DIR/dist/." "$APP_RESOURCES/Editor/"
-
-cat >"$INFO_PLIST" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleExecutable</key>
-  <string>$APP_NAME</string>
-  <key>CFBundleIdentifier</key>
-  <string>$BUNDLE_ID</string>
-  <key>CFBundleName</key>
-  <string>$APP_NAME</string>
-  <key>CFBundleDisplayName</key>
-  <string>$APP_NAME</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
-  <key>CFBundleVersion</key>
-  <string>1</string>
-  <key>LSMinimumSystemVersion</key>
-  <string>$MIN_SYSTEM_VERSION</string>
-  <key>LSUIElement</key>
-  <true/>
-  <key>NSHighResolutionCapable</key>
-  <true/>
-  <key>NSPrincipalClass</key>
-  <string>NSApplication</string>
-</dict>
-</plist>
-PLIST
-
-/usr/bin/xattr -cr "$APP_BUNDLE"
-/usr/bin/xattr -d com.apple.FinderInfo "$APP_BUNDLE" 2>/dev/null || true
-/usr/bin/codesign --force --deep --sign - "$APP_BUNDLE"
+"$ROOT_DIR/script/package_app.sh"
 
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"

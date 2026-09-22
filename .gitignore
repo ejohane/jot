@@ -8,3 +8,4 @@ Web/node_modules/
 TestData/
 .playwright-cli/
 CODEX_GOAL_PROMPT.md
+__pycache__/

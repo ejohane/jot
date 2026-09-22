@@ -5,6 +5,7 @@ import ServiceManagement
 final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegate, NSMenuItemValidation {
     private let sessionStore: SessionStore
     private let rootAccess = RootAccessController()
+    private let appUpdater = AppUpdater()
     private var session: PersistedSession
     private var rootURL: URL?
     private var writer: JotWriter!
@@ -45,6 +46,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         } else {
             shortcutRegistrationFailed = true
         }
+        appUpdater.start()
         configureApplicationMenu()
         configureStatusItem()
     }
@@ -324,6 +326,8 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
     @objc private func quit() { NSApp.terminate(nil) }
 
+    @objc private func showAbout() { NSApp.orderFrontStandardAboutPanel(nil) }
+
     private func chooseRootIfNeeded() {
         guard rootURL == nil else { return }
         chooseRoot()
@@ -360,6 +364,8 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         launchItem.state = session.launchAtLogin ? .on : .off
         menu.addItem(launchItem)
         menu.addItem(.separator())
+        menu.addItem(item("About Jot", action: #selector(showAbout), key: ""))
+        menu.addItem(appUpdater.menuItem())
         menu.addItem(item("Quit Jot", action: #selector(quit), key: "q"))
         statusItem.menu = menu
     }
@@ -369,6 +375,9 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
         let applicationItem = NSMenuItem()
         let applicationMenu = NSMenu(title: "Jot")
+        applicationMenu.addItem(item("About Jot", action: #selector(showAbout), key: ""))
+        applicationMenu.addItem(appUpdater.menuItem())
+        applicationMenu.addItem(.separator())
         let changeFolder = item("Change Jots Folder…", action: #selector(chooseRoot), key: "j")
         changeFolder.keyEquivalentModifierMask = [.command, .option]
         applicationMenu.addItem(changeFolder)

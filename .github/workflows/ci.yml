@@ -1,0 +1,33 @@
+name: CI
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: Web/package-lock.json
+      - run: npm --prefix Web ci
+      - run: npm --prefix Web test
+      - run: swift test
+      - run: python3 script/test_release.py
+      - name: Build and validate universal app
+        env:
+          JOT_UNIVERSAL: '1'
+        run: |
+          bash -n script/*.sh
+          ./script/package_app.sh
+          lipo dist/Jot.app/Contents/MacOS/Jot -verify_arch arm64 x86_64
+          codesign --verify --deep --strict dist/Jot.app
+      - name: Launch packaged app
+        run: |
+          open -n dist/Jot.app
+          sleep 5
+          pgrep -x Jot
