@@ -15,6 +15,12 @@ const views: EditorView[] = [];
 const roots: Root[] = [];
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+// JSDOM has no layout; CodeMirror's asynchronous measurements need these APIs.
+Object.defineProperties(Range.prototype, {
+  getClientRects: { configurable: true, value: () => [] },
+  getBoundingClientRect: { configurable: true, value: () => new DOMRect() },
+});
+
 function makeView(doc: string) {
   const parent = document.createElement("div");
   document.body.append(parent);
@@ -87,15 +93,78 @@ function syntheticClipboardEvent(
   return { event, written };
 }
 
-afterEach(() => {
+afterEach(async () => {
   for (const view of views.splice(0)) view.destroy();
-  for (const root of roots.splice(0)) root.unmount();
+  await act(async () => {
+    for (const root of roots.splice(0)) root.unmount();
+  });
   delete window.webkit;
   vi.useRealTimers();
   document.body.replaceChildren();
 });
 
 describe("source-first Markdown presentation", () => {
+  it("renders typed list markers as round bullets while preserving Markdown", async () => {
+    const { view, messages } = await makeConnectedEditor("-");
+    await act(async () => view.dispatch({ ...view.state.replaceSelection(" "), userEvent: "input.type" }));
+    expect(view.dom.querySelector(".cm-list-bullet")?.textContent).toBe("•");
+    expect(view.state.doc.toString()).toBe("- ");
+    expect(messages.filter((message) => message.type === "contentChanged").at(-1)).toMatchObject({ text: "- " });
+  });
+
+  it("renders unordered markers, but leaves code and ordered lists alone", () => {
+    const view = makeView("- one\n  - nested\n\n* two\n\n+ three\n\n1. ordered\n\n```\n- code\n```\n\n`- inline code`");
+    expect(view.dom.querySelectorAll(".cm-list-bullet")).toHaveLength(4);
+  });
+
+  it.each([
+    ["- first", "- first\n- ", "- first\n"],
+    ["* first", "* first\n* ", "* first\n"],
+    ["+ first", "+ first\n+ ", "+ first\n"],
+    ["1. first", "1. first\n2. ", "1. first\n"],
+    ["- [x] done", "- [x] done\n- [ ] ", "- [x] done\n"],
+  ])("continues %s with Enter and exits an empty item with Enter", async (text, continued, exited) => {
+    const { view, messages } = await makeConnectedEditor(text);
+    const enter = async () => act(async () => {
+      view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+    });
+    await enter();
+    expect(view.state.doc.toString()).toBe(continued);
+    expect(view.state.selection.main.head).toBe(continued.length);
+    await enter();
+    expect(view.state.doc.toString()).toBe(exited);
+    expect(messages.filter((message) => message.type === "contentChanged").at(-1)).toMatchObject({ text: exited });
+  });
+
+  it("continues nested lists, splits items, and leaves fenced code literal", async () => {
+    for (const [text, position, expected] of [
+      ["- outer\n  - inner", 17, "- outer\n  - inner\n  - "],
+      ["- first second", 8, "- first\n- second"],
+      ["```\n- code\n```", 10, "```\n- code\n\n```"],
+    ] as const) {
+      const { view } = await makeConnectedEditor(text);
+      view.dispatch({ selection: { anchor: position } });
+      await act(async () => {
+        view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+      });
+      expect(view.state.doc.toString()).toBe(expected);
+    }
+  });
+
+  it("copies bullets as Markdown, and Backspace removes an empty bullet", async () => {
+    const { view } = await makeConnectedEditor("- first\n- ");
+    view.focus();
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+    const copy = syntheticClipboardEvent("copy", {});
+    view.contentDOM.dispatchEvent(copy.event);
+    expect(copy.written["text/plain"]).toBe("- first\n- ");
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
+    await act(async () => {
+      view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", code: "Backspace", bubbles: true }));
+    });
+    expect(view.state.doc.toString()).toBe("- first\n  ");
+  });
+
   it("preserves an exact mixed fixture corpus", () => {
     const fixture = [
       "# Heading",

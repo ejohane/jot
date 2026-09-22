@@ -33,5 +33,6 @@ export const editorTheme = [
     ".cm-gutters": { display: "none" },
     ".cm-markdown-marker": { color: "var(--marker)", transition: "color 100ms ease" },
     ".cm-markdown-marker-active": { color: "var(--text)" },
+    ".cm-list-bullet": { display: "inline-block", width: "0.65em", textAlign: "center", color: "var(--text)" },
   }),
 ];
