@@ -9,6 +9,7 @@ new blank jot with Command-Return.
 - macOS 14 or newer
 - Swift 6.2 toolchain
 - Node.js and npm
+- CMake (for building the bundled Whisper transcription helper)
 
 ## Build, test, and run
 
@@ -41,12 +42,20 @@ Published builds use GitHub only to check for and download app updates.
 - Command-Q: flush session state and quit
 - Enter in a Markdown list: continue the list; Enter on an empty item exits it
 - Shift-Enter: insert a plain newline without a new list marker
+- Command-Shift-D or the microphone button: start or stop voice dictation
 
 Unordered list markers (`-`, `*`, or `+` followed by a space) display as round
 bullets while the saved and copied text remains ordinary Markdown.
 
 The menu-bar item can change the shortcut or Jots folder, reveal the active jot,
 open the Jots folder, and control launch at login.
+
+Dictation transcribes English speech on this Mac using Whisper `small.en`.
+The first use downloads a roughly 465 MB model from the
+[Jot voice model release](https://github.com/ejohane/jot-voice-models/releases/tag/v1),
+checks its pinned SHA-256 digest, and caches it in Jot's Application Support
+folder. Later dictation works offline. Recordings are temporary files removed
+after transcription; speech and transcripts are not uploaded.
 
 ## Install and update
 
@@ -83,6 +92,9 @@ The release version is `0.1.<workflow run number>`; the build number is that sam
 run number. No manual version edit or tag is necessary. A failed run leaves the
 previous release available. Workflow dispatch can retry a release from `main`.
 A run from an older commit never replaces the current update feed.
+The signed app contains an Apple Silicon and Intel Whisper helper, built from a
+pinned `whisper.cpp` revision. Model weights live in a separate GitHub Release,
+so publishing or updating the model cannot change Jot's Sparkle app update feed.
 
 GitHub Releases hosts `Jot.zip`, its SHA-256 checksum, and `appcast.xml` for
 Sparkle. This requires a public repository. Signing credentials are Actions

@@ -98,6 +98,7 @@ final class BridgeDelegateSpy: EditorBridgeDelegate {
     var finishRevision: Int?
     var hideRevision: Int?
     var recoveryAction: String?
+    var dictationToggleCount = 0
 
     func editorDidBecomeReady() { readyCount += 1 }
     func editorContentChanged(_ snapshot: EditorSnapshot, noteID: String?) { content = (snapshot, noteID) }
@@ -106,6 +107,7 @@ final class BridgeDelegateSpy: EditorBridgeDelegate {
     func editorRequestedFinish(revision: Int) { finishRevision = revision }
     func editorRequestedHide(revision: Int) { hideRevision = revision }
     func editorRequestedRecovery(_ action: String) { recoveryAction = action }
+    func editorRequestedDictationToggle() { dictationToggleCount += 1 }
 }
 
 final class CoreTests: XCTestCase {
@@ -360,6 +362,7 @@ final class CoreTests: XCTestCase {
         bridge.handle(["version": 1, "type": "finishAndNew", "revision": NSNumber(value: 9)] as NSDictionary)
         bridge.handle(["version": 1, "type": "hide", "revision": NSNumber(value: 10)] as NSDictionary)
         bridge.handle(["version": 1, "type": "recover", "action": "saveCopy"] as NSDictionary)
+        bridge.handle(["version": 1, "type": "toggleDictation"] as NSDictionary)
 
         XCTAssertEqual(delegate.readyCount, 1)
         let content = try XCTUnwrap(delegate.content)
@@ -374,6 +377,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(delegate.finishRevision, 9)
         XCTAssertEqual(delegate.hideRevision, 10)
         XCTAssertEqual(delegate.recoveryAction, "saveCopy")
+        XCTAssertEqual(delegate.dictationToggleCount, 1)
     }
 
     @MainActor

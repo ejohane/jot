@@ -18,6 +18,7 @@ fi
 npm --prefix Web run build
 swift package resolve --force-resolved-versions
 mkdir -p dist
+./script/build_whisper.sh
 if [[ "${JOT_UNIVERSAL:-0}" == 1 ]]; then
   for arch in arm64 x86_64; do
     swift build -c "$configuration" --arch "$arch" --product Jot --force-resolved-versions
@@ -34,6 +35,8 @@ fi
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/Editor" "$app/Contents/Frameworks"
 cp dist/Jot-binary "$app/Contents/MacOS/Jot"
+cp dist/jot-whisper-binary "$app/Contents/MacOS/jot-whisper"
+cp dist/whisper.cpp-LICENSE "$app/Contents/Resources/whisper.cpp-LICENSE"
 ditto Web/dist "$app/Contents/Resources/Editor"
 ditto "$sparkle" "$app/Contents/Frameworks/Sparkle.framework"
 python3 - "$app" "$version" "$build" "${JOT_DISTRIBUTION:-0}" <<'PY'
@@ -48,6 +51,7 @@ plist = {
     'CFBundleShortVersionString': version, 'CFBundleVersion': build,
     'LSMinimumSystemVersion': '14.0', 'LSUIElement': True,
     'NSHighResolutionCapable': True, 'NSPrincipalClass': 'NSApplication',
+    'NSMicrophoneUsageDescription': 'Jot records your voice to transcribe it locally on this Mac.',
     'JotUpdatesEnabled': distribution == '1',
     'SUFeedURL': 'https://github.com/ejohane/jot/releases/latest/download/appcast.xml',
     'SUPublicEDKey': public_key, 'SUEnableAutomaticChecks': True,
@@ -65,11 +69,12 @@ if [[ "$identity" != '-' ]]; then
   sign_args+=(--options runtime --timestamp)
 fi
 framework="$app/Contents/Frameworks/Sparkle.framework"
+codesign "${sign_args[@]}" "$app/Contents/MacOS/jot-whisper"
 for nested in "$framework"/Versions/B/XPCServices/*.xpc \
   "$framework/Versions/B/Updater.app" "$framework/Versions/B/Autoupdate"; do
   codesign "${sign_args[@]}" "$nested"
 done
 codesign "${sign_args[@]}" "$framework"
-codesign "${sign_args[@]}" "$app"
+codesign "${sign_args[@]}" --entitlements Config/Jot.entitlements "$app"
 codesign --verify --deep --strict "$app"
 echo "Built $app ($version, build $build)"

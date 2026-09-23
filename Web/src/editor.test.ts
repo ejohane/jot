@@ -104,6 +104,24 @@ afterEach(async () => {
 });
 
 describe("source-first Markdown presentation", () => {
+  it("starts dictation and saves inserted transcript at the current selection", async () => {
+    const { parent, view, messages } = await makeConnectedEditor("Hello world");
+    view.dispatch({ selection: { anchor: 5 } });
+    await act(async () => {
+      parent.querySelector<HTMLButtonElement>(".dictation-button")?.click();
+      window.JotNative?.receive({ version: 1, type: "dictationState", status: "recording", message: "Recording…" });
+    });
+    expect(messages.some((message) => message.type === "toggleDictation")).toBe(true);
+    expect(parent.querySelector('.dictation-button[aria-label="Stop dictation"]')).not.toBeNull();
+    await act(async () => {
+      window.JotNative?.receive({ version: 1, type: "dictationResult", text: "there" });
+      window.JotNative?.receive({ version: 1, type: "dictationState", status: "idle" });
+    });
+    expect(view.state.doc.toString()).toBe("Hello there world");
+    expect(messages.filter((message) => message.type === "contentChanged").at(-1)).toMatchObject({ text: "Hello there world" });
+    expect(parent.querySelector('.dictation-button[aria-label="Start dictation"]')).not.toBeNull();
+  });
+
   it("shows no status during loading, saving, or successful writes", async () => {
     const { parent, view } = await makeConnectedEditor("Existing jot");
     expect(parent.querySelector(".status")).toBeNull();

@@ -65,3 +65,12 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
   padding: 3px 7px;
 }
 .status button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.dictation-controls { position: absolute; bottom: 12px; left: 16px; z-index: 2; display: flex; align-items: center; gap: 8px; }
+.dictation-button { display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 7px; background: transparent; color: var(--secondary); cursor: pointer; }
+.dictation-button:hover, .dictation-button:focus-visible { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
+.dictation-button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.dictation-button.is-recording { color: var(--error); }
+.dictation-button:disabled { opacity: 0.5; cursor: default; }
+.dictation-message { font-size: 11px; color: var(--secondary); }
+.dictation-message.is-error { color: var(--error); }
+.composer:has(.status-error) .dictation-controls { bottom: 48px; }

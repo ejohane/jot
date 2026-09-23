@@ -6,6 +6,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     private let sessionStore: SessionStore
     private let rootAccess = RootAccessController()
     private let appUpdater = AppUpdater()
+    private let voiceDictation = VoiceDictation()
     private var session: PersistedSession
     private var rootURL: URL?
     private var writer: JotWriter!
@@ -28,6 +29,14 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         panelController = ComposerPanelController(savedFrame: session.panelFrame)
         panelController.bridge.delegate = self
         panelController.panelDelegate = self
+        voiceDictation.onStateChange = { [weak self] state, message in
+            var payload: [String: Any] = ["version": 1, "type": "dictationState", "status": state.rawValue]
+            if let message { payload["message"] = message }
+            self?.panelController.send(payload)
+        }
+        voiceDictation.onResult = { [weak self] text in
+            self?.panelController.send(["version": 1, "type": "dictationResult", "text": text])
+        }
         panelController.onEscape = { [weak self] in
             guard let self else { return }
             self.editorRequestedHide(revision: self.latestRevision)
@@ -82,6 +91,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     func editorDidBecomeReady() {
+        panelController.send(["version": 1, "type": "dictationState", "status": voiceDictation.state.rawValue])
         if let activeJot = session.activeJot, rootURL == nil {
             hasBlockingWriteError = true
             Task {
@@ -221,6 +231,8 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         }
     }
 
+    func editorRequestedDictationToggle() { voiceDictation.toggle() }
+
     func composerDidResignKey() {
         Task {
             _ = await writer.flush(through: latestRevision)
@@ -252,6 +264,11 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     @objc private func showJot() { panelController.showAndFocus() }
+
+    @objc private func toggleDictationFromMenu() {
+        panelController.showAndFocus()
+        voiceDictation.toggle()
+    }
 
     @objc private func finishAndNewFromMenu() { editorRequestedFinish(revision: latestRevision) }
 
@@ -343,6 +360,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
         let menu = NSMenu()
         menu.addItem(item("Show Jot", action: #selector(showJot), key: ""))
+        menu.addItem(item("Start / Stop Dictation", action: #selector(toggleDictationFromMenu), key: ""))
         menu.addItem(item("Finish & New", action: #selector(finishAndNewFromMenu), key: "\r"))
         menu.addItem(.separator())
         menu.addItem(item("Reveal Current Jot in Finder", action: #selector(revealCurrentJot), key: ""))

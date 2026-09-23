@@ -31,6 +31,7 @@ export function Editor() {
   const readySent = useRef(false);
   const pendingBridgeSnapshot = useRef<Extract<EditorToNative, { type: "contentChanged" }> | null>(null);
   const [error, setError] = useState<ErrorStatus | null>(null);
+  const [dictation, setDictation] = useState<{ status: "idle" | "downloading" | "recording" | "transcribing" | "error"; message?: string }>({ status: "idle" });
 
   useEffect(() => {
     if (!host.current) return;
@@ -118,6 +119,7 @@ export function Editor() {
               return true;
             },
           },
+          { key: "Mod-Shift-d", run: () => sendToNative({ version: 1, type: "toggleDictation" }) },
           { key: "Enter", run: continueMarkdownList },
           { key: "Enter", run: insertLiteralNewline },
           { key: "Shift-Enter", run: insertLiteralNewline },
@@ -236,6 +238,20 @@ export function Editor() {
               setError({ message: message.message, actions: message.actions });
             }
             break;
+          case "dictationState":
+            setDictation({ status: message.status, message: message.message });
+            break;
+          case "dictationResult": {
+            const text = message.text.trim();
+            if (!text || !hasLoadedSession.current) break;
+            const { from, to } = view.state.selection.main;
+            const before = from > 0 ? view.state.doc.sliceString(from - 1, from) : "";
+            const after = to < view.state.doc.length ? view.state.doc.sliceString(to, to + 1) : "";
+            const insert = `${before && !/\s/.test(before) ? " " : ""}${text}${after && !/\s/.test(after) ? " " : ""}`;
+            view.dispatch({ ...view.state.replaceSelection(insert), scrollIntoView: true, userEvent: "input.dictation" });
+            view.focus();
+            break;
+          }
         }
       },
     };
@@ -262,6 +278,23 @@ export function Editor() {
   return (
     <main className="composer">
       <div ref={host} className="editor" role="textbox" aria-label="Jot — editable Markdown document" />
+      <div className="dictation-controls">
+        <button
+          className={`dictation-button ${dictation.status === "recording" ? "is-recording" : ""}`}
+          type="button"
+          aria-label={dictation.status === "recording" ? "Stop dictation" : "Start dictation"}
+          title="Dictate locally (⌘⇧D)"
+          disabled={dictation.status === "transcribing"}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => sendToNative({ version: 1, type: "toggleDictation" })}
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="9" y="2" width="6" height="12" rx="3" />
+            <path d="M5 10a7 7 0 0 0 14 0M12 17v5m-4 0h8" />
+          </svg>
+        </button>
+        {dictation.status !== "idle" && dictation.message && <span className={`dictation-message ${dictation.status === "error" ? "is-error" : ""}`} role={dictation.status === "error" ? "alert" : "status"}>{dictation.message}</span>}
+      </div>
       {error && (
         <footer className="status status-error" role="alert" aria-atomic="true">
           <span>{error.message}</span>
