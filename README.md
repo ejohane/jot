@@ -6,19 +6,20 @@ new blank jot with Command-Return.
 
 ## Install and update
 
-Run this in Terminal (no developer tools needed):
+Run this one line in Terminal (no developer tools needed):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ejohane/jot/main/script/install.sh | sh
+curl -fsSLo "$HOME/Downloads/Jot-install.sh" https://raw.githubusercontent.com/ejohane/jot/main/script/install.sh && sh "$HOME/Downloads/Jot-install.sh"
 ```
 
-The installer downloads the latest release, verifies its checksum, Apple signing
-identity, and notarization, installs it in `/Applications`, and opens Jot. Quit
-Jot first if it is already running. To install without write access to
-`/Applications`, run `export JOT_INSTALL_DIR="$HOME/Applications"` first.
+This saves the installer script in Downloads, then runs it. The installer
+downloads the latest release, verifies its checksum, Apple signing identity,
+and notarization, installs Jot in `~/Applications`, and opens it. Quit Jot
+first if it is already running. Set `JOT_INSTALL_DIR` to a writable absolute
+path to choose a different location.
 
 Or download `Jot.zip` from the [latest release](https://github.com/ejohane/jot/releases/latest),
-unzip it, and move **Jot.app** into `/Applications` before opening it. The universal
+unzip it, and move **Jot.app** into `~/Applications` before opening it. The universal
 app supports Apple Silicon and Intel Macs running macOS 14 or newer.
 
 The first launch asks for a local Jots folder. The suggested location is

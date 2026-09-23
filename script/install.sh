@@ -7,10 +7,15 @@ fail() { printf '%s\n' "$*" >&2; exit 1; }
 [ "$(uname -s)" = Darwin ] || fail 'Jot requires macOS.'
 [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ] || fail 'Jot requires macOS 14 or newer.'
 
-install_dir=${JOT_INSTALL_DIR:-/Applications}
+if [ -n "${JOT_INSTALL_DIR:-}" ]; then
+    install_dir=$JOT_INSTALL_DIR
+else
+    [ -n "${HOME:-}" ] || fail 'HOME must be set to install Jot.'
+    install_dir=$HOME/Applications
+fi
 case "$install_dir" in /*) ;; *) fail 'JOT_INSTALL_DIR must be an absolute path.' ;; esac
 mkdir -p "$install_dir"
-[ -w "$install_dir" ] || fail "Cannot write to $install_dir. Try: export JOT_INSTALL_DIR=\"\$HOME/Applications\" and run again."
+[ -w "$install_dir" ] || fail "Cannot write to $install_dir. Set JOT_INSTALL_DIR to a writable absolute path and run again."
 
 work=$(mktemp -d)
 stage=''
