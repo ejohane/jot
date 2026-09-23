@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { sendToNative, type EditorToNative } from "./bridge";
 import { editorTheme } from "./editorTheme";
 import { markdownPresentation } from "./presentation";
+import { beginDictation, clearDictation, dictationPreview, insertionForDictation, reviseDictation } from "./dictationPreview";
 
 type RecoveryAction = "restoreRoot" | "saveCopy" | "reloadExternal";
 type ErrorStatus = { message: string; actions?: RecoveryAction[] };
@@ -108,6 +109,7 @@ export function Editor() {
       extensions: [
         markdown({ extensions: GFM, addKeymap: false, pasteURLAsLink: false }),
         markdownPresentation,
+        dictationPreview,
         editorTheme,
         EditorView.lineWrapping,
         history(),
@@ -175,6 +177,7 @@ export function Editor() {
         if (message.version !== 1) return;
         switch (message.type) {
           case "loadSession": {
+            view.dispatch({ effects: clearDictation.of() });
             noteIDRef.current = message.noteID;
             hasLoadedSession.current = true;
             const pending = pendingBridgeSnapshot.current;
@@ -239,17 +242,28 @@ export function Editor() {
             }
             break;
           case "dictationState":
+            if (["downloading", "recording", "transcribing"].includes(message.status) && !view.state.field(dictationPreview)) {
+              const { from, to } = view.state.selection.main;
+              view.dispatch({ effects: beginDictation.of({ from, to }) });
+            } else if (message.status === "idle" || message.status === "error") {
+              view.dispatch({ effects: clearDictation.of() });
+            }
             setDictation({ status: message.status, message: message.message });
+            break;
+          case "dictationPartial":
+            view.dispatch({ effects: reviseDictation.of(message.text) });
             break;
           case "dictationResult": {
             const text = message.text.trim();
-            if (!text || !hasLoadedSession.current) break;
-            const { from, to } = view.state.selection.main;
-            const before = from > 0 ? view.state.doc.sliceString(from - 1, from) : "";
-            const after = to < view.state.doc.length ? view.state.doc.sliceString(to, to + 1) : "";
-            const insert = `${before && !/\s/.test(before) ? " " : ""}${text}${after && !/\s/.test(after) ? " " : ""}`;
-            view.dispatch({ ...view.state.replaceSelection(insert), scrollIntoView: true, userEvent: "input.dictation" });
-            view.focus();
+            const preview = view.state.field(dictationPreview);
+            if (!text || !hasLoadedSession.current || !preview) break;
+            const insert = insertionForDictation(view, text, preview);
+            view.dispatch({
+              changes: { from: preview.from, to: preview.to, insert },
+              effects: clearDictation.of(),
+              scrollIntoView: true,
+              userEvent: "input.dictation",
+            });
             break;
           }
         }

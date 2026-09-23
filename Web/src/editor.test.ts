@@ -109,6 +109,7 @@ describe("source-first Markdown presentation", () => {
     view.dispatch({ selection: { anchor: 5 } });
     await act(async () => {
       parent.querySelector<HTMLButtonElement>(".dictation-button")?.click();
+      window.JotNative?.receive({ version: 1, type: "dictationState", status: "downloading" });
       window.JotNative?.receive({ version: 1, type: "dictationState", status: "recording", message: "Recording…" });
     });
     expect(messages.some((message) => message.type === "toggleDictation")).toBe(true);
@@ -120,6 +121,68 @@ describe("source-first Markdown presentation", () => {
     expect(view.state.doc.toString()).toBe("Hello there world");
     expect(messages.filter((message) => message.type === "contentChanged").at(-1)).toMatchObject({ text: "Hello there world" });
     expect(parent.querySelector('.dictation-button[aria-label="Start dictation"]')).not.toBeNull();
+  });
+
+  it("revises provisional text without saving it or adding undo history", async () => {
+    const { view, messages } = await makeConnectedEditor("Hello world");
+    view.dispatch({ selection: { anchor: 5 } });
+    await act(async () => {
+      window.JotNative?.receive({ version: 1, type: "dictationState", status: "downloading" });
+      window.JotNative?.receive({ version: 1, type: "dictationPartial", text: "there was" });
+      window.JotNative?.receive({ version: 1, type: "dictationPartial", text: "there" });
+    });
+    expect(view.dom.querySelector(".cm-dictation-preview")?.textContent).toBe("there");
+    expect(view.state.doc.toString()).toBe("Hello world");
+    expect(messages.filter((message) => message.type === "contentChanged")).toHaveLength(0);
+    expect(undo(view)).toBe(false);
+    await act(async () => window.JotNative?.receive({ version: 1, type: "dictationResult", text: "there" }));
+    expect(view.state.doc.toString()).toBe("Hello there world");
+    expect(messages.filter((message) => message.type === "contentChanged")).toHaveLength(1);
+    expect(undo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe("Hello world");
+  });
+
+  it("keeps the intended insertion point when the user types elsewhere", async () => {
+    const { view } = await makeConnectedEditor("Alpha world");
+    view.dispatch({ selection: { anchor: 6 } });
+    await act(async () => window.JotNative?.receive({ version: 1, type: "dictationState", status: "downloading" }));
+    view.dispatch({ changes: { from: 0, insert: "New " }, selection: { anchor: 0 }, userEvent: "input.type" });
+    await act(async () => {
+      window.JotNative?.receive({ version: 1, type: "dictationPartial", text: "brave" });
+      window.JotNative?.receive({ version: 1, type: "dictationResult", text: "brave" });
+    });
+    expect(view.state.doc.toString()).toBe("New Alpha brave world");
+  });
+
+  it("drops provisional text after cancellation or a session reload", async () => {
+    const { view, messages } = await makeConnectedEditor("Keep");
+    await act(async () => {
+      window.JotNative?.receive({ version: 1, type: "dictationState", status: "downloading" });
+      window.JotNative?.receive({ version: 1, type: "dictationPartial", text: "guess" });
+      window.JotNative?.receive({ version: 1, type: "dictationState", status: "error", message: "Failed" });
+      window.JotNative?.receive({ version: 1, type: "dictationResult", text: "guess" });
+    });
+    expect(view.state.doc.toString()).toBe("Keep");
+    expect(view.dom.querySelector(".cm-dictation-preview")).toBeNull();
+    expect(messages.filter((message) => message.type === "contentChanged")).toHaveLength(0);
+  });
+
+  it("replaces the original selection once and ignores a result after reloading", async () => {
+    const { view, messages } = await makeConnectedEditor("Hello old world");
+    view.dispatch({ selection: { anchor: 6, head: 9 } });
+    await act(async () => {
+      window.JotNative?.receive({ version: 1, type: "dictationState", status: "downloading" });
+      window.JotNative?.receive({ version: 1, type: "dictationPartial", text: "new" });
+      window.JotNative?.receive({ version: 1, type: "dictationResult", text: "new" });
+    });
+    expect(view.state.doc.toString()).toBe("Hello new world");
+    expect(messages.filter((message) => message.type === "contentChanged")).toHaveLength(1);
+    await act(async () => {
+      window.JotNative?.receive({ version: 1, type: "dictationState", status: "downloading" });
+      window.JotNative?.receive({ version: 1, type: "loadSession", text: "External", noteID: "note-1", revision: 3, selection: { anchor: 8, head: 8 }, viewport: { scrollTop: 0 } });
+      window.JotNative?.receive({ version: 1, type: "dictationResult", text: "stale" });
+    });
+    expect(view.state.doc.toString()).toBe("External");
   });
 
   it("shows no status during loading, saving, or successful writes", async () => {

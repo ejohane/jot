@@ -73,4 +73,5 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
 .dictation-button:disabled { opacity: 0.5; cursor: default; }
 .dictation-message { font-size: 11px; color: var(--secondary); }
 .dictation-message.is-error { color: var(--error); }
+.cm-dictation-preview { color: var(--secondary); opacity: 0.72; font-style: italic; white-space: pre-wrap; border-bottom: 1px dotted currentColor; }
 .composer:has(.status-error) .dictation-controls { bottom: 48px; }
