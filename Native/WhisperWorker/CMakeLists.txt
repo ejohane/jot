@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.16)
+project(jot_whisper LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+add_subdirectory("${WHISPER_SOURCE}" whisper)
+add_executable(jot-whisper main.cpp)
+target_link_libraries(jot-whisper PRIVATE whisper)

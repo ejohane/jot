@@ -21,7 +21,8 @@ export type NativeToEditor =
   | { version: 1; type: "writeFailed"; noteID?: string; revision: number; errorCode: string; message: string; actions: Array<"restoreRoot" | "saveCopy" | "reloadExternal"> }
   | { version: 1; type: "externalConflict"; noteID: string; revision: number }
   | { version: 1; type: "dictationState"; status: "idle" | "downloading" | "recording" | "transcribing" | "error"; message?: string }
-  | { version: 1; type: "dictationResult"; text: string };
+  | { version: 1; type: "dictationResult"; text: string }
+  | { version: 1; type: "dictationPartial"; text: string };
 
 declare global {
   interface Window {

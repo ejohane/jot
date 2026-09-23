@@ -39,6 +39,9 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         voiceDictation.onResult = { [weak self] text in
             self?.panelController.send(["version": 1, "type": "dictationResult", "text": text])
         }
+        voiceDictation.onPartial = { [weak self] text in
+            self?.panelController.send(["version": 1, "type": "dictationPartial", "text": text])
+        }
         panelController.onEscape = { [weak self] in
             guard let self else { return }
             self.editorRequestedHide(revision: self.latestRevision)
@@ -70,6 +73,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     func show() { panelController.showAndFocus() }
 
     func prepareToTerminate(completion: @escaping (Bool) -> Void) {
+        voiceDictation.cancel()
         Task {
             let flushed = await writer.flush(through: latestRevision)
             let savedRecovery = await persistSessionNow()
@@ -162,6 +166,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     func editorRequestedFinish(revision: Int) {
+        voiceDictation.cancel()
         Task {
             guard await writer.currentJot() != nil else { return }
             guard await writer.finishAndNew(through: revision) else { return }
@@ -178,6 +183,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     func editorRequestedHide(revision: Int) {
+        voiceDictation.cancel()
         Task {
             _ = await writer.flush(through: revision)
             await persistSessionNow()
@@ -499,6 +505,10 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         ]
         if let id = session.activeJot?.id { payload["noteID"] = id }
         panelController.send(payload)
+        if voiceDictation.state == .recording || voiceDictation.state == .transcribing {
+            panelController.send(["version": 1, "type": "dictationState", "status": voiceDictation.state.rawValue])
+            panelController.send(["version": 1, "type": "dictationPartial", "text": voiceDictation.currentPartial])
+        }
     }
 
     private func sendError(message: String, actions: [String]) {

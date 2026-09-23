@@ -56,8 +56,11 @@ Dictation transcribes English speech on this Mac using Whisper `small.en`.
 The first use downloads a roughly 465 MB model from the
 [Jot voice model release](https://github.com/ejohane/jot-voice-models/releases/tag/v1),
 checks its pinned SHA-256 digest, and caches it in Jot's Application Support
-folder. Later dictation works offline. Recordings are temporary files removed
-after transcription; speech and transcripts are not uploaded.
+folder. Later dictation works offline. The microphone is captured locally and
+partial words appear at the insertion point while you speak. Partial guesses
+do not change the saved Markdown or undo history; pressing Stop commits the
+final transcript as one edit. Pauses finalize phrases within the preview.
+Jot does not save a recording or upload speech or transcripts.
 
 ## Install and update
 

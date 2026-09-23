@@ -14,12 +14,14 @@ fi
 }
 
 architectures=(arm64)
+mkdir -p dist
 if [[ "${JOT_UNIVERSAL:-0}" == 1 ]]; then architectures+=(x86_64); fi
 for arch in "${architectures[@]}"; do
   metal=OFF
   if [[ "$arch" == arm64 ]]; then metal=ON; fi
   build_dir=".build/jot-whisper-$arch"
-  "$cmake" -S "$source_dir" -B "$build_dir" \
+  "$cmake" -S Native/WhisperWorker -B "$build_dir" \
+    -DWHISPER_SOURCE="$(cd "$source_dir" && pwd)" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_OSX_ARCHITECTURES="$arch" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
@@ -29,8 +31,8 @@ for arch in "${architectures[@]}"; do
     -DGGML_METAL_EMBED_LIBRARY=ON \
     -DWHISPER_BUILD_TESTS=OFF \
     -DWHISPER_BUILD_SERVER=OFF
-  "$cmake" --build "$build_dir" --target whisper-cli --parallel 4
-  cp "$build_dir/bin/whisper-cli" "dist/jot-whisper-$arch"
+  "$cmake" --build "$build_dir" --target jot-whisper --parallel 4
+  cp "$build_dir/jot-whisper" "dist/jot-whisper-$arch"
 done
 if [[ "${JOT_UNIVERSAL:-0}" == 1 ]]; then
   lipo -create dist/jot-whisper-arm64 dist/jot-whisper-x86_64 -output dist/jot-whisper-binary
