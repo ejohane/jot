@@ -6,7 +6,6 @@ final class InMemoryFileSystem: @unchecked Sendable, JotFileSystem {
     private let lock = NSLock()
     private var files: [String: Data] = [:]
     private(set) var writes: [(String, Data)] = []
-    private(set) var writeDates: [Date] = []
     var writeError: Error?
     private(set) var recoveryCallCount = 0
 
@@ -26,7 +25,6 @@ final class InMemoryFileSystem: @unchecked Sendable, JotFileSystem {
             if let writeError { throw writeError }
             files[url.path] = data
             writes.append((url.path, data))
-            writeDates.append(Date())
         }
     }
 
@@ -53,7 +51,18 @@ final class InMemoryFileSystem: @unchecked Sendable, JotFileSystem {
     var fileCount: Int { lock.withLock { files.count } }
     var writeCount: Int { lock.withLock { writes.count } }
     var latestWrittenData: Data? { lock.withLock { writes.last?.1 } }
-    var recordedWriteDates: [Date] { lock.withLock { writeDates } }
+    var writtenDataLengths: [Int] { lock.withLock { writes.map { $0.1.count } } }
+}
+
+final class TestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = Date(timeIntervalSince1970: 1_700_000_000)
+
+    func now() -> Date { lock.withLock { current } }
+
+    func advance(by interval: TimeInterval) {
+        lock.withLock { current = current.addingTimeInterval(interval) }
+    }
 }
 
 final class DelayedFileSystem: @unchecked Sendable, JotFileSystem {
@@ -311,18 +320,21 @@ final class CoreTests: XCTestCase {
     }
 
     @MainActor
-    func testSustainedTypingWritesAtLeastOncePerSecond() async throws {
+    func testSustainedTypingWritesAtLeastOncePerSecondOfInputTime() async throws {
         let fileSystem = InMemoryFileSystem()
-        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: fileSystem) { _ in }
+        let clock = TestClock()
+        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: fileSystem, now: {
+            clock.now()
+        }) { _ in }
         for revision in 1...100 {
             await writer.receive(snapshot(revision: revision, text: String(repeating: "x", count: revision)))
-            try await Task.sleep(for: .milliseconds(100))
+            clock.advance(by: 0.1)
         }
         _ = await writer.flush(through: 100)
-        let writeDates = fileSystem.recordedWriteDates
-        XCTAssertGreaterThanOrEqual(writeDates.count, 3)
-        let maximumGap = zip(writeDates, writeDates.dropFirst()).map { $1.timeIntervalSince($0) }.max() ?? 0
-        XCTAssertLessThanOrEqual(maximumGap, 1.15)
+        let writtenRevisions = fileSystem.writtenDataLengths
+        XCTAssertGreaterThanOrEqual(writtenRevisions.count, 10)
+        let maximumRevisionGap = zip(writtenRevisions, writtenRevisions.dropFirst()).map { $1 - $0 }.max() ?? 0
+        XCTAssertLessThanOrEqual(maximumRevisionGap, 11)
         XCTAssertEqual(fileSystem.latestWrittenData, Data(String(repeating: "x", count: 100).utf8))
     }
 
