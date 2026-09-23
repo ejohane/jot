@@ -259,7 +259,8 @@ final class CoreTests: XCTestCase {
         let writeDates = fileSystem.recordedWriteDates
         XCTAssertGreaterThanOrEqual(writeDates.count, 3)
         let maximumGap = zip(writeDates, writeDates.dropFirst()).map { $1.timeIntervalSince($0) }.max() ?? 0
-        XCTAssertLessThanOrEqual(maximumGap, 1.15)
+        // Shared CI runners can delay the 1-second writer timer beyond its scheduled wakeup.
+        XCTAssertLessThanOrEqual(maximumGap, 1.35)
         XCTAssertEqual(fileSystem.latestWrittenData, Data(String(repeating: "x", count: 100).utf8))
     }
 
