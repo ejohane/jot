@@ -75,3 +75,5 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
 .dictation-message.is-error { color: var(--error); }
 .cm-dictation-preview { color: var(--secondary); opacity: 0.72; font-style: italic; white-space: pre-wrap; border-bottom: 1px dotted currentColor; }
 .composer:has(.status-error) .dictation-controls { bottom: 48px; }
+.cm-inline-tag { color: var(--link); background: color-mix(in srgb, var(--link) 9%, transparent); border-radius: 3px; }
+.cm-tooltip-autocomplete { font-family: inherit; font-size: 13px; border-radius: 8px; overflow: hidden; }

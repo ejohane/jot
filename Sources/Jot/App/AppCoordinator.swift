@@ -7,6 +7,9 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     private let rootAccess = RootAccessController()
     private let appUpdater = AppUpdater()
     private let voiceDictation = VoiceDictation()
+    private let tagIndex = TagIndex()
+    private var tagRefreshTask: Task<Void, Never>?
+    private var sentTags: [String] = []
     private var session: PersistedSession
     private var rootURL: URL?
     private var writer: JotWriter!
@@ -24,6 +27,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         super.init()
 
         rootURL = rootAccess.restore(from: session.rootBookmark)
+        Task { await tagIndex.configure(root: rootURL); await refreshTags(force: true) }
         hasBlockingWriteError = session.activeJot != nil && rootURL == nil
         writer = JotWriter(rootURL: rootURL) { [weak self] event in self?.handle(event) }
         panelController = ComposerPanelController(
@@ -68,11 +72,19 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     func start() {
         panelController.loadEditor()
         panelController.showAndFocus()
+        tagRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { break }
+                await self?.refreshTags()
+            }
+        }
     }
 
     func show() { panelController.showAndFocus() }
 
     func prepareToTerminate(completion: @escaping (Bool) -> Void) {
+        tagRefreshTask?.cancel()
         voiceDictation.cancel()
         Task {
             let flushed = await writer.flush(through: latestRevision)
@@ -97,6 +109,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     func editorDidBecomeReady() {
+        Task { await refreshTags(force: true) }
         panelController.send(["version": 1, "type": "dictationState", "status": voiceDictation.state.rawValue])
         if let activeJot = session.activeJot, rootURL == nil {
             hasBlockingWriteError = true
@@ -297,6 +310,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     @objc private func chooseRoot() {
         guard let choice = rootAccess.chooseRoot() else { return }
         rootURL = choice.url
+        Task { await tagIndex.configure(root: choice.url); await refreshTags(force: true) }
         session.rootBookmark = choice.bookmark
         Task {
             await writer.configureRoot(choice.url)
@@ -456,6 +470,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         case let .saving(revision):
             panelController.send(["version": 1, "type": "saving", "revision": revision])
         case let .writeSucceeded(id, revision):
+            Task { await refreshTags() }
             hasBlockingWriteError = false
             if var jot = session.activeJot, jot.id == id {
                 jot.acknowledgedRevision = revision
@@ -509,6 +524,15 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             panelController.send(["version": 1, "type": "dictationState", "status": voiceDictation.state.rawValue])
             panelController.send(["version": 1, "type": "dictationPartial", "text": voiceDictation.currentPartial])
         }
+    }
+
+    private func refreshTags(force: Bool = false) async {
+        let changed = await tagIndex.refresh()
+        var tags = changed
+        if tags == nil && force { tags = await tagIndex.vocabulary }
+        guard let tags, force || tags != sentTags else { return }
+        sentTags = tags
+        panelController.send(["version": 1, "type": "tagVocabulary", "tags": tags])
     }
 
     private func sendError(message: String, actions: [String]) {

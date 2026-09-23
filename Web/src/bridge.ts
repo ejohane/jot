@@ -22,7 +22,8 @@ export type NativeToEditor =
   | { version: 1; type: "externalConflict"; noteID: string; revision: number }
   | { version: 1; type: "dictationState"; status: "idle" | "downloading" | "recording" | "transcribing" | "error"; message?: string }
   | { version: 1; type: "dictationResult"; text: string }
-  | { version: 1; type: "dictationPartial"; text: string };
+  | { version: 1; type: "dictationPartial"; text: string }
+  | { version: 1; type: "tagVocabulary"; tags: string[] };
 
 declare global {
   interface Window {

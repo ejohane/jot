@@ -736,4 +736,88 @@ final class CoreTests: XCTestCase {
         EditorSnapshot(revision: revision, text: text, selection: .start, viewport: .top)
     }
 
+    func testInlineTagGrammar() {
+        let markdown = """
+        # Heading
+        Hello #Project, (#second). #project and #new_tag-2
+        `#inline` ``code #double`` \\#escaped
+        ```md
+        #fenced
+        ```
+        ~~~
+        #otherFence
+        ~~~
+        [#label](https://example.test/#destination) https://example.test/#fragment
+        😀 #emojiNeighbor
+        """
+        XCTAssertEqual(InlineTags.names(in: markdown), ["Project", "second", "project", "new_tag-2", "label", "emojiNeighbor"])
+        XCTAssertEqual(InlineTags.names(in: "# Heading\n#tag! #9bad ##double"), ["tag"])
+    }
+
+    func testTagIndexReconcilesExternalChangesAndFolderSwitch() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let firstRoot = base.appendingPathComponent("first")
+        let secondRoot = base.appendingPathComponent("second")
+        try FileManager.default.createDirectory(at: firstRoot.appendingPathComponent("2026/09/22"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let first = firstRoot.appendingPathComponent("2026/09/22/a.md")
+        let second = firstRoot.appendingPathComponent("2026/09/22/b.md")
+        try "#Alpha #alpha #Beta".write(to: first, atomically: true, encoding: .utf8)
+        try "#beta #Gamma".write(to: second, atomically: true, encoding: .utf8)
+        let index = TagIndex()
+        await index.configure(root: firstRoot)
+        let initial = await index.refresh()
+        XCTAssertEqual(Set(initial ?? []), ["Alpha", "Beta", "Gamma"])
+        let initialFiles = await index.tagsByFile
+        XCTAssertEqual(initialFiles.count, 2)
+        try "#Delta".write(to: first, atomically: true, encoding: .utf8)
+        let edited = await index.refresh()
+        XCTAssertEqual(Set(edited ?? []), ["Delta", "Gamma", "beta"])
+        let renamed = firstRoot.appendingPathComponent("2026/09/22/renamed.md")
+        try FileManager.default.moveItem(at: second, to: renamed)
+        let renamedTags = await index.refresh()
+        XCTAssertEqual(Set(renamedTags ?? []), ["Delta", "beta", "Gamma"])
+        let renamedFiles = await index.tagsByFile
+        XCTAssertTrue(renamedFiles.keys.contains { $0.lastPathComponent == "renamed.md" })
+        try FileManager.default.removeItem(at: renamed)
+        let removed = await index.refresh()
+        XCTAssertEqual(removed, ["Delta"])
+        try "#Other".write(to: secondRoot.appendingPathComponent("other.md"), atomically: true, encoding: .utf8)
+        await index.configure(root: secondRoot)
+        let switched = await index.refresh()
+        XCTAssertEqual(switched, ["Other"])
+        let switchedFiles = await index.tagsByFile
+        XCTAssertEqual(switchedFiles.count, 1)
+    }
+
+    func testTagIndexDiscardsAStaleScanAfterFolderSwitch() async {
+        let oldRoot = URL(fileURLWithPath: "/tmp/old-jots")
+        let newRoot = URL(fileURLWithPath: "/tmp/new-jots")
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let index = TagIndex { root in
+            if root == oldRoot {
+                started.signal()
+                _ = release.wait(timeout: .now() + 5)
+                return [oldRoot.appendingPathComponent("old.md"): ["Old"]]
+            }
+            return [newRoot.appendingPathComponent("new.md"): ["New"]]
+        }
+        await index.configure(root: oldRoot)
+        let oldScan = Task { await index.refresh() }
+        let didStart = await withCheckedContinuation { (continuation: CheckedContinuation<DispatchTimeoutResult, Never>) in
+            DispatchQueue.global().async {
+                continuation.resume(returning: started.wait(timeout: .now() + 2))
+            }
+        }
+        XCTAssertEqual(didStart, .success)
+        await index.configure(root: newRoot)
+        release.signal()
+        let discarded = await oldScan.value
+        XCTAssertNil(discarded)
+        let fresh = await index.refresh()
+        XCTAssertEqual(fresh, ["New"])
+    }
+
 }
