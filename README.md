@@ -136,3 +136,13 @@ CI verifies builds and process launch. Before accepting the first release,
 exercise a real upgrade from an earlier installed release and confirm the
 active note is restored after relaunch. Installation on a managed work Mac
 still follows that machine's application policy.
+
+# Inline tags
+
+Write a tag directly in a jot as `#project`. It remains ordinary Markdown text on disk. Jot subtly colors the literal characters in the editor and suggests existing tags from the selected Jots folder as you type. Press Tab to accept a suggestion; Enter keeps its normal Markdown newline behavior. No separate tag metadata or index file is saved.
+
+The v1 grammar is intentionally small: `#` followed by an ASCII letter, then zero or more ASCII letters, digits, `_`, or `-`. The `#` must begin a line or follow whitespace or an opening `(`, `[`, `{`, single quote, or double quote. Tags stop before punctuation such as `,` and `.`. Jot ignores headings with a space after `#`, escaped hashes, inline code spans, fenced code blocks, and Markdown link destinations. The boundary rule also excludes URL fragments. Matching is case-insensitive; completion uses a deterministic existing spelling when the folder contains case variants. The editor and native index use the same grammar and are tested with equivalent Markdown fixtures.
+
+The native index holds tag sets per Markdown file and a distinct vocabulary in memory. A scan after each save and a periodic background reconciliation pick up external additions, edits, renames, removals, and missed file events. Capture and typing never wait for that scan; the editor filters the latest vocabulary locally.
+
+For disposable UI verification, launch the packaged app with `JOT_TEST_SESSION_PATH` set to an absolute path outside the normal Application Support directory, then choose a disposable Jots folder. This keeps the test session separate from the installed app's session.

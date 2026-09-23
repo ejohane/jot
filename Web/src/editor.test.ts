@@ -10,6 +10,8 @@ import { editorTheme } from "./editorTheme";
 import { Editor, insertLiteralNewline } from "./Editor";
 import type { EditorToNative } from "./bridge";
 import { markdownPresentation } from "./presentation";
+import { findInlineTags } from "./tags";
+import { completionStatus, currentCompletions } from "@codemirror/autocomplete";
 
 const views: EditorView[] = [];
 const roots: Root[] = [];
@@ -104,6 +106,69 @@ afterEach(async () => {
 });
 
 describe("source-first Markdown presentation", () => {
+  it("recognizes only literal inline tags in ordinary Markdown", () => {
+    const source = "# Heading\nHello #Project, (#second).\n`#inline` ``code #double`` \\#escaped\n```md\n#fenced\n```\n~~~\n#otherFence\n~~~\n[#label](https://example.test/#destination) https://example.test/#fragment\n😀 #emojiNeighbor";
+    expect(findInlineTags(source).map((tag) => tag.name)).toEqual(["Project", "second", "label", "emojiNeighbor"]);
+    expect(findInlineTags("#tag! #9bad ##double").map((tag) => tag.name)).toEqual(["tag"]);
+  });
+
+  it("styles literal source without changing selection, copy, or undo", async () => {
+    const { view } = await makeConnectedEditor("Hello #Project.");
+    expect(view.dom.querySelector(".cm-inline-tag")?.textContent).toBe("#Project");
+    view.dispatch({ selection: { anchor: 6, head: 14 } });
+    expect(view.state.selection.main.from).toBe(6);
+    const copy = syntheticClipboardEvent("copy", {});
+    view.focus();
+    view.contentDOM.dispatchEvent(copy.event);
+    expect(copy.written["text/plain"]).toBe("#Project");
+    view.dispatch({ changes: { from: 14, insert: " #new" }, userEvent: "input.type" });
+    expect(undo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe("Hello #Project.");
+  });
+
+  it("completes an existing tag with Tab while keeping Enter and unsuggested Tab behavior", async () => {
+    const { view, messages } = await makeConnectedEditor("- ");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "tagVocabulary", tags: ["MyTag", "other"] }));
+    view.focus();
+    await act(async () => view.dispatch({ ...view.state.replaceSelection("#my"), userEvent: "input.type" }));
+    await vi.waitFor(() => expect(completionStatus(view.state)).toBe("active"));
+    expect(currentCompletions(view.state).map((item) => item.label)).toEqual(["#MyTag"]);
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true })));
+    expect(view.state.doc.toString()).toBe("- #MyTag");
+    expect(view.state.selection.main.head).toBe(8);
+    expect(messages.filter((message) => message.type === "contentChanged").at(-1)).toMatchObject({ text: "- #MyTag" });
+    expect(undo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe("- #my");
+    view.dispatch({ changes: { from: 2, to: 5, insert: "#MyTag" }, selection: { anchor: 8 } });
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true })));
+    expect(view.state.doc.toString()).toBe("- #MyTag\n- ");
+    const before = view.state.doc.toString();
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true })));
+    expect(view.state.doc.toString()).toBe(before);
+    view.dispatch({ changes: { from: view.state.doc.length, insert: "#fresh" }, selection: { anchor: view.state.doc.length + 6 }, userEvent: "input.type" });
+    expect(view.state.doc.toString()).toContain("#fresh");
+  });
+
+  it("keeps Enter as a list newline while a suggestion is visible", async () => {
+    const { view } = await makeConnectedEditor("- ");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "tagVocabulary", tags: ["MyTag"] }));
+    view.focus();
+    await act(async () => view.dispatch({ ...view.state.replaceSelection("#my"), userEvent: "input.type" }));
+    await vi.waitFor(() => expect(completionStatus(view.state)).toBe("active"));
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true })));
+    expect(view.state.doc.toString()).toBe("- #my\n- ");
+  });
+
+  it("does not offer completions for an empty or unfamiliar tag", async () => {
+    const { view } = await makeConnectedEditor();
+    await act(async () => window.JotNative?.receive({ version: 1, type: "tagVocabulary", tags: ["MyTag"] }));
+    view.focus();
+    await act(async () => view.dispatch({ ...view.state.replaceSelection("#"), userEvent: "input.type" }));
+    await vi.waitFor(() => expect(completionStatus(view.state)).toBeNull());
+    await act(async () => view.dispatch({ ...view.state.replaceSelection("fresh"), userEvent: "input.type" }));
+    await vi.waitFor(() => expect(completionStatus(view.state)).toBeNull());
+    expect(view.state.doc.toString()).toBe("#fresh");
+  });
   it("starts dictation and saves inserted transcript at the current selection", async () => {
     const { parent, view, messages } = await makeConnectedEditor("Hello world");
     view.dispatch({ selection: { anchor: 5 } });

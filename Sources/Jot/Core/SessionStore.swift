@@ -14,6 +14,9 @@ actor SessionStore {
     }
 
     static func live() -> SessionStore {
+        if let testPath = ProcessInfo.processInfo.environment["JOT_TEST_SESSION_PATH"], testPath.hasPrefix("/") {
+            return SessionStore(fileURL: URL(fileURLWithPath: testPath))
+        }
         let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return SessionStore(fileURL: applicationSupport.appendingPathComponent("Jot/session.json"))
     }

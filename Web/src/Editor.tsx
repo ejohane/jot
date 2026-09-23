@@ -8,6 +8,7 @@ import { sendToNative, type EditorToNative } from "./bridge";
 import { editorTheme } from "./editorTheme";
 import { markdownPresentation } from "./presentation";
 import { beginDictation, clearDictation, dictationPreview, insertionForDictation, reviseDictation } from "./dictationPreview";
+import { inlineTagEditor, setTagVocabulary } from "./tagEditor";
 
 type RecoveryAction = "restoreRoot" | "saveCopy" | "reloadExternal";
 type ErrorStatus = { message: string; actions?: RecoveryAction[] };
@@ -109,6 +110,7 @@ export function Editor() {
       extensions: [
         markdown({ extensions: GFM, addKeymap: false, pasteURLAsLink: false }),
         markdownPresentation,
+        inlineTagEditor,
         dictationPreview,
         editorTheme,
         EditorView.lineWrapping,
@@ -266,6 +268,9 @@ export function Editor() {
             });
             break;
           }
+          case "tagVocabulary":
+            view.dispatch({ effects: setTagVocabulary.of(message.tags) });
+            break;
         }
       },
     };
