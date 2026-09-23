@@ -11,6 +11,8 @@ export type EditorToNative =
   | { version: 1; type: "finishAndNew"; revision: number }
   | { version: 1; type: "hide"; revision: number }
   | { version: 1; type: "toggleDictation" }
+  | { version: 1; type: "finishDictation" }
+  | { version: 1; type: "cancelDictation" }
   | { version: 1; type: "recover"; action: "restoreRoot" | "saveCopy" | "reloadExternal" };
 
 export type NativeToEditor =
@@ -23,6 +25,7 @@ export type NativeToEditor =
   | { version: 1; type: "dictationState"; status: "idle" | "downloading" | "recording" | "transcribing" | "error"; message?: string }
   | { version: 1; type: "dictationResult"; text: string }
   | { version: 1; type: "dictationPartial"; text: string }
+  | { version: 1; type: "dictationLevel"; level: number }
   | { version: 1; type: "tagVocabulary"; tags: string[] };
 
 declare global {

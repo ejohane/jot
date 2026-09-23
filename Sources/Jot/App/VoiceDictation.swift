@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import CryptoKit
 import Foundation
+import os
 
 enum VoiceFailure: LocalizedError {
     case microphoneDenied
@@ -73,15 +74,22 @@ actor VoiceModelStore {
 
 @MainActor
 final class VoiceDictation {
+    private static let log = Logger(subsystem: "com.erikjohansson.Jot", category: "voice")
     enum State: String { case idle, downloading, recording, transcribing, error }
 
     var onStateChange: ((State, String?) -> Void)?
     var onPartial: ((String) -> Void)?
     var onResult: ((String) -> Void)?
+    var onLevel: ((Float) -> Void)?
     private(set) var state: State = .idle
     private(set) var currentPartial = ""
     private var engine: AVAudioEngine?
     private var sink: VoiceAudioSink?
+    private var configurationObserver: (any NSObjectProtocol)?
+    private var configurationRecovery: Task<Void, Never>?
+    private var audioWatchdog: Task<Void, Never>?
+    private var restartAttempts = 0
+    private var receivedAudio = false
     private var worker: Process?
     private var workerInput: FileHandle?
     private var workerOutput: FileHandle?
@@ -98,6 +106,10 @@ final class VoiceDictation {
         case .recording: stop()
         case .transcribing: break
         }
+    }
+
+    func finish() {
+        if state == .recording { stop() }
     }
 
     func cancel() {
@@ -140,6 +152,14 @@ final class VoiceDictation {
     }
 
     private func stopEngine() {
+        configurationRecovery?.cancel()
+        configurationRecovery = nil
+        audioWatchdog?.cancel()
+        audioWatchdog = nil
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+            self.configurationObserver = nil
+        }
         if let engine {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
@@ -198,22 +218,67 @@ final class VoiceDictation {
         let engine = AVAudioEngine()
         let format = engine.inputNode.outputFormat(forBus: 0)
         let captureGeneration = generation
-        let sink = try VoiceAudioSink(inputFormat: format, handle: input) { [weak self] failure in
+        let sink = try VoiceAudioSink(inputFormat: format, handle: input, onLevel: { [weak self] level in
+            Task { @MainActor [weak self] in
+                guard let self, captureGeneration == self.generation, self.state == .recording else { return }
+                if !self.receivedAudio {
+                    self.update(.recording, message: "Listening locally…")
+                }
+                self.receivedAudio = true
+                self.restartAttempts = 0
+                self.onLevel?(level)
+            }
+        }, onFailure: { [weak self] failure in
             Task { @MainActor [weak self] in
                 guard let self, captureGeneration == self.generation else { return }
                 self.fail(failure)
             }
-        }
+        })
         self.sink = sink
-        engine.inputNode.installTap(onBus: 0, bufferSize: 1600, format: format) { buffer, _ in
-            sink.receive(buffer)
+        sink.installTap(on: engine.inputNode, format: format)
+        self.engine = engine
+        receivedAudio = false
+        restartAttempts = 0
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, captureGeneration == self.generation, self.engine != nil else { return }
+                Self.log.info("Audio configuration changed")
+                self.recoverCaptureAfterConfigurationChange()
+            }
         }
         do { try engine.start() }
-        catch {
-            engine.inputNode.removeTap(onBus: 0)
-            throw VoiceFailure.recordingFailed
+        catch { throw VoiceFailure.recordingFailed }
+        audioWatchdog = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard let self, !Task.isCancelled, captureGeneration == self.generation,
+                  self.state == .recording, !self.receivedAudio else { return }
+            if !engine.isRunning { self.recoverCaptureAfterConfigurationChange() }
+            self.update(.recording, message: "No microphone audio yet. Check System Settings → Sound → Input.")
         }
-        self.engine = engine
+    }
+
+    private func recoverCaptureAfterConfigurationChange() {
+        guard state == .recording || state == .downloading else { return }
+        configurationRecovery?.cancel()
+        let captureGeneration = generation
+        configurationRecovery = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard let self, !Task.isCancelled, captureGeneration == self.generation,
+                  let engine = self.engine, !engine.isRunning else { return }
+            guard self.restartAttempts < 3 else { self.fail(VoiceFailure.recordingFailed); return }
+            self.restartAttempts += 1
+            do {
+                try engine.start()
+                Self.log.info("Audio capture restarted")
+            } catch {
+                Self.log.error("Audio capture restart failed: \(error.localizedDescription, privacy: .public)")
+                self.fail(VoiceFailure.recordingFailed)
+            }
+        }
     }
 
     private func consume(_ data: Data) {
@@ -227,7 +292,7 @@ final class VoiceDictation {
             case "R":
                 do {
                     try startCapture()
-                    update(.recording, message: "Listening locally… press the microphone to finish")
+                    update(.recording, message: "Listening locally…")
                 } catch { fail(error); return }
             case "P":
                 currentPartial = (finalPhrases + [value]).filter { !$0.isEmpty }.joined(separator: " ")

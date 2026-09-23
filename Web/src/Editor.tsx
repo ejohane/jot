@@ -14,6 +14,7 @@ type RecoveryAction = "restoreRoot" | "saveCopy" | "reloadExternal";
 type ErrorStatus = { message: string; actions?: RecoveryAction[] };
 const loadSession = Annotation.define<boolean>();
 const continueMarkdownList = insertNewlineContinueMarkupCommand({ nonTightLists: false });
+const waveformBars = 48;
 
 export function insertLiteralNewline(view: EditorView): boolean {
   view.dispatch({
@@ -34,6 +35,7 @@ export function Editor() {
   const pendingBridgeSnapshot = useRef<Extract<EditorToNative, { type: "contentChanged" }> | null>(null);
   const [error, setError] = useState<ErrorStatus | null>(null);
   const [dictation, setDictation] = useState<{ status: "idle" | "downloading" | "recording" | "transcribing" | "error"; message?: string }>({ status: "idle" });
+  const [waveform, setWaveform] = useState<number[]>(() => Array(waveformBars).fill(0));
 
   useEffect(() => {
     if (!host.current) return;
@@ -247,10 +249,17 @@ export function Editor() {
             if (["downloading", "recording", "transcribing"].includes(message.status) && !view.state.field(dictationPreview)) {
               const { from, to } = view.state.selection.main;
               view.dispatch({ effects: beginDictation.of({ from, to }) });
+              setWaveform(Array(waveformBars).fill(0));
             } else if (message.status === "idle" || message.status === "error") {
               view.dispatch({ effects: clearDictation.of() });
+              setWaveform(Array(waveformBars).fill(0));
             }
             setDictation({ status: message.status, message: message.message });
+            break;
+          case "dictationLevel":
+            if (view.state.field(dictationPreview)) {
+              setWaveform((levels) => [...levels.slice(1), Math.max(0, Math.min(1, message.level))]);
+            }
             break;
           case "dictationPartial":
             view.dispatch({ effects: reviseDictation.of(message.text) });
@@ -293,25 +302,62 @@ export function Editor() {
     if (action === "reloadExternal") return "Reload External Version";
     return "Restore Folder Access";
   };
+  const dictationActive = dictation.status === "downloading" || dictation.status === "recording" || dictation.status === "transcribing";
 
   return (
     <main className="composer">
       <div ref={host} className="editor" role="textbox" aria-label="Jot — editable Markdown document" />
       <div className="dictation-controls">
-        <button
-          className={`dictation-button ${dictation.status === "recording" ? "is-recording" : ""}`}
-          type="button"
-          aria-label={dictation.status === "recording" ? "Stop dictation" : "Start dictation"}
-          title="Dictate locally (⌘⇧D)"
-          disabled={dictation.status === "transcribing"}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => sendToNative({ version: 1, type: "toggleDictation" })}
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <rect x="9" y="2" width="6" height="12" rx="3" />
-            <path d="M5 10a7 7 0 0 0 14 0M12 17v5m-4 0h8" />
-          </svg>
-        </button>
+        {dictationActive ? (
+          <>
+            <button
+              className="dictation-button dictation-keep"
+              type="button"
+              aria-label="Keep dictation"
+              title="Finish and keep dictation"
+              disabled={dictation.status !== "recording"}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => sendToNative({ version: 1, type: "finishDictation" })}
+            >
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m5 12 4.5 4.5L19 7" />
+              </svg>
+            </button>
+            <button
+              className="dictation-button dictation-cancel"
+              type="button"
+              aria-label="Cancel dictation"
+              title="Cancel and discard dictation"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => sendToNative({ version: 1, type: "cancelDictation" })}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+                <path d="M5 5 19 19M19 5 5 19" />
+              </svg>
+            </button>
+            {dictation.status === "recording" && (
+              <div className="dictation-waveform" aria-hidden="true">
+                {waveform.map((level, index) => (
+                  <span key={index} className="dictation-waveform-bar" style={{ transform: `scaleY(${(2 + level * 22) / 24})` }} />
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <button
+            className="dictation-button"
+            type="button"
+            aria-label="Start dictation"
+            title="Dictate locally (⌘⇧D)"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => sendToNative({ version: 1, type: "toggleDictation" })}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="9" y="2" width="6" height="12" rx="3" />
+              <path d="M5 10a7 7 0 0 0 14 0M12 17v5m-4 0h8" />
+            </svg>
+          </button>
+        )}
         {dictation.status !== "idle" && dictation.message && <span className={`dictation-message ${dictation.status === "error" ? "is-error" : ""}`} role={dictation.status === "error" ? "alert" : "status"}>{dictation.message}</span>}
       </div>
       {error && (

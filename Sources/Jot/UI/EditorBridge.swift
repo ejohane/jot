@@ -11,6 +11,8 @@ protocol EditorBridgeDelegate: AnyObject {
     func editorRequestedHide(revision: Int)
     func editorRequestedRecovery(_ action: String)
     func editorRequestedDictationToggle()
+    func editorRequestedDictationFinish()
+    func editorRequestedDictationCancel()
 }
 
 @MainActor
@@ -67,6 +69,10 @@ final class EditorBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             if let action = body["action"] as? String { delegate?.editorRequestedRecovery(action) }
         case "toggleDictation":
             delegate?.editorRequestedDictationToggle()
+        case "finishDictation":
+            delegate?.editorRequestedDictationFinish()
+        case "cancelDictation":
+            delegate?.editorRequestedDictationCancel()
         default:
             break
         }

@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import XCTest
 @testable import Jot
@@ -108,6 +109,8 @@ final class BridgeDelegateSpy: EditorBridgeDelegate {
     var hideRevision: Int?
     var recoveryAction: String?
     var dictationToggleCount = 0
+    var dictationFinishCount = 0
+    var dictationCancelCount = 0
 
     func editorDidBecomeReady() { readyCount += 1 }
     func editorContentChanged(_ snapshot: EditorSnapshot, noteID: String?) { content = (snapshot, noteID) }
@@ -117,6 +120,8 @@ final class BridgeDelegateSpy: EditorBridgeDelegate {
     func editorRequestedHide(revision: Int) { hideRevision = revision }
     func editorRequestedRecovery(_ action: String) { recoveryAction = action }
     func editorRequestedDictationToggle() { dictationToggleCount += 1 }
+    func editorRequestedDictationFinish() { dictationFinishCount += 1 }
+    func editorRequestedDictationCancel() { dictationCancelCount += 1 }
 }
 
 @MainActor
@@ -128,6 +133,27 @@ final class PanelDelegateSpy: ComposerPanelDelegate {
 }
 
 final class CoreTests: XCTestCase {
+    func testVoiceAudioSinkReportsMicrophoneLevelFromSamples() throws {
+        let format = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 1, interleaved: false))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4_800))
+        buffer.frameLength = 4_800
+        let samples = try XCTUnwrap(buffer.floatChannelData?[0])
+        for index in 0..<Int(buffer.frameLength) {
+            samples[index] = Float(sin(Double(index) * 2 * .pi * 440 / 48_000) * 0.2)
+        }
+        let reported = expectation(description: "voice level")
+        let output = try FileHandle(forWritingTo: URL(fileURLWithPath: "/dev/null"))
+        let sink = try VoiceAudioSink(inputFormat: format, handle: output, onLevel: { level in
+            XCTAssertGreaterThan(level, 0.3)
+            reported.fulfill()
+        }, onFailure: { failure in
+            XCTFail("Audio conversion failed: \(failure)")
+        })
+        sink.receive(buffer)
+        wait(for: [reported], timeout: 1)
+        sink.finish()
+    }
+
     @MainActor
     func testNativeDragRegionWinsHitTestingWithoutTakingOverTheEditor() {
         let dragView = WindowDragContainerView(frame: NSRect(x: 0, y: 0, width: 560, height: 260))
@@ -440,6 +466,8 @@ final class CoreTests: XCTestCase {
         bridge.handle(["version": 1, "type": "hide", "revision": NSNumber(value: 10)] as NSDictionary)
         bridge.handle(["version": 1, "type": "recover", "action": "saveCopy"] as NSDictionary)
         bridge.handle(["version": 1, "type": "toggleDictation"] as NSDictionary)
+        bridge.handle(["version": 1, "type": "finishDictation"] as NSDictionary)
+        bridge.handle(["version": 1, "type": "cancelDictation"] as NSDictionary)
 
         XCTAssertEqual(delegate.readyCount, 1)
         let content = try XCTUnwrap(delegate.content)
@@ -455,6 +483,8 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(delegate.hideRevision, 10)
         XCTAssertEqual(delegate.recoveryAction, "saveCopy")
         XCTAssertEqual(delegate.dictationToggleCount, 1)
+        XCTAssertEqual(delegate.dictationFinishCount, 1)
+        XCTAssertEqual(delegate.dictationCancelCount, 1)
     }
 
     @MainActor

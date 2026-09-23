@@ -23,11 +23,13 @@ final class VoiceAudioSink: @unchecked Sendable {
     private let handle: FileHandle
     private let queue = DispatchQueue(label: "Jot.voice.audio")
     private let lock = NSLock()
+    private let onLevel: @Sendable (Float) -> Void
     private let onFailure: @Sendable (VoiceFailure) -> Void
     private var pendingBytes = 0
+    private var lastLevelSent: UInt64 = 0
     private var closed = false
 
-    init(inputFormat: AVAudioFormat, handle: FileHandle, onFailure: @escaping @Sendable (VoiceFailure) -> Void) throws {
+    init(inputFormat: AVAudioFormat, handle: FileHandle, onLevel: @escaping @Sendable (Float) -> Void, onFailure: @escaping @Sendable (VoiceFailure) -> Void) throws {
         guard let outputFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false),
               let converter = AVAudioConverter(from: inputFormat, to: outputFormat) else {
             throw VoiceFailure.recordingFailed
@@ -35,7 +37,16 @@ final class VoiceAudioSink: @unchecked Sendable {
         self.outputFormat = outputFormat
         self.converter = converter
         self.handle = handle
+        self.onLevel = onLevel
         self.onFailure = onFailure
+    }
+
+    // AVAudio calls the tap on its own queue. Construct its callback outside
+    // VoiceDictation's MainActor isolation so Swift does not assert at runtime.
+    func installTap(on inputNode: AVAudioInputNode, format: AVAudioFormat) {
+        inputNode.installTap(onBus: 0, bufferSize: 1600, format: format) { [self] buffer, _ in
+            receive(buffer)
+        }
     }
 
     func receive(_ input: AVAudioPCMBuffer) {
@@ -56,6 +67,7 @@ final class VoiceAudioSink: @unchecked Sendable {
         let count = Int(converted.frameLength) * MemoryLayout<Float>.size
         guard count > 0 else { return }
         let data = Data(bytes: samples, count: count)
+        let now = DispatchTime.now().uptimeNanoseconds
         lock.lock()
         if closed { lock.unlock(); return }
         if pendingBytes + count > 16_000 * MemoryLayout<Float>.size * 5 {
@@ -65,7 +77,19 @@ final class VoiceAudioSink: @unchecked Sendable {
             return
         }
         pendingBytes += count
+        let publishLevel = now &- lastLevelSent >= 50_000_000
+        if publishLevel { lastLevelSent = now }
         lock.unlock()
+        if publishLevel {
+            var power: Double = 0
+            for index in 0..<Int(converted.frameLength) {
+                let sample = Double(samples[index])
+                power += sample * sample
+            }
+            let rms = sqrt(power / Double(converted.frameLength))
+            let level = Float(max(0, min(1, (20 * log10(max(rms, 0.00001)) + 55) / 40)))
+            onLevel(level)
+        }
         queue.async { [self] in
             do { try handle.write(contentsOf: data) }
             catch { onFailure(.transcriptionFailed) }

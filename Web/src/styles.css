@@ -65,14 +65,19 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
   padding: 3px 7px;
 }
 .status button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
-.dictation-controls { position: absolute; bottom: 12px; left: 16px; z-index: 2; display: flex; align-items: center; gap: 8px; }
-.dictation-button { display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 7px; background: transparent; color: var(--secondary); cursor: pointer; }
+.dictation-controls { position: absolute; bottom: 12px; left: 16px; z-index: 2; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 32px); }
+.dictation-button { display: grid; flex: none; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 50%; background: transparent; color: var(--secondary); cursor: pointer; }
 .dictation-button:hover, .dictation-button:focus-visible { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
 .dictation-button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
-.dictation-button.is-recording { color: var(--error); }
+.dictation-keep { background: var(--text); color: var(--background); }
+.dictation-keep:hover, .dictation-keep:focus-visible { background: var(--link); color: var(--background); }
+.dictation-cancel { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
 .dictation-button:disabled { opacity: 0.5; cursor: default; }
-.dictation-message { font-size: 11px; color: var(--secondary); }
+.dictation-waveform { display: flex; flex: none; align-items: center; justify-content: center; gap: 2px; width: 190px; height: 30px; overflow: hidden; }
+.dictation-waveform-bar { display: block; flex: none; width: 2px; height: 24px; border-radius: 2px; background: var(--secondary); opacity: 0.8; transform-origin: center; transition: transform 80ms ease-out; }
+.dictation-message { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--secondary); }
 .dictation-message.is-error { color: var(--error); }
+@media (max-width: 500px) { .dictation-waveform { width: 94px; } .dictation-waveform-bar:nth-child(-n+24) { display: none; } }
 .cm-dictation-preview { color: var(--secondary); opacity: 0.72; font-style: italic; white-space: pre-wrap; border-bottom: 1px dotted currentColor; }
 .composer:has(.status-error) .dictation-controls { bottom: 48px; }
 .cm-inline-tag { color: var(--link); background: color-mix(in srgb, var(--link) 9%, transparent); border-radius: 3px; }

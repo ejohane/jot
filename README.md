@@ -74,7 +74,9 @@ replace a working development build.
 - Command-Q: flush session state and quit
 - Enter in a Markdown list: continue the list; Enter on an empty item exits it
 - Shift-Enter: insert a plain newline without a new list marker
-- Command-Shift-D or the microphone button: start or stop voice dictation
+- Command-Shift-D or the microphone button: start voice dictation
+- Check button: finish recording and keep the transcript
+- X button: cancel recording and discard the provisional transcript
 
 Unordered list markers (`-`, `*`, or `+` followed by a space) display as round
 bullets while the saved and copied text remains ordinary Markdown.
@@ -89,9 +91,12 @@ The first use downloads a roughly 465 MB model from the
 [Jot voice model release](https://github.com/ejohane/jot-voice-models/releases/tag/v1),
 checks its pinned SHA-256 digest, and caches it in Jot's Application Support
 folder. Later dictation works offline. The microphone is captured locally and
-partial words appear at the insertion point while you speak. Partial guesses
-do not change the saved Markdown or undo history; pressing Stop commits the
-final transcript as one edit. Pauses finalize phrases within the preview.
+partial words appear at the insertion point while you speak, with a live
+microphone waveform beside the controls. Partial guesses do not change the
+saved Markdown or undo history; pressing the check button commits the final
+transcript as one edit, while X discards it. Pauses finalize phrases within the preview.
+Command-Shift-D also finishes an active recording. If the audio device changes
+during capture, Jot restarts its audio engine.
 Jot does not save a recording or upload speech or transcripts.
 
 ## Releases
