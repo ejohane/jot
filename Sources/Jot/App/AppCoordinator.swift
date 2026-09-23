@@ -46,6 +46,9 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         voiceDictation.onPartial = { [weak self] text in
             self?.panelController.send(["version": 1, "type": "dictationPartial", "text": text])
         }
+        voiceDictation.onLevel = { [weak self] level in
+            self?.panelController.send(["version": 1, "type": "dictationLevel", "level": level])
+        }
         panelController.onEscape = { [weak self] in
             guard let self else { return }
             self.editorRequestedHide(revision: self.latestRevision)
@@ -253,6 +256,8 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     func editorRequestedDictationToggle() { voiceDictation.toggle() }
+    func editorRequestedDictationFinish() { voiceDictation.finish() }
+    func editorRequestedDictationCancel() { voiceDictation.cancel() }
 
     func composerDidResignKey() {
         Task {

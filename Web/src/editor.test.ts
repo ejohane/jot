@@ -178,7 +178,10 @@ describe("source-first Markdown presentation", () => {
       window.JotNative?.receive({ version: 1, type: "dictationState", status: "recording", message: "Recording…" });
     });
     expect(messages.some((message) => message.type === "toggleDictation")).toBe(true);
-    expect(parent.querySelector('.dictation-button[aria-label="Stop dictation"]')).not.toBeNull();
+    expect(parent.querySelector('.dictation-button[aria-label="Keep dictation"]')).not.toBeNull();
+    expect(parent.querySelector('.dictation-button[aria-label="Cancel dictation"]')).not.toBeNull();
+    await act(async () => parent.querySelector<HTMLButtonElement>('.dictation-button[aria-label="Keep dictation"]')?.click());
+    expect(messages.some((message) => message.type === "finishDictation")).toBe(true);
     await act(async () => {
       window.JotNative?.receive({ version: 1, type: "dictationResult", text: "there" });
       window.JotNative?.receive({ version: 1, type: "dictationState", status: "idle" });
@@ -186,6 +189,35 @@ describe("source-first Markdown presentation", () => {
     expect(view.state.doc.toString()).toBe("Hello there world");
     expect(messages.filter((message) => message.type === "contentChanged").at(-1)).toMatchObject({ text: "Hello there world" });
     expect(parent.querySelector('.dictation-button[aria-label="Start dictation"]')).not.toBeNull();
+  });
+
+  it("discards provisional dictation when cancelled, without touching existing text", async () => {
+    const { parent, view, messages } = await makeConnectedEditor("Keep this");
+    await act(async () => {
+      window.JotNative?.receive({ version: 1, type: "dictationState", status: "recording" });
+      window.JotNative?.receive({ version: 1, type: "dictationPartial", text: "throw away" });
+    });
+    await act(async () => {
+      parent.querySelector<HTMLButtonElement>('.dictation-button[aria-label="Cancel dictation"]')?.click();
+      window.JotNative?.receive({ version: 1, type: "dictationState", status: "idle" });
+      window.JotNative?.receive({ version: 1, type: "dictationResult", text: "throw away" });
+    });
+    expect(messages.some((message) => message.type === "cancelDictation")).toBe(true);
+    expect(view.state.doc.toString()).toBe("Keep this");
+    expect(view.dom.querySelector(".cm-dictation-preview")).toBeNull();
+    expect(messages.filter((message) => message.type === "contentChanged")).toHaveLength(0);
+  });
+
+  it("shows microphone levels only while recording", async () => {
+    const { parent } = await makeConnectedEditor();
+    await act(async () => {
+      window.JotNative?.receive({ version: 1, type: "dictationState", status: "recording" });
+      window.JotNative?.receive({ version: 1, type: "dictationLevel", level: 0.75 });
+    });
+    expect(parent.querySelectorAll(".dictation-waveform-bar")).toHaveLength(48);
+    expect((parent.querySelector(".dictation-waveform-bar:last-child") as HTMLElement).style.transform).toBe("scaleY(0.7708333333333334)");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "dictationState", status: "idle" }));
+    expect(parent.querySelector(".dictation-waveform")).toBeNull();
   });
 
   it("revises provisional text without saving it or adding undo history", async () => {
