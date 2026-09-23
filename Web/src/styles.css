@@ -46,7 +46,6 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
 .status {
   align-items: center;
   bottom: 11px;
-  color: var(--secondary);
   display: flex;
   font-size: 11px;
   gap: 8px;
@@ -55,7 +54,6 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
   right: 16px;
   z-index: 2;
 }
-.status-idle { visibility: hidden; }
 .status-error { color: var(--error); left: 18px; right: 18px; }
 .status button {
   background: transparent;

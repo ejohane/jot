@@ -9,7 +9,7 @@ import { editorTheme } from "./editorTheme";
 import { markdownPresentation } from "./presentation";
 
 type RecoveryAction = "restoreRoot" | "saveCopy" | "reloadExternal";
-type Status = { kind: "idle" | "saving" | "saved" | "error"; message: string; actions?: RecoveryAction[] };
+type ErrorStatus = { message: string; actions?: RecoveryAction[] };
 const loadSession = Annotation.define<boolean>();
 const continueMarkdownList = insertNewlineContinueMarkupCommand({ nonTightLists: false });
 
@@ -30,7 +30,7 @@ export function Editor() {
   const hasLoadedSession = useRef(false);
   const readySent = useRef(false);
   const pendingBridgeSnapshot = useRef<Extract<EditorToNative, { type: "contentChanged" }> | null>(null);
-  const [status, setStatus] = useState<Status>({ kind: "idle", message: "" });
+  const [error, setError] = useState<ErrorStatus | null>(null);
 
   useEffect(() => {
     if (!host.current) return;
@@ -72,12 +72,11 @@ export function Editor() {
       };
       if (!hasLoadedSession.current) {
         pendingBridgeSnapshot.current = message;
-        setStatus({ kind: "saving", message: "Saving…" });
         return;
       }
       if (!sendToNative(message)) {
         pendingBridgeSnapshot.current = message;
-        setStatus({ kind: "error", message: "Saving is interrupted. Your text remains in this window." });
+        setError({ message: "Saving is interrupted. Your text remains in this window." });
         scheduleBridgeRetry();
       }
     };
@@ -191,9 +190,8 @@ export function Editor() {
               pendingBridgeSnapshot.current = retry;
               if (sendToNative(retry)) {
                 pendingBridgeSnapshot.current = null;
-                setStatus({ kind: "saving", message: "Saving…" });
               } else {
-                setStatus({ kind: "error", message: "Saving is interrupted. Your text remains in this window." });
+                setError({ message: "Saving is interrupted. Your text remains in this window." });
                 scheduleBridgeRetry();
               }
               requestAnimationFrame(() => {
@@ -215,28 +213,27 @@ export function Editor() {
               view.focus();
               sendPreferredHeight(view);
             });
-            setStatus({ kind: "idle", message: "" });
+            setError(null);
             break;
           }
           case "noteAllocated":
             noteIDRef.current = message.noteID;
             break;
           case "saving":
-            setStatus({ kind: "saving", message: "Saving…" });
             break;
           case "writeSucceeded":
             if (message.noteID === noteIDRef.current && message.revision === revisionRef.current) {
-              setStatus({ kind: "saved", message: "Saved" });
+              setError(null);
             }
             break;
           case "externalConflict":
             if (message.noteID === noteIDRef.current) {
-              setStatus({ kind: "error", message: "This jot changed outside the app.", actions: ["saveCopy", "reloadExternal"] });
+              setError({ message: "This jot changed outside the app.", actions: ["saveCopy", "reloadExternal"] });
             }
             break;
           case "writeFailed":
             if (!message.noteID || message.noteID === noteIDRef.current) {
-              setStatus({ kind: "error", message: message.message, actions: message.actions });
+              setError({ message: message.message, actions: message.actions });
             }
             break;
         }
@@ -246,7 +243,7 @@ export function Editor() {
     if (sendToNative({ version: 1, type: "editorReady" })) {
       readySent.current = true;
     } else {
-      setStatus({ kind: "error", message: "Saving is interrupted. Your text remains in this window." });
+      setError({ message: "Saving is interrupted. Your text remains in this window." });
       scheduleBridgeRetry();
     }
     return () => {
@@ -265,14 +262,16 @@ export function Editor() {
   return (
     <main className="composer">
       <div ref={host} className="editor" role="textbox" aria-label="Jot — editable Markdown document" />
-      <footer className={`status status-${status.kind}`} aria-live="polite" aria-atomic="true">
-        <span>{status.message}</span>
-        {status.actions?.map((action) => (
-          <button key={action} onClick={() => sendToNative({ version: 1, type: "recover", action })}>
-            {actionLabel(action)}
-          </button>
-        ))}
-      </footer>
+      {error && (
+        <footer className="status status-error" role="alert" aria-atomic="true">
+          <span>{error.message}</span>
+          {error.actions?.map((action) => (
+            <button key={action} onClick={() => sendToNative({ version: 1, type: "recover", action })}>
+              {actionLabel(action)}
+            </button>
+          ))}
+        </footer>
+      )}
     </main>
   );
 }

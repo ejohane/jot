@@ -104,6 +104,42 @@ afterEach(async () => {
 });
 
 describe("source-first Markdown presentation", () => {
+  it("shows no status during loading, saving, or successful writes", async () => {
+    const { parent, view } = await makeConnectedEditor("Existing jot");
+    expect(parent.querySelector(".status")).toBeNull();
+    await act(async () => {
+      view.dispatch({ changes: { from: view.state.doc.length, insert: " updated" } });
+      window.JotNative?.receive({ version: 1, type: "saving", revision: 2 });
+      window.JotNative?.receive({ version: 1, type: "writeSucceeded", noteID: "note-1", revision: 2 });
+    });
+    expect(parent.querySelector(".status")).toBeNull();
+    expect(parent.textContent).not.toMatch(/Saving|Saved/);
+  });
+
+  it("keeps a write failure visible through saving and clears it after a confirmed write", async () => {
+    const { parent, view, messages } = await makeConnectedEditor("Existing jot");
+    await act(async () => {
+      view.dispatch({ changes: { from: view.state.doc.length, insert: " updated" } });
+      window.JotNative?.receive({
+        version: 1, type: "writeFailed", noteID: "note-1", revision: 2,
+        errorCode: "root_unavailable", message: "The Jots folder is unavailable.", actions: ["restoreRoot"],
+      });
+    });
+    expect(parent.querySelector('[role="alert"]')?.textContent).toContain("The Jots folder is unavailable.");
+    expect(parent.querySelector(".status button")?.textContent).toBe("Restore Folder Access");
+    await act(async () => {
+      window.JotNative?.receive({ version: 1, type: "saving", revision: 2 });
+      window.JotNative?.receive({ version: 1, type: "writeSucceeded", noteID: "note-1", revision: 1 });
+    });
+    expect(parent.querySelector('[role="alert"]')).not.toBeNull();
+    await act(async () => {
+      parent.querySelector<HTMLButtonElement>(".status button")?.click();
+      window.JotNative?.receive({ version: 1, type: "writeSucceeded", noteID: "note-1", revision: 2 });
+    });
+    expect(messages.some((message) => message.type === "recover" && message.action === "restoreRoot")).toBe(true);
+    expect(parent.querySelector(".status")).toBeNull();
+  });
+
   it("renders typed list markers as round bullets while preserving Markdown", async () => {
     const { view, messages } = await makeConnectedEditor("-");
     await act(async () => view.dispatch({ ...view.state.replaceSelection(" "), userEvent: "input.type" }));
