@@ -24,6 +24,7 @@ struct PersistedSession: Codable, Equatable, Sendable {
     var selection: EditorSelection
     var viewport: EditorViewport
     var panelFrame: String?
+    var panelPositionWasUserChosen: Bool?
     var rootBookmark: Data?
     var shortcut: ShortcutChoice
     var launchAtLogin: Bool
@@ -35,6 +36,7 @@ struct PersistedSession: Codable, Equatable, Sendable {
         selection: .start,
         viewport: .top,
         panelFrame: nil,
+        panelPositionWasUserChosen: nil,
         rootBookmark: nil,
         shortcut: .optionSpace,
         launchAtLogin: false,

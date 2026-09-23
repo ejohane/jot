@@ -49,6 +49,8 @@ bullets while the saved and copied text remains ordinary Markdown.
 
 The menu-bar item can change the shortcut or Jots folder, reveal the active jot,
 open the Jots folder, and control launch at login.
+The composer opens centered on the active display. After you move it, Jot
+remembers that position when you close and reopen it or relaunch the app.
 
 Dictation transcribes English speech on this Mac using Whisper `small.en`.
 The first use downloads a roughly 465 MB model from the

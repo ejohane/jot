@@ -6,7 +6,6 @@ final class InMemoryFileSystem: @unchecked Sendable, JotFileSystem {
     private let lock = NSLock()
     private var files: [String: Data] = [:]
     private(set) var writes: [(String, Data)] = []
-    private(set) var writeDates: [Date] = []
     var writeError: Error?
     private(set) var recoveryCallCount = 0
 
@@ -26,7 +25,6 @@ final class InMemoryFileSystem: @unchecked Sendable, JotFileSystem {
             if let writeError { throw writeError }
             files[url.path] = data
             writes.append((url.path, data))
-            writeDates.append(Date())
         }
     }
 
@@ -53,7 +51,18 @@ final class InMemoryFileSystem: @unchecked Sendable, JotFileSystem {
     var fileCount: Int { lock.withLock { files.count } }
     var writeCount: Int { lock.withLock { writes.count } }
     var latestWrittenData: Data? { lock.withLock { writes.last?.1 } }
-    var recordedWriteDates: [Date] { lock.withLock { writeDates } }
+    var writtenDataLengths: [Int] { lock.withLock { writes.map { $0.1.count } } }
+}
+
+final class TestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = Date(timeIntervalSince1970: 1_700_000_000)
+
+    func now() -> Date { lock.withLock { current } }
+
+    func advance(by interval: TimeInterval) {
+        lock.withLock { current = current.addingTimeInterval(interval) }
+    }
 }
 
 final class DelayedFileSystem: @unchecked Sendable, JotFileSystem {
@@ -110,6 +119,14 @@ final class BridgeDelegateSpy: EditorBridgeDelegate {
     func editorRequestedDictationToggle() { dictationToggleCount += 1 }
 }
 
+@MainActor
+final class PanelDelegateSpy: ComposerPanelDelegate {
+    var movedFrames: [NSRect] = []
+
+    func composerDidResignKey() {}
+    func composerFrameDidChange(_ frame: NSRect) { movedFrames.append(frame) }
+}
+
 final class CoreTests: XCTestCase {
     @MainActor
     func testNativeDragRegionWinsHitTestingWithoutTakingOverTheEditor() {
@@ -125,10 +142,10 @@ final class CoreTests: XCTestCase {
             return XCTFail("Composer panel has no content view")
         }
         contentView.layoutSubtreeIfNeeded()
-        let dragPoint = NSPoint(x: 300, y: contentView.bounds.maxY - 10)
+        let dragPoint = NSPoint(x: 300, y: contentView.bounds.maxY - 32)
         let editorPoint = NSPoint(x: 300, y: contentView.bounds.maxY - 50)
-        XCTAssertTrue(contentView.hitTest(dragPoint) === contentView)
-        XCTAssertFalse(contentView.hitTest(editorPoint) === contentView)
+        XCTAssertTrue(contentView.hitTest(dragPoint) is WindowDragContainerView)
+        XCTAssertFalse(contentView.hitTest(editorPoint) is WindowDragContainerView)
     }
 
     @MainActor
@@ -140,6 +157,63 @@ final class CoreTests: XCTestCase {
             ComposerPanelController.clampedFrame(expandedFromBottomEdge, to: visibleFrame),
             NSRect(x: 0, y: 0, width: 560, height: 700)
         )
+    }
+
+    @MainActor
+    func testFreshPanelCentersWithinVisibleDisplay() {
+        let visibleFrame = NSRect(x: 100, y: 50, width: 1_400, height: 900)
+        let defaultFrame = NSRect(x: 0, y: 0, width: 560, height: 260)
+        XCTAssertEqual(
+            ComposerPanelController.centeredFrame(defaultFrame, in: visibleFrame),
+            NSRect(x: 520, y: 370, width: 560, height: 260)
+        )
+    }
+
+    @MainActor
+    func testFreshPanelCentersWithoutSavingAndReopensWhereMoved() throws {
+        guard let screen = NSScreen.main else { throw XCTSkip("No display is available") }
+        let controller = ComposerPanelController(savedFrame: nil)
+        let delegate = PanelDelegateSpy()
+        controller.panelDelegate = delegate
+        guard let panel = controller.window else { return XCTFail("Missing composer panel") }
+        defer { panel.close() }
+
+        controller.showAndFocus()
+        let visibleFrame = screen.visibleFrame
+        XCTAssertEqual(panel.frame.midX, visibleFrame.midX, accuracy: 1)
+        XCTAssertEqual(panel.frame.midY, visibleFrame.midY, accuracy: 1)
+        controller.applyPreferredContentHeight(300)
+        XCTAssertEqual(panel.frame.midY, visibleFrame.midY, accuracy: 1)
+        XCTAssertTrue(delegate.movedFrames.isEmpty)
+
+        let movedFrame = NSRect(
+            x: visibleFrame.minX + 110,
+            y: visibleFrame.minY + 120,
+            width: panel.frame.width,
+            height: panel.frame.height
+        )
+        panel.setFrame(movedFrame, display: true)
+        controller.windowDidMove(Notification(name: NSWindow.didMoveNotification, object: panel))
+        XCTAssertEqual(delegate.movedFrames.last, movedFrame)
+        controller.hide()
+        controller.showAndFocus()
+        XCTAssertEqual(panel.frame, movedFrame)
+        panel.close()
+        controller.showAndFocus()
+        XCTAssertEqual(panel.frame, movedFrame)
+    }
+
+    @MainActor
+    func testPreviouslyMovedPanelRestoresItsSavedFrame() throws {
+        guard let screen = NSScreen.main else { throw XCTSkip("No display is available") }
+        let visibleFrame = screen.visibleFrame
+        let savedFrame = NSRect(x: visibleFrame.minX + 120, y: visibleFrame.minY + 130, width: 560, height: 260)
+        let controller = ComposerPanelController(savedFrame: NSStringFromRect(savedFrame))
+        guard let panel = controller.window else { return XCTFail("Missing composer panel") }
+        defer { panel.close() }
+
+        controller.showAndFocus()
+        XCTAssertEqual(panel.frame, savedFrame)
     }
 
     @MainActor
@@ -248,19 +322,21 @@ final class CoreTests: XCTestCase {
     }
 
     @MainActor
-    func testSustainedTypingWritesAtLeastOncePerSecond() async throws {
+    func testSustainedTypingWritesAtLeastOncePerSecondOfInputTime() async throws {
         let fileSystem = InMemoryFileSystem()
-        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: fileSystem) { _ in }
+        let clock = TestClock()
+        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: fileSystem, now: {
+            clock.now()
+        }) { _ in }
         for revision in 1...100 {
             await writer.receive(snapshot(revision: revision, text: String(repeating: "x", count: revision)))
-            try await Task.sleep(for: .milliseconds(100))
+            clock.advance(by: 0.1)
         }
         _ = await writer.flush(through: 100)
-        let writeDates = fileSystem.recordedWriteDates
-        XCTAssertGreaterThanOrEqual(writeDates.count, 3)
-        let maximumGap = zip(writeDates, writeDates.dropFirst()).map { $1.timeIntervalSince($0) }.max() ?? 0
-        // Shared CI runners can delay the 1-second writer timer beyond its scheduled wakeup.
-        XCTAssertLessThanOrEqual(maximumGap, 1.35)
+        let writtenRevisions = fileSystem.writtenDataLengths
+        XCTAssertGreaterThanOrEqual(writtenRevisions.count, 10)
+        let maximumRevisionGap = zip(writtenRevisions, writtenRevisions.dropFirst()).map { $1 - $0 }.max() ?? 0
+        XCTAssertLessThanOrEqual(maximumRevisionGap, 11)
         XCTAssertEqual(fileSystem.latestWrittenData, Data(String(repeating: "x", count: 100).utf8))
     }
 
@@ -606,6 +682,7 @@ final class CoreTests: XCTestCase {
         expected.selection = EditorSelection(anchor: 4, head: 9)
         expected.viewport = EditorViewport(scrollTop: 123)
         expected.panelFrame = "{{10, 20}, {560, 260}}"
+        expected.panelPositionWasUserChosen = true
         try await store.save(expected)
         let actual = await store.load()
         XCTAssertEqual(actual, expected)
@@ -639,6 +716,7 @@ final class CoreTests: XCTestCase {
         let session = await SessionStore(fileURL: url, fileSystem: fileSystem).load()
         XCTAssertNil(session.recoveryText)
         XCTAssertNil(session.recoveryRevision)
+        XCTAssertNil(session.panelPositionWasUserChosen)
     }
 
     func testTenThousandAllocationsWithSameTimestampAreUnique() {
