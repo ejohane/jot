@@ -4,14 +4,47 @@ Jot is a local-first macOS Markdown capture utility. It keeps one active jot,
 autosaves the exact source to ordinary date-sharded Markdown files, and starts a
 new blank jot with Command-Return.
 
-## Requirements
+## Install and update
+
+Run this one line in Terminal (no developer tools needed):
+
+```sh
+curl -fsSLo "$HOME/Downloads/Jot-install.sh" https://raw.githubusercontent.com/ejohane/jot/main/script/install.sh && sh "$HOME/Downloads/Jot-install.sh"
+```
+
+This saves the installer script in Downloads, then runs it. The installer
+downloads the latest release, verifies its checksum, Apple signing identity,
+and notarization, installs Jot in `~/Applications`, and opens it. Quit Jot
+first if it is already running. Set `JOT_INSTALL_DIR` to a writable absolute
+path to choose a different location.
+
+Or download `Jot.zip` from the [latest release](https://github.com/ejohane/jot/releases/latest),
+unzip it, and move **Jot.app** into `~/Applications` before opening it. The universal
+app supports Apple Silicon and Intel Macs running macOS 14 or newer.
+
+The first launch asks for a local Jots folder. The suggested location is
+`~/Documents/Jots`. Writing requires no server, account, database, or network connection.
+Published builds use GitHub only to check for and download app updates.
+
+Published apps are Developer ID signed and notarized. Jot checks for updates
+hourly and offers a download and installation when you choose. **Check for
+Updates…** is available in both the Jot application menu and its menu-bar menu.
+The normal save/recovery gate runs before quitting for an update. Notes remain
+in your chosen folder, outside the app bundle.
+
+**About Jot** shows the version and build. Update checks contact GitHub; note
+contents are never sent with them.
+
+## Build from source
+
+### Requirements
 
 - macOS 14 or newer
 - Swift 6.2 toolchain
 - Node.js and npm
 - CMake (for building the bundled Whisper transcription helper)
 
-## Build, test, and run
+### Build, test, and run
 
 ```sh
 npm --prefix Web ci
@@ -30,9 +63,8 @@ Install the same release bundle into `/Applications` and launch it with:
 ./script/build_and_run.sh --install
 ```
 
-The first launch asks for a local Jots folder. The suggested location is
-`~/Documents/Jots`. Writing requires no server, account, database, or network connection.
-Published builds use GitHub only to check for and download app updates.
+Local development builds keep updates disabled so a published build cannot
+replace a working development build.
 
 ## Controls
 
@@ -61,33 +93,6 @@ partial words appear at the insertion point while you speak. Partial guesses
 do not change the saved Markdown or undo history; pressing Stop commits the
 final transcript as one edit. Pauses finalize phrases within the preview.
 Jot does not save a recording or upload speech or transcripts.
-
-## Install and update
-
-Run this in Terminal (no developer tools needed):
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/ejohane/jot/main/script/install.sh | sh
-```
-
-The installer downloads the latest release, verifies its checksum, Apple signing
-identity, and notarization, installs it in `/Applications`, and opens Jot. Quit
-Jot first if it is already running. To install without write access to
-`/Applications`, run `export JOT_INSTALL_DIR="$HOME/Applications"` first.
-
-Or download `Jot.zip` from the [latest release](https://github.com/ejohane/jot/releases/latest),
-unzip it, and move **Jot.app** into `/Applications` before opening it. The universal
-app supports Apple Silicon and Intel Macs running macOS 14 or newer.
-
-Published apps are Developer ID signed and notarized. Jot checks for updates
-hourly and offers a download and installation when you choose. **Check for
-Updates…** is available in both the Jot application menu and its menu-bar menu.
-The normal save/recovery gate runs before quitting for an update. Notes remain
-in your chosen folder, outside the app bundle.
-
-Local development builds keep updates disabled so a published build cannot
-replace a working development build. **About Jot** shows the version and build.
-Update checks contact GitHub; note contents are never sent with them.
 
 ## Releases
 
