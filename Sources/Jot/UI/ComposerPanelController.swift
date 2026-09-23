@@ -13,19 +13,12 @@ final class ComposerPanel: NSPanel {
 }
 
 final class WindowDragContainerView: NSView {
-    static let dragHeight: CGFloat = 22
+    static let dragHeight: CGFloat = 44
     static let trafficLightClearance: CGFloat = 76
 
     override var mouseDownCanMoveWindow: Bool { true }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !isHidden, alphaValue > 0, bounds.contains(point) else { return nil }
-        let isInDragRegion = point.x >= Self.trafficLightClearance
-            && point.y >= bounds.maxY - Self.dragHeight
-        return isInDragRegion ? self : super.hitTest(point)
-    }
 
     override func mouseDown(with event: NSEvent) {
         guard let window else {
@@ -41,8 +34,10 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
     let bridge = EditorBridge()
     private let resourceHandler = LocalResourceSchemeHandler()
     private let webView: WKWebView
-    private var isProgrammaticResize = false
+    private var isProgrammaticFrameChange = false
     private var userHasResized = false
+    private var userPlacedPanel = false
+    private var hasShown = false
     private var escapeMonitor: Any?
     weak var panelDelegate: (any ComposerPanelDelegate)?
     var onEscape: (() -> Void)?
@@ -75,15 +70,23 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.minSize = NSSize(width: 360, height: 180)
         panel.maxSize = NSSize(width: 900, height: 900)
-        let contentView = WindowDragContainerView(frame: initialFrame)
+        let contentView = NSView(frame: initialFrame)
+        let dragView = WindowDragContainerView(frame: .zero)
         webView.translatesAutoresizingMaskIntoConstraints = false
+        dragView.translatesAutoresizingMaskIntoConstraints = false
         contentView.setAccessibilityElement(false)
+        dragView.setAccessibilityElement(false)
         contentView.addSubview(webView)
+        contentView.addSubview(dragView)
         NSLayoutConstraint.activate([
             webView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             webView.topAnchor.constraint(equalTo: contentView.topAnchor),
             webView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            dragView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: WindowDragContainerView.trafficLightClearance),
+            dragView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            dragView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            dragView.heightAnchor.constraint(equalToConstant: WindowDragContainerView.dragHeight),
         ])
         panel.contentView = contentView
         panel.isReleasedWhenClosed = false
@@ -92,7 +95,13 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
         panel.delegate = self
         bridge.webView = webView
         webView.navigationDelegate = bridge
-        if let savedFrame { panel.setFrame(from: savedFrame) }
+        if let savedFrame {
+            let frame = NSRectFromString(savedFrame)
+            if frame.width > 0, frame.height > 0 {
+                panel.setFrame(frame, display: false)
+                userPlacedPanel = true
+            }
+        }
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard event.keyCode == 53,
                   let self,
@@ -111,8 +120,15 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
 
     func showAndFocus() {
         guard let panel = window else { return }
-        placeOnActiveDisplayIfNeeded(panel)
+        isProgrammaticFrameChange = true
+        if userPlacedPanel {
+            restoreVisiblePosition(panel)
+        } else if let visibleFrame = activeVisibleFrame() {
+            panel.setFrame(Self.centeredFrame(panel.frame, in: visibleFrame), display: true)
+        }
         panel.orderFrontRegardless()
+        isProgrammaticFrameChange = false
+        hasShown = true
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKey()
         webView.focusRingType = .none
@@ -129,22 +145,31 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
         let frameHeight = panel.frameRect(forContentRect: NSRect(x: 0, y: 0, width: panel.contentLayoutRect.width, height: contentHeight)).height
         guard abs(panel.frame.height - frameHeight) > 1 else { return }
         var frame = panel.frame
-        let top = frame.maxY
         frame.size.height = frameHeight
-        frame.origin.y = top - frameHeight
-        isProgrammaticResize = true
+        if userPlacedPanel {
+            frame.origin.y = panel.frame.maxY - frameHeight
+        } else if let visibleFrame = activeVisibleFrame() {
+            frame = Self.centeredFrame(frame, in: visibleFrame)
+        }
+        isProgrammaticFrameChange = true
         panel.setFrame(frame, display: true, animate: false)
-        placeOnActiveDisplayIfNeeded(panel)
-        isProgrammaticResize = false
+        if userPlacedPanel { restoreVisiblePosition(panel) }
+        isProgrammaticFrameChange = false
     }
 
     func windowDidResignKey(_ notification: Notification) {
         panelDelegate?.composerDidResignKey()
     }
 
-    func windowDidMove(_ notification: Notification) { recordFrame() }
+    func windowDidMove(_ notification: Notification) {
+        guard hasShown, !isProgrammaticFrameChange else { return }
+        userPlacedPanel = true
+        recordFrame()
+    }
     func windowDidResize(_ notification: Notification) {
-        if !isProgrammaticResize { userHasResized = true }
+        guard hasShown, !isProgrammaticFrameChange else { return }
+        userHasResized = true
+        userPlacedPanel = true
         recordFrame()
     }
 
@@ -153,12 +178,26 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
         panelDelegate?.composerFrameDidChange(frame)
     }
 
-    private func placeOnActiveDisplayIfNeeded(_ panel: NSWindow) {
+    private func activeVisibleFrame() -> NSRect? {
         let mouseLocation = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouseLocation, $0.frame, false) } ?? NSScreen.main
-        guard let visibleFrame = screen?.visibleFrame else { return }
+        return screen?.visibleFrame
+    }
+
+    private func restoreVisiblePosition(_ panel: NSWindow) {
+        guard let visibleFrame = NSScreen.screens.first(where: { $0.visibleFrame.intersects(panel.frame) })?.visibleFrame
+            ?? activeVisibleFrame() else { return }
         let frame = Self.clampedFrame(panel.frame, to: visibleFrame)
         if frame != panel.frame { panel.setFrame(frame, display: true) }
+    }
+
+    static func centeredFrame(_ proposedFrame: NSRect, in visibleFrame: NSRect) -> NSRect {
+        var frame = proposedFrame
+        frame.size.width = min(frame.width, visibleFrame.width)
+        frame.size.height = min(frame.height, visibleFrame.height)
+        frame.origin.x = visibleFrame.midX - frame.width / 2
+        frame.origin.y = visibleFrame.midY - frame.height / 2
+        return frame
     }
 
     static func clampedFrame(_ proposedFrame: NSRect, to visibleFrame: NSRect) -> NSRect {
