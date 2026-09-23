@@ -41,8 +41,17 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 body { background: var(--background); color: var(--text); }
 button, .cm-content { -webkit-font-smoothing: antialiased; }
 
-.composer { height: 100%; position: relative; }
-.editor { height: 100%; }
+.composer {
+  --editor-top-inset: 44px;
+  --editor-bottom-inset: 46px;
+  height: 100%;
+  position: relative;
+}
+.editor {
+  position: absolute;
+  inset: var(--editor-top-inset) 0 var(--editor-bottom-inset);
+  overflow: hidden;
+}
 .status {
   align-items: center;
   bottom: 11px;
