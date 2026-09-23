@@ -106,6 +106,20 @@ afterEach(async () => {
 });
 
 describe("source-first Markdown presentation", () => {
+  it("includes the fixed editor bands when requesting a taller panel", async () => {
+    const { parent, view, messages } = await makeConnectedEditor("Short note");
+    const composer = parent.querySelector<HTMLElement>(".composer")!;
+    composer.style.setProperty("--editor-top-inset", "44px");
+    composer.style.setProperty("--editor-bottom-inset", "46px");
+    view.scrollDOM.style.paddingTop = "9px";
+    view.scrollDOM.style.paddingBottom = "11px";
+    Object.defineProperty(view.contentDOM, "scrollHeight", { configurable: true, value: 300 });
+
+    view.dispatch({ changes: { from: view.state.doc.length, insert: "!" } });
+    await vi.waitFor(() => expect(messages.filter((message) => message.type === "preferredHeightChanged").at(-1))
+      .toMatchObject({ height: 410 }));
+  });
+
   it("recognizes only literal inline tags in ordinary Markdown", () => {
     const source = "# Heading\nHello #Project, (#second).\n`#inline` ``code #double`` \\#escaped\n```md\n#fenced\n```\n~~~\n#otherFence\n~~~\n[#label](https://example.test/#destination) https://example.test/#fragment\n😀 #emojiNeighbor";
     expect(findInlineTags(source).map((tag) => tag.name)).toEqual(["Project", "second", "label", "emojiNeighbor"]);

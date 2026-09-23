@@ -1,7 +1,7 @@
 import { deleteMarkupBackward, insertNewlineContinueMarkupCommand, markdown } from "@codemirror/lang-markdown";
 import { history, historyKeymap } from "@codemirror/commands";
 import { Annotation, EditorSelection, EditorState, Transaction } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, keymap, tooltips } from "@codemirror/view";
 import { GFM } from "@lezer/markdown";
 import { useEffect, useRef, useState } from "react";
 import { sendToNative, type EditorToNative } from "./bridge";
@@ -98,11 +98,17 @@ export function Editor() {
 
     const sendPreferredHeight = (view: EditorView) => {
       requestAnimationFrame(() => {
+        const composer = host.current?.parentElement;
+        if (!composer) return;
         const { paddingTop, paddingBottom } = getComputedStyle(view.scrollDOM);
+        const composerStyle = getComputedStyle(composer);
+        const topInset = parseFloat(composerStyle.getPropertyValue("--editor-top-inset")) || 0;
+        const bottomInset = parseFloat(composerStyle.getPropertyValue("--editor-bottom-inset")) || 0;
         sendToNative({
           version: 1,
           type: "preferredHeightChanged",
-          height: view.contentDOM.scrollHeight + parseFloat(paddingTop) + parseFloat(paddingBottom),
+          height: view.contentDOM.scrollHeight + parseFloat(paddingTop) + parseFloat(paddingBottom)
+            + topInset + bottomInset,
         });
       });
     };
@@ -115,6 +121,7 @@ export function Editor() {
         inlineTagEditor,
         dictationPreview,
         editorTheme,
+        tooltips({ tooltipSpace: (view) => view.scrollDOM.getBoundingClientRect() }),
         EditorView.lineWrapping,
         history(),
         keymap.of([
