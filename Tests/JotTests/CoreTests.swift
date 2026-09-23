@@ -108,6 +108,14 @@ final class BridgeDelegateSpy: EditorBridgeDelegate {
     func editorRequestedRecovery(_ action: String) { recoveryAction = action }
 }
 
+@MainActor
+final class PanelDelegateSpy: ComposerPanelDelegate {
+    var movedFrames: [NSRect] = []
+
+    func composerDidResignKey() {}
+    func composerFrameDidChange(_ frame: NSRect) { movedFrames.append(frame) }
+}
+
 final class CoreTests: XCTestCase {
     @MainActor
     func testNativeDragRegionWinsHitTestingWithoutTakingOverTheEditor() {
@@ -123,10 +131,10 @@ final class CoreTests: XCTestCase {
             return XCTFail("Composer panel has no content view")
         }
         contentView.layoutSubtreeIfNeeded()
-        let dragPoint = NSPoint(x: 300, y: contentView.bounds.maxY - 10)
+        let dragPoint = NSPoint(x: 300, y: contentView.bounds.maxY - 32)
         let editorPoint = NSPoint(x: 300, y: contentView.bounds.maxY - 50)
-        XCTAssertTrue(contentView.hitTest(dragPoint) === contentView)
-        XCTAssertFalse(contentView.hitTest(editorPoint) === contentView)
+        XCTAssertTrue(contentView.hitTest(dragPoint) is WindowDragContainerView)
+        XCTAssertFalse(contentView.hitTest(editorPoint) is WindowDragContainerView)
     }
 
     @MainActor
@@ -138,6 +146,63 @@ final class CoreTests: XCTestCase {
             ComposerPanelController.clampedFrame(expandedFromBottomEdge, to: visibleFrame),
             NSRect(x: 0, y: 0, width: 560, height: 700)
         )
+    }
+
+    @MainActor
+    func testFreshPanelCentersWithinVisibleDisplay() {
+        let visibleFrame = NSRect(x: 100, y: 50, width: 1_400, height: 900)
+        let defaultFrame = NSRect(x: 0, y: 0, width: 560, height: 260)
+        XCTAssertEqual(
+            ComposerPanelController.centeredFrame(defaultFrame, in: visibleFrame),
+            NSRect(x: 520, y: 370, width: 560, height: 260)
+        )
+    }
+
+    @MainActor
+    func testFreshPanelCentersWithoutSavingAndReopensWhereMoved() throws {
+        guard let screen = NSScreen.main else { throw XCTSkip("No display is available") }
+        let controller = ComposerPanelController(savedFrame: nil)
+        let delegate = PanelDelegateSpy()
+        controller.panelDelegate = delegate
+        guard let panel = controller.window else { return XCTFail("Missing composer panel") }
+        defer { panel.close() }
+
+        controller.showAndFocus()
+        let visibleFrame = screen.visibleFrame
+        XCTAssertEqual(panel.frame.midX, visibleFrame.midX, accuracy: 1)
+        XCTAssertEqual(panel.frame.midY, visibleFrame.midY, accuracy: 1)
+        controller.applyPreferredContentHeight(300)
+        XCTAssertEqual(panel.frame.midY, visibleFrame.midY, accuracy: 1)
+        XCTAssertTrue(delegate.movedFrames.isEmpty)
+
+        let movedFrame = NSRect(
+            x: visibleFrame.minX + 110,
+            y: visibleFrame.minY + 120,
+            width: panel.frame.width,
+            height: panel.frame.height
+        )
+        panel.setFrame(movedFrame, display: true)
+        controller.windowDidMove(Notification(name: NSWindow.didMoveNotification, object: panel))
+        XCTAssertEqual(delegate.movedFrames.last, movedFrame)
+        controller.hide()
+        controller.showAndFocus()
+        XCTAssertEqual(panel.frame, movedFrame)
+        panel.close()
+        controller.showAndFocus()
+        XCTAssertEqual(panel.frame, movedFrame)
+    }
+
+    @MainActor
+    func testPreviouslyMovedPanelRestoresItsSavedFrame() throws {
+        guard let screen = NSScreen.main else { throw XCTSkip("No display is available") }
+        let visibleFrame = screen.visibleFrame
+        let savedFrame = NSRect(x: visibleFrame.minX + 120, y: visibleFrame.minY + 130, width: 560, height: 260)
+        let controller = ComposerPanelController(savedFrame: NSStringFromRect(savedFrame))
+        guard let panel = controller.window else { return XCTFail("Missing composer panel") }
+        defer { panel.close() }
+
+        controller.showAndFocus()
+        XCTAssertEqual(panel.frame, savedFrame)
     }
 
     @MainActor
@@ -601,6 +666,7 @@ final class CoreTests: XCTestCase {
         expected.selection = EditorSelection(anchor: 4, head: 9)
         expected.viewport = EditorViewport(scrollTop: 123)
         expected.panelFrame = "{{10, 20}, {560, 260}}"
+        expected.panelPositionWasUserChosen = true
         try await store.save(expected)
         let actual = await store.load()
         XCTAssertEqual(actual, expected)
@@ -634,6 +700,7 @@ final class CoreTests: XCTestCase {
         let session = await SessionStore(fileURL: url, fileSystem: fileSystem).load()
         XCTAssertNil(session.recoveryText)
         XCTAssertNil(session.recoveryRevision)
+        XCTAssertNil(session.panelPositionWasUserChosen)
     }
 
     func testTenThousandAllocationsWithSameTimestampAreUnique() {

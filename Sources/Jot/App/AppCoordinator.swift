@@ -25,7 +25,9 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         rootURL = rootAccess.restore(from: session.rootBookmark)
         hasBlockingWriteError = session.activeJot != nil && rootURL == nil
         writer = JotWriter(rootURL: rootURL) { [weak self] event in self?.handle(event) }
-        panelController = ComposerPanelController(savedFrame: session.panelFrame)
+        panelController = ComposerPanelController(
+            savedFrame: session.panelPositionWasUserChosen == true ? session.panelFrame : nil
+        )
         panelController.bridge.delegate = self
         panelController.panelDelegate = self
         panelController.onEscape = { [weak self] in
@@ -230,6 +232,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
     func composerFrameDidChange(_ frame: NSRect) {
         session.panelFrame = NSStringFromRect(frame)
+        session.panelPositionWasUserChosen = true
         persistSessionSoon()
     }
 
