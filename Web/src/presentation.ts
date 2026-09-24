@@ -1,14 +1,17 @@
 import { syntaxTree } from "@codemirror/language";
 import { RangeSetBuilder } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from "@codemirror/view";
+import type { SyntaxNode } from "@lezer/common";
 
 class BulletWidget extends WidgetType {
-  eq() { return true; }
+  constructor(private readonly open: boolean) { super(); }
+
+  eq(other: BulletWidget) { return other.open === this.open; }
 
   toDOM() {
     const bullet = document.createElement("span");
-    bullet.className = "cm-list-bullet";
-    bullet.textContent = "•";
+    bullet.className = this.open ? "cm-list-bullet cm-list-bullet-open" : "cm-list-bullet";
+    bullet.textContent = this.open ? "○" : "•";
     bullet.setAttribute("aria-hidden", "true");
     return bullet;
   }
@@ -16,7 +19,18 @@ class BulletWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
-const bulletDecoration = Decoration.replace({ widget: new BulletWidget() });
+const bulletDecorations = [
+  Decoration.replace({ widget: new BulletWidget(false) }),
+  Decoration.replace({ widget: new BulletWidget(true) }),
+];
+
+function bulletDepth(mark: SyntaxNode): number {
+  let depth = -1;
+  for (let ancestor = mark.parent; ancestor; ancestor = ancestor.parent) {
+    if (ancestor.name === "BulletList" || ancestor.name === "OrderedList") depth += 1;
+  }
+  return Math.max(0, depth);
+}
 
 const markerNodes = new Set([
   "HeaderMark",
@@ -42,7 +56,7 @@ function markerDecorations(view: EditorView): DecorationSet {
       ranges.push({
         from: node.from,
         to: node.to,
-        decoration: isBullet ? bulletDecoration : Decoration.mark({
+        decoration: isBullet ? bulletDecorations[bulletDepth(node.node) % 2] : Decoration.mark({
           class: active ? "cm-markdown-marker-active" : "cm-markdown-marker",
         }),
       });

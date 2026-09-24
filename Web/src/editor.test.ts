@@ -12,6 +12,7 @@ import type { EditorToNative } from "./bridge";
 import { markdownPresentation } from "./presentation";
 import { findInlineTags } from "./tags";
 import { completionStatus, currentCompletions } from "@codemirror/autocomplete";
+import { indentBulletItem } from "./listIndent";
 
 const views: EditorView[] = [];
 const roots: Root[] = [];
@@ -157,7 +158,7 @@ describe("source-first Markdown presentation", () => {
     await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true })));
     expect(view.state.doc.toString()).toBe("- #MyTag\n- ");
     await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true })));
-    expect(view.state.doc.toString()).toBe("- #MyTag\n  - ");
+    expect(view.state.doc.toString()).toBe("- #MyTag\n     - ");
     view.dispatch({ changes: { from: view.state.doc.length, insert: "#fresh" }, selection: { anchor: view.state.doc.length + 6 }, userEvent: "input.type" });
     expect(view.state.doc.toString()).toContain("#fresh");
   });
@@ -344,6 +345,37 @@ describe("source-first Markdown presentation", () => {
     expect(view.dom.querySelectorAll(".cm-list-bullet")).toHaveLength(4);
   });
 
+  it("alternates filled and open bullets by list depth without changing Markdown", () => {
+    const source = "- one\n     - two\n          - three\n     - four\n- five";
+    const view = makeView(source);
+    expect([...view.dom.querySelectorAll(".cm-list-bullet")].map((bullet) => bullet.textContent)).toEqual([
+      "•", "○", "•", "○", "•",
+    ]);
+    expect(view.state.doc.toString()).toBe(source);
+  });
+
+  it("shows the nested marker in the same update as Tab", async () => {
+    const { view } = await makeConnectedEditor("- one\n- two");
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true })));
+    expect(view.state.doc.toString()).toBe("- one\n     - two");
+    expect([...view.dom.querySelectorAll(".cm-list-bullet")].map((bullet) => bullet.textContent)).toEqual(["•", "○"]);
+  });
+
+  it("accepts Tab immediately after a bullet was typed", async () => {
+    const { view } = await makeConnectedEditor();
+    view.dispatch({ changes: { from: 0, insert: "- one\n- two" }, selection: { anchor: 11 }, userEvent: "input.type" });
+    view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true }));
+    expect(view.state.doc.toString()).toBe("- one\n     - two");
+  });
+
+  it("indents a visible bullet near the end of a long note before background parsing finishes", () => {
+    const source = Array.from({ length: 500 }, (_, index) => `- item ${index}`).join("\n");
+    const view = makeView(source);
+    view.dispatch({ selection: { anchor: source.length } });
+    expect(indentBulletItem(view)).toBe(true);
+    expect(view.state.doc.toString().endsWith("\n     - item 499")).toBe(true);
+  });
+
   it.each([
     ["- first", "- first\n- ", "- first\n"],
     ["* first", "* first\n* ", "* first\n"],
@@ -385,10 +417,10 @@ describe("source-first Markdown presentation", () => {
     });
     view.dispatch({ selection: { anchor: view.state.doc.length } });
     await press();
-    expect(view.state.doc.toString()).toBe("- parent\n  - first child\n    - next child");
+    expect(view.state.doc.toString()).toBe("- parent\n  - first child\n       - next child");
     expect(view.state.selection.main.head).toBe(view.state.doc.length);
     await press();
-    expect(view.state.doc.toString()).toBe("- parent\n  - first child\n    - next child");
+    expect(view.state.doc.toString()).toBe("- parent\n  - first child\n       - next child");
     await press(true);
     expect(view.state.doc.toString()).toBe("- parent\n  - first child\n  - next child");
     await press(true);
@@ -396,7 +428,7 @@ describe("source-first Markdown presentation", () => {
     await press(true);
     expect(view.state.doc.toString()).toBe("- parent\n  - first child\n- next child");
     expect(messages.filter((message) => message.type === "contentChanged").map((message) => message.text)).toEqual([
-      "- parent\n  - first child\n    - next child",
+      "- parent\n  - first child\n       - next child",
       "- parent\n  - first child\n  - next child",
       "- parent\n  - first child\n- next child",
     ]);
@@ -406,7 +438,9 @@ describe("source-first Markdown presentation", () => {
     for (const [text, position] of [["- first\n- second", 2], ["- parent\n  - child", 18]] as const) {
       const { view } = await makeConnectedEditor(text);
       view.dispatch({ selection: { anchor: position } });
-      await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true })));
+      const event = new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true, cancelable: true });
+      await act(async () => view.contentDOM.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(true);
       expect(view.state.doc.toString()).toBe(text);
     }
   });
@@ -416,10 +450,10 @@ describe("source-first Markdown presentation", () => {
     const { view, messages } = await makeConnectedEditor(original);
     view.dispatch({ selection: { anchor: 8, head: 16 } });
     await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true })));
-    const nested = "- first\n  - second\n    - child\n- third";
+    const nested = "- first\n     - second\n       - child\n- third";
     expect(view.state.doc.toString()).toBe(nested);
-    expect(view.state.selection.main.from).toBe(10);
-    expect(view.state.selection.main.to).toBe(18);
+    expect(view.state.selection.main.from).toBe(13);
+    expect(view.state.selection.main.to).toBe(21);
     expect(messages.filter((message) => message.type === "contentChanged").at(-1)).toMatchObject({ text: nested });
     expect(undo(view)).toBe(true);
     expect(view.state.doc.toString()).toBe(original);
@@ -433,7 +467,7 @@ describe("source-first Markdown presentation", () => {
     const { view } = await makeConnectedEditor("- first\n- second\n- \n- fourth");
     view.dispatch({ selection: { anchor: 8, head: 19 } });
     await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true })));
-    expect(view.state.doc.toString()).toBe("- first\n  - second\n  - \n- fourth");
+    expect(view.state.doc.toString()).toBe("- first\n     - second\n     - \n- fourth");
     await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", shiftKey: true, bubbles: true })));
     expect(view.state.doc.toString()).toBe("- first\n- second\n- \n- fourth");
   });

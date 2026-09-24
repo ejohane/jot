@@ -1,41 +1,31 @@
-import { syntaxTree } from "@codemirror/language";
+import { ensureSyntaxTree, syntaxTree, syntaxTreeAvailable } from "@codemirror/language";
 import type { EditorState } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
 
-const indent = "  ";
+const indent = "     ";
 
-type Item = { node: SyntaxNode; depth: number; rootFrom: number; rootTo: number };
+type Item = { node: SyntaxNode };
 
 function listItem(mark: SyntaxNode): Item | null {
   const node = mark.parent;
-  if (node?.name !== "ListItem") return null;
-  let depth = -1;
-  let rootFrom = -1;
-  let rootTo = -1;
-  for (let ancestor: SyntaxNode | null = node.parent; ancestor; ancestor = ancestor.parent) {
-    if (ancestor.name === "BulletList") {
-      depth += 1;
-      rootFrom = ancestor.from;
-      rootTo = ancestor.to;
-    }
+  return node?.name === "ListItem" && node.parent?.name === "BulletList" ? { node } : null;
+}
+
+function bulletItemAtLine(state: EditorState, number: number): Item | null {
+  const line = state.doc.line(number);
+  const match = /^([ \t]*)([*+-])(?:[ \t]+|$)/.exec(line.text);
+  if (!match) return null;
+  const markAt = line.from + match[1].length;
+  let mark = syntaxTree(state).resolveInner(markAt, 1);
+  if (mark.name !== "ListMark" && !syntaxTreeAvailable(state, markAt + 1)) {
+    mark = (ensureSyntaxTree(state, markAt + 1, 16) ?? syntaxTree(state)).resolveInner(markAt, 1);
   }
-  return depth < 0 ? null : { node, depth, rootFrom, rootTo };
+  return mark.name === "ListMark" && mark.from === markAt && mark.to === markAt + 1
+    ? listItem(mark) : null;
 }
 
-function bulletItems(state: EditorState): Item[] {
-  const items: Item[] = [];
-  syntaxTree(state).iterate({
-    enter(mark) {
-      if (mark.name !== "ListMark" || !/^[*+-]$/.test(state.sliceDoc(mark.from, mark.to))) return;
-      const item = listItem(mark.node);
-      if (item) items.push(item);
-    },
-  });
-  return items;
-}
-
-function selectedItems(state: EditorState, items: Item[]): Item[] | null {
+function selectedItems(state: EditorState): Item[] | null {
   const selected: Item[] = [];
   for (const range of state.selection.ranges) {
     const last = range.empty ? range.to : range.to > 0 && state.doc.lineAt(range.to).from === range.to
@@ -45,15 +35,20 @@ function selectedItems(state: EditorState, items: Item[]): Item[] | null {
     for (let number = firstLine; number <= lastLine; number += 1) {
       const line = state.doc.line(number);
       if (!line.text.trim() && !range.empty) continue;
-      const item = items.find((candidate) => state.doc.lineAt(candidate.node.from).number === number);
+      const item = bulletItemAtLine(state, number);
       if (!item) return null;
       selected.push(item);
     }
   }
   // Moving a parent moves its whole subtree, including any selected children.
-  return selected.filter((item, index) => selected.findIndex((other) => other.node.from === item.node.from
-    && other.node.to === item.node.to) === index && !selected.some((other) => other !== item
-    && other.node.from <= item.node.from && other.node.to >= item.node.to));
+  selected.sort((a, b) => a.node.from - b.node.from || b.node.to - a.node.to);
+  const roots: Item[] = [];
+  for (const item of selected) {
+    const previous = roots.at(-1);
+    if (previous && previous.node.to >= item.node.to) continue;
+    roots.push(item);
+  }
+  return roots;
 }
 
 function leadingWhitespace(state: EditorState, node: SyntaxNode): string {
@@ -70,22 +65,19 @@ function outdentPrefix(state: EditorState, item: Item): string | null {
 
 function changeIndent(view: EditorView, direction: 1 | -1): boolean {
   const { state } = view;
-  const items = bulletItems(state);
-  const selected = selectedItems(state, items);
+  const selected = selectedItems(state);
   if (!selected?.length) return false;
 
   const outdents = new Map<Item, string>();
   for (const item of selected) {
     if (direction < 0) {
       const prefix = outdentPrefix(state, item);
-      if (!prefix) return false;
+      if (!prefix) return true;
       outdents.set(item, prefix);
     } else {
-      const previous = items.filter((candidate) => candidate.node.from < item.node.from
-        && candidate.rootFrom === item.rootFrom && candidate.rootTo === item.rootTo).at(-1);
       // The first item has no parent to nest under. An existing first child
       // cannot skip another level beneath its parent.
-      if (!previous || item.depth > previous.depth) return false;
+      if (item.node.prevSibling?.name !== "ListItem") return true;
     }
   }
 
