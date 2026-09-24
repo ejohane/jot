@@ -19,7 +19,9 @@ function bulletItemAtLine(state: EditorState, number: number): Item | null {
   const markAt = line.from + match[1].length;
   let mark = syntaxTree(state).resolveInner(markAt, 1);
   if (mark.name !== "ListMark" && !syntaxTreeAvailable(state, markAt + 1)) {
-    mark = (ensureSyntaxTree(state, markAt + 1, 16) ?? syntaxTree(state)).resolveInner(markAt, 1);
+    // A newly loaded long note may not be parsed to the caret yet. Give that
+    // one-time parse enough time to reach the active marker on slower Macs.
+    mark = (ensureSyntaxTree(state, markAt + 1, 100) ?? syntaxTree(state)).resolveInner(markAt, 1);
   }
   return mark.name === "ListMark" && mark.from === markAt && mark.to === markAt + 1
     ? listItem(mark) : null;
