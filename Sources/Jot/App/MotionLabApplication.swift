@@ -1,87 +1,102 @@
+#if JOT_MOTION_LAB
 import AppKit
-import WebKit
 
-// This coordinator is reachable only from the separately packaged developer jig.
-// It deliberately never creates AppCoordinator, SessionStore, or a JotWriter.
+// Developer mode of Jot itself. It uses the real ComposerPanelController,
+// EditorBridge, WKWebView, and Editor.tsx; only its note store is disposable.
 @MainActor
-final class MotionLabApplication: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNavigationDelegate {
+final class MotionLabApplication: NSObject, NSApplicationDelegate, EditorBridgeDelegate, ComposerPanelDelegate {
     private let store = MotionLabStore()
-    private let resourceHandler = LocalResourceSchemeHandler()
-    private var window: NSWindow?
-    private var webView: WKWebView?
+    private var panelController: ComposerPanelController?
+    private var stateSaveTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.userContentController.add(self, name: "motionLab")
-        configuration.setURLSchemeHandler(resourceHandler, forURLScheme: "jot")
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.setValue(false, forKey: "drawsBackground")
-        webView.navigationDelegate = self
-        self.webView = webView
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1050, height: 700),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Jot Motion Lab · Sample Notes"
-        window.minSize = NSSize(width: 780, height: 520)
-        window.contentView = webView
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        self.window = window
-        NSApp.activate(ignoringOtherApps: true)
-        webView.load(URLRequest(url: URL(string: "jot://local/lab.html")!))
+        let panel = ComposerPanelController(savedFrame: nil, motionLabMode: true)
+        panel.bridge.delegate = self
+        panel.panelDelegate = self
+        panel.onEscape = { [weak panel] in panel?.hide() }
+        panelController = panel
+        panel.loadEditor()
+        panel.showAndFocus()
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        panelController?.showAndFocus()
+        return true
+    }
 
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "motionLab", let body = message.body as? [String: Any],
-              let type = body["type"] as? String else { return }
-        switch type {
-        case "ready":
-            send(["type": "hydrate", "payload": store.payload()])
-        case "save":
-            guard let id = body["id"] as? String, let text = body["text"] as? String,
-                  let anchor = body["anchor"] as? Int, let head = body["head"] as? Int,
-                  let scrollTop = body["scrollTop"] as? Double else { return }
-            let saved = store.save(id: id, text: text, anchor: anchor, head: head, scrollTop: scrollTop)
-            send(["type": saved ? "saved" : "saveFailed", "id": id])
-        case "select":
-            guard let id = body["id"] as? String else { return }
-            if store.select(id: id) {
-                send(["type": "selected", "payload": store.payload()])
-            } else {
-                send(["type": "saveFailed", "id": id])
-            }
-        case "settings":
-            if let settings = body["value"] as? [String: Double] { store.saveSettings(settings) }
-        case "reset":
-            store.reset()
-            send(["type": "hydrate", "payload": store.payload()])
-        case "export":
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(store.settingsJSON(), forType: .string)
-            send(["type": "exported"])
-        default:
-            break
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        stateSaveTask?.cancel()
+        return store.flush() ? .terminateNow : .terminateCancel
+    }
+
+    func editorDidBecomeReady() { sendSelectedNote() }
+
+    func editorContentChanged(_ snapshot: EditorSnapshot, noteID: String?) {
+        guard noteID == store.data.selectedID else { return }
+        let saved = store.save(
+            id: store.data.selectedID,
+            text: snapshot.text,
+            anchor: snapshot.selection.anchor,
+            head: snapshot.selection.head,
+            scrollTop: snapshot.viewport.scrollTop
+        )
+        panelController?.send(saved
+            ? ["version": 1, "type": "writeSucceeded", "noteID": store.data.selectedID, "revision": snapshot.revision]
+            : ["version": 1, "type": "writeFailed", "noteID": store.data.selectedID,
+               "revision": snapshot.revision, "errorCode": "motionLabSave", "message": "Sample note could not be saved.", "actions": []])
+    }
+
+    func editorStateChanged(selection: EditorSelection, viewport: EditorViewport) {
+        store.updateState(id: store.data.selectedID, anchor: selection.anchor, head: selection.head, scrollTop: viewport.scrollTop)
+        stateSaveTask?.cancel()
+        stateSaveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(180))
+            guard !Task.isCancelled else { return }
+            _ = self?.store.flush()
         }
     }
 
-    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
-                 decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
-        let scheme = navigationAction.request.url?.scheme
-        decisionHandler(scheme == "jot" || scheme == "about" ? .allow : .cancel)
+    func editorPreferredHeightChanged(_ height: Double) {}
+    func editorRequestedFinish(revision: Int) {}
+    func editorRequestedHide(revision: Int) { _ = store.flush(); panelController?.hide() }
+    func editorRequestedRecovery(_ action: String) {}
+    func editorRequestedDictationToggle() {}
+    func editorRequestedDictationFinish() {}
+    func editorRequestedDictationCancel() {}
+    func composerDidResignKey() {}
+    func composerFrameDidChange(_ frame: NSRect) {}
+
+    func labRequestedSelection(_ id: String) {
+        stateSaveTask?.cancel()
+        if store.select(id: id) { sendSelectedNote() }
+        else { sendLabError() }
     }
 
-    private func send(_ message: [String: Any]) {
-        guard JSONSerialization.isValidJSONObject(message),
-              let data = try? JSONSerialization.data(withJSONObject: message),
-              let json = String(data: data, encoding: .utf8) else { return }
-        webView?.evaluateJavaScript("window.MotionLabNative?.receive(\(json))")
+    func labRequestedSettings(_ values: [String: Double]) { store.saveSettings(values) }
+    func labRequestedReset() {
+        if store.reset() { sendSelectedNote() }
+        else { sendLabError() }
+    }
+    func labRequestedExport() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(store.settingsJSON(), forType: .string)
+        panelController?.send(["version": 1, "type": "labExported"])
+    }
+
+    private func sendSelectedNote() {
+        guard let note = store.data.notes.first(where: { $0.id == store.data.selectedID }) else { return }
+        panelController?.send([
+            "version": 1, "type": "loadSession", "text": note.text, "noteID": note.id,
+            "revision": 0, "selection": ["anchor": note.anchor, "head": note.head],
+            "viewport": ["scrollTop": note.scrollTop],
+        ])
+        panelController?.send(["version": 1, "type": "labHydrate", "payload": store.payload()])
+    }
+
+    private func sendLabError() {
+        panelController?.send(["version": 1, "type": "writeFailed", "noteID": store.data.selectedID,
+                               "revision": 0, "errorCode": "motionLabSave", "message": "Sample note could not be saved. Navigation was blocked.", "actions": []])
     }
 }
+#endif

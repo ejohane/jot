@@ -23,15 +23,19 @@ fi
 swift package resolve --force-resolved-versions
 mkdir -p dist
 ./script/build_whisper.sh
+swift_flags=(--force-resolved-versions)
+if [[ "${JOT_MOTION_LAB:-0}" == 1 ]]; then
+  swift_flags=(-Xswiftc -DJOT_MOTION_LAB)
+fi
 if [[ "${JOT_UNIVERSAL:-0}" == 1 ]]; then
   for arch in arm64 x86_64; do
-    swift build -c "$configuration" --arch "$arch" --product Jot --force-resolved-versions
+    swift build -c "$configuration" --arch "$arch" --product Jot "${swift_flags[@]}"
     bin_dir="$(swift build -c "$configuration" --arch "$arch" --show-bin-path)"
     cp "$bin_dir/Jot" "dist/Jot-$arch"
   done
   lipo -create dist/Jot-arm64 dist/Jot-x86_64 -output dist/Jot-binary
 else
-  swift build -c "$configuration" --product Jot --force-resolved-versions
+  swift build -c "$configuration" --product Jot "${swift_flags[@]}"
   bin_dir="$(swift build -c "$configuration" --show-bin-path)"
   cp "$bin_dir/Jot" dist/Jot-binary
 fi

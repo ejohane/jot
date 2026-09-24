@@ -13,6 +13,17 @@ protocol EditorBridgeDelegate: AnyObject {
     func editorRequestedDictationToggle()
     func editorRequestedDictationFinish()
     func editorRequestedDictationCancel()
+    func labRequestedSelection(_ id: String)
+    func labRequestedSettings(_ values: [String: Double])
+    func labRequestedReset()
+    func labRequestedExport()
+}
+
+extension EditorBridgeDelegate {
+    func labRequestedSelection(_ id: String) {}
+    func labRequestedSettings(_ values: [String: Double]) {}
+    func labRequestedReset() {}
+    func labRequestedExport() {}
 }
 
 @MainActor
@@ -73,6 +84,14 @@ final class EditorBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             delegate?.editorRequestedDictationFinish()
         case "cancelDictation":
             delegate?.editorRequestedDictationCancel()
+        case "labSelect":
+            if let id = body["id"] as? String { delegate?.labRequestedSelection(id) }
+        case "labSettings":
+            if let values = body["value"] as? [String: Double] { delegate?.labRequestedSettings(values) }
+        case "labReset":
+            delegate?.labRequestedReset()
+        case "labExport":
+            delegate?.labRequestedExport()
         default:
             break
         }

@@ -13,7 +13,11 @@ export type EditorToNative =
   | { version: 1; type: "toggleDictation" }
   | { version: 1; type: "finishDictation" }
   | { version: 1; type: "cancelDictation" }
-  | { version: 1; type: "recover"; action: "restoreRoot" | "saveCopy" | "reloadExternal" };
+  | { version: 1; type: "recover"; action: "restoreRoot" | "saveCopy" | "reloadExternal" }
+  | { version: 1; type: "labSelect"; id: string }
+  | { version: 1; type: "labSettings"; value: Record<string, number> }
+  | { version: 1; type: "labReset" }
+  | { version: 1; type: "labExport" };
 
 export type NativeToEditor =
   | { version: 1; type: "loadSession"; text: string; noteID?: string; revision: number; selection: Selection; viewport: Viewport }
@@ -26,11 +30,13 @@ export type NativeToEditor =
   | { version: 1; type: "dictationResult"; text: string }
   | { version: 1; type: "dictationPartial"; text: string }
   | { version: 1; type: "dictationLevel"; level: number }
-  | { version: 1; type: "tagVocabulary"; tags: string[] };
+  | { version: 1; type: "tagVocabulary"; tags: string[] }
+  | { version: 1; type: "labHydrate"; payload: { notes: Array<{ id: string; capturedAt: string; text: string; anchor: number; head: number; scrollTop: number }>; selectedID: string; settings: Record<string, number> } }
+  | { version: 1; type: "labExported" };
 
 declare global {
   interface Window {
-    webkit?: { messageHandlers?: { jot?: { postMessage(message: EditorToNative): void }; motionLab?: { postMessage(message: Record<string, unknown>): void } } };
+    webkit?: { messageHandlers?: { jot?: { postMessage(message: EditorToNative): void } } };
     JotNative?: { receive(message: NativeToEditor): void };
   }
 }

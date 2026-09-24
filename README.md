@@ -159,4 +159,4 @@ For disposable UI verification, launch the packaged app with `JOT_TEST_SESSION_P
 
 ## Developer motion lab
 
-The separate, sample-only note navigation jig is documented in [MOTION_LAB.md](MOTION_LAB.md). Run `./script/run_motion_lab.sh` from a checkout; it does not install over Jot.
+Jot's developer-mode note navigation jig is documented in [MOTION_LAB.md](MOTION_LAB.md). Run `./script/run_motion_lab.sh` from a checkout; it launches the actual Jot composer with disposable sample notes without installing over Jot.

@@ -1,3 +1,4 @@
+#if DEBUG || JOT_MOTION_LAB
 import Foundation
 
 struct MotionLabNote: Codable, Identifiable {
@@ -52,11 +53,23 @@ final class MotionLabStore {
 
     @discardableResult
     func select(id: String) -> Bool {
-        guard data.notes.contains(where: { $0.id == id }), persist() else { return false }
+        guard data.notes.contains(where: { $0.id == id }) else { return false }
+        let previousID = data.selectedID
         data.selectedID = id
-        return persist()
+        guard persist() else { data.selectedID = previousID; return false }
+        return true
     }
 
+    func updateState(id: String, anchor: Int, head: Int, scrollTop: Double) {
+        guard let index = data.notes.firstIndex(where: { $0.id == id }) else { return }
+        let length = data.notes[index].text.utf16.count
+        data.notes[index].anchor = max(0, min(anchor, length))
+        data.notes[index].head = max(0, min(head, length))
+        data.notes[index].scrollTop = max(0, scrollTop)
+    }
+
+    @discardableResult
+    func flush() -> Bool { persist() }
     func saveSettings(_ settings: [String: Double]) {
         data.settings = settings.filter { $0.value.isFinite }
         persist()
@@ -67,9 +80,12 @@ final class MotionLabStore {
         return String(decoding: encoded, as: UTF8.self)
     }
 
-    func reset() {
+    @discardableResult
+    func reset() -> Bool {
+        let previous = data
         data = Self.sampleData()
-        persist()
+        guard persist() else { data = previous; return false }
+        return true
     }
 
     @discardableResult
@@ -103,3 +119,5 @@ final class MotionLabStore {
         return MotionLabData(notes: notes, selectedID: notes[3].id, settings: [:])
     }
 }
+
+#endif
