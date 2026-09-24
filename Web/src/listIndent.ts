@@ -99,7 +99,8 @@ function changeIndent(view: EditorView, direction: 1 | -1): boolean {
       if (direction > 0) changes.push({ from: line.from, insert: indent });
       else {
         const prefix = outdents.get(item)!;
-        if (!line.text.startsWith(prefix)) return false;
+        // Markdown permits unindented continuation text inside a list item.
+        if (!line.text.startsWith(prefix)) continue;
         changes.push({ from: line.from, to: line.from + prefix.length, insert: "" });
       }
     }

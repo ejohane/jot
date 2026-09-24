@@ -446,6 +446,13 @@ describe("source-first Markdown presentation", () => {
     }
   });
 
+  it("outdents a bullet while preserving lazy continuation text", async () => {
+    const { view } = await makeConnectedEditor("- parent\n  - child\ncontinuation");
+    view.dispatch({ selection: { anchor: 16 } });
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", shiftKey: true, bubbles: true })));
+    expect(view.state.doc.toString()).toBe("- parent\n- child\ncontinuation");
+  });
+
   it("does not partially indent a selection that includes the first bullet", async () => {
     const original = "- first\n- second\n- third";
     const { view } = await makeConnectedEditor(original);
