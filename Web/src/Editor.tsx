@@ -9,12 +9,17 @@ import { editorTheme } from "./editorTheme";
 import { markdownPresentation } from "./presentation";
 import { beginDictation, clearDictation, dictationPreview, insertionForDictation, reviseDictation } from "./dictationPreview";
 import { inlineTagEditor, setTagVocabulary } from "./tagEditor";
+import { MotionLabControls, MotionLabTimeline, MotionLabStageMeta, MotionLabEdge, type EdgePreview } from "./MotionLabChrome";
+import { adjacentIndex, defaultSettings, edgeDisplacement, mergeSettings, shouldCommit, type LabNote, type MotionSettings } from "./motion";
 
 type RecoveryAction = "restoreRoot" | "saveCopy" | "reloadExternal";
 type ErrorStatus = { message: string; actions?: RecoveryAction[] };
 const loadSession = Annotation.define<boolean>();
 const continueMarkdownList = insertNewlineContinueMarkupCommand({ nonTightLists: false });
 const waveformBars = 48;
+const motionLabMode = import.meta.env.MODE === "motion-lab" && new URLSearchParams(window.location.search).has("motionLab");
+if (motionLabMode) void import("./motionLab.css");
+type EdgeGesture = { direction: -1 | 1; effort: number; events: number; started: number; timer?: number };
 
 export function insertLiteralNewline(view: EditorView): boolean {
   view.dispatch({
@@ -27,6 +32,19 @@ export function insertLiteralNewline(view: EditorView): boolean {
 
 export function Editor() {
   const host = useRef<HTMLDivElement>(null);
+  const labNotesRef = useRef<LabNote[]>([]);
+  const labSettingsRef = useRef<MotionSettings>(defaultSettings);
+  const saveLabBeforeSelectRef = useRef<(() => boolean) | null>(null);
+  const edgeGestureRef = useRef<EdgeGesture | null>(null);
+  const edgeCooldownRef = useRef(0);
+  const labWheelCleanup = useRef<(() => void) | null>(null);
+  const [labNotes, setLabNotes] = useState<LabNote[]>([]);
+  const [labSelectedID, setLabSelectedID] = useState("");
+  const [labSettings, setLabSettings] = useState<MotionSettings>(defaultSettings);
+  const [labPreviewID, setLabPreviewID] = useState<string | null>(null);
+  const [labEdge, setLabEdge] = useState<EdgePreview | null>(null);
+  const [labStatus, setLabStatus] = useState("Sample notes · local only");
+  const [labExported, setLabExported] = useState(false);
   const revisionRef = useRef(0);
   const noteIDRef = useRef<string | undefined>(undefined);
   const compositionDirty = useRef(false);
@@ -36,6 +54,27 @@ export function Editor() {
   const [error, setError] = useState<ErrorStatus | null>(null);
   const [dictation, setDictation] = useState<{ status: "idle" | "downloading" | "recording" | "transcribing" | "error"; message?: string }>({ status: "idle" });
   const [waveform, setWaveform] = useState<number[]>(() => Array(waveformBars).fill(0));
+
+  const clearLabGesture = () => {
+    if (edgeGestureRef.current?.timer) window.clearTimeout(edgeGestureRef.current.timer);
+    edgeGestureRef.current = null;
+    setLabEdge(null);
+  };
+  const selectLabNote = (id: string) => {
+    if (!motionLabMode || id === noteIDRef.current || !labNotesRef.current.some(note => note.id === id)) {
+      setLabPreviewID(null);
+      return;
+    }
+    if (!saveLabBeforeSelectRef.current?.()) return;
+    clearLabGesture();
+    setLabPreviewID(null);
+    sendToNative({ version: 1, type: "labSelect", id });
+  };
+  const changeLabSettings = (next: MotionSettings) => {
+    labSettingsRef.current = next;
+    setLabSettings(next);
+    sendToNative({ version: 1, type: "labSettings", value: { ...next } as Record<string, number> });
+  };
 
   useEffect(() => {
     if (!host.current) return;
@@ -63,7 +102,7 @@ export function Editor() {
       }, 250);
     };
 
-    const sendCurrentDocument = (view: EditorView) => {
+    const sendCurrentDocument = (view: EditorView): boolean => {
       revisionRef.current += 1;
       const selection = view.state.selection.main;
       const message: Extract<EditorToNative, { type: "contentChanged" }> = {
@@ -75,15 +114,25 @@ export function Editor() {
         selection: { anchor: selection.anchor, head: selection.head },
         viewport: { scrollTop: view.scrollDOM.scrollTop },
       };
+      if (motionLabMode) {
+        const updated = labNotesRef.current.map(note => note.id === noteIDRef.current
+          ? { ...note, text: message.text, anchor: selection.anchor, head: selection.head, scrollTop: view.scrollDOM.scrollTop }
+          : note);
+        labNotesRef.current = updated;
+        setLabNotes(updated);
+        setLabStatus("Saving sample…");
+      }
       if (!hasLoadedSession.current) {
         pendingBridgeSnapshot.current = message;
-        return;
+        return false;
       }
       if (!sendToNative(message)) {
         pendingBridgeSnapshot.current = message;
         setError({ message: "Saving is interrupted. Your text remains in this window." });
         scheduleBridgeRetry();
+        return false;
       }
+      return true;
     };
 
     const sendEditorState = (view: EditorView) => {
@@ -182,6 +231,43 @@ export function Editor() {
     });
 
     const view = new EditorView({ state, parent: host.current });
+    if (motionLabMode) {
+      saveLabBeforeSelectRef.current = () => sendCurrentDocument(view);
+      const onWheel = (event: WheelEvent) => {
+        if (Date.now() < edgeCooldownRef.current || !noteIDRef.current || event.deltaY === 0) return;
+        const direction: -1 | 1 = event.deltaY < 0 ? -1 : 1;
+        const index = labNotesRef.current.findIndex(note => note.id === noteIDRef.current);
+        const next = adjacentIndex(index, direction, labNotesRef.current.length);
+        if (next === null) { clearLabGesture(); return; }
+        const maxScroll = Math.max(0, view.scrollDOM.scrollHeight - view.scrollDOM.clientHeight);
+        const atEdge = direction < 0 ? view.scrollDOM.scrollTop <= 1 : view.scrollDOM.scrollTop >= maxScroll - 1;
+        if (!atEdge) { clearLabGesture(); return; }
+        event.preventDefault();
+        const now = performance.now();
+        let gesture = edgeGestureRef.current;
+        if (!gesture || gesture.direction !== direction || now - gesture.started > 1400) {
+          clearLabGesture();
+          gesture = { direction, effort: 0, events: 0, started: now };
+          edgeGestureRef.current = gesture;
+        }
+        gesture.effort += Math.min(Math.abs(event.deltaY), 80);
+        gesture.events += 1;
+        const settings = labSettingsRef.current;
+        const shortNote = maxScroll < 24;
+        const armed = shouldCommit(gesture.effort, settings.commitThreshold, gesture.events, now - gesture.started, shortNote);
+        setLabEdge({ id: labNotesRef.current[next].id, direction, distance: edgeDisplacement(gesture.effort, settings.resistance), effort: gesture.effort, armed });
+        if (gesture.timer) window.clearTimeout(gesture.timer);
+        gesture.timer = window.setTimeout(() => {
+          if (edgeGestureRef.current !== gesture) return;
+          const ready = shouldCommit(gesture.effort, labSettingsRef.current.commitThreshold, gesture.events, performance.now() - gesture.started, shortNote);
+          const target = labNotesRef.current[next];
+          clearLabGesture();
+          if (ready && target) { edgeCooldownRef.current = Date.now() + 800; selectLabNote(target.id); }
+        }, 170);
+      };
+      view.scrollDOM.addEventListener("wheel", onWheel, { passive: false });
+      labWheelCleanup.current = () => view.scrollDOM.removeEventListener("wheel", onWheel);
+    }
     sendPreferredHeight(view);
     window.JotNative = {
       receive(message) {
@@ -240,6 +326,7 @@ export function Editor() {
           case "writeSucceeded":
             if (message.noteID === noteIDRef.current && message.revision === revisionRef.current) {
               setError(null);
+              if (motionLabMode) setLabStatus("Saved locally");
             }
             break;
           case "externalConflict":
@@ -250,6 +337,7 @@ export function Editor() {
           case "writeFailed":
             if (!message.noteID || message.noteID === noteIDRef.current) {
               setError({ message: message.message, actions: message.actions });
+              if (motionLabMode) setLabStatus(message.message);
             }
             break;
           case "dictationState":
@@ -287,6 +375,23 @@ export function Editor() {
           case "tagVocabulary":
             view.dispatch({ effects: setTagVocabulary.of(message.tags) });
             break;
+          case "labHydrate": {
+            const selected = message.payload.notes.find(note => note.id === message.payload.selectedID);
+            labNotesRef.current = message.payload.notes;
+            setLabNotes(message.payload.notes);
+            setLabSelectedID(message.payload.selectedID);
+            const settings = mergeSettings(message.payload.settings);
+            labSettingsRef.current = settings;
+            setLabSettings(settings);
+            if (selected) setLabStatus("Saved locally");
+            setLabPreviewID(null);
+            clearLabGesture();
+            break;
+          }
+          case "labExported":
+            setLabExported(true);
+            window.setTimeout(() => setLabExported(false), 1800);
+            break;
         }
       },
     };
@@ -299,6 +404,9 @@ export function Editor() {
     }
     return () => {
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      labWheelCleanup.current?.();
+      clearLabGesture();
+      saveLabBeforeSelectRef.current = null;
       view.destroy();
       delete window.JotNative;
     };
@@ -310,6 +418,21 @@ export function Editor() {
     return "Restore Folder Access";
   };
   const dictationActive = dictation.status === "downloading" || dictation.status === "recording" || dictation.status === "transcribing";
+
+  if (motionLabMode) {
+    return <main className="composer motion-lab-mode">
+      <MotionLabControls settings={labSettings} onSettings={changeLabSettings} onReset={() => changeLabSettings(defaultSettings)} onExport={() => sendToNative({ version: 1, type: "labExport" })} onResetNotes={() => sendToNative({ version: 1, type: "labReset" })} exported={labExported} />
+      <section className="lab-stage" aria-label="Sample note editor">
+        <MotionLabStageMeta notes={labNotes} selectedID={labSelectedID} status={labStatus} />
+        <div className="lab-editor-region">
+          <MotionLabEdge edge={labEdge} notes={labNotes} revealPoint={labSettings.revealPoint} />
+          <div ref={host} className="editor lab-editor" style={{ transform: labEdge ? `translateY(${labEdge.direction < 0 ? labEdge.distance : -labEdge.distance}px)` : "translateY(0)", transitionDuration: labEdge ? "0ms" : `${labSettings.snapMs}ms` }} role="textbox" aria-label="Jot — editable sample Markdown note" />
+        </div>
+        <footer className="lab-stage-footer"><span>↑ older</span><span>Push past the edge · release to open</span><span>newer ↓</span></footer>
+      </section>
+      <MotionLabTimeline notes={labNotes} selectedID={labSelectedID} previewID={labPreviewID} spacing={labSettings.railSpacing} previewDelayMs={labSettings.previewDelayMs} onPreview={setLabPreviewID} onSelect={selectLabNote} />
+    </main>;
+  }
 
   return (
     <main className="composer">

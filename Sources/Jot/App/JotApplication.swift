@@ -34,7 +34,12 @@ final class JotAppDelegate: NSObject, NSApplicationDelegate {
 enum JotApplication {
     static func main() {
         let application = NSApplication.shared
-        let delegate = JotAppDelegate()
+        #if JOT_MOTION_LAB
+        let delegate: any NSApplicationDelegate = CommandLine.arguments.contains("--motion-lab")
+            ? MotionLabApplication() : JotAppDelegate()
+        #else
+        let delegate: any NSApplicationDelegate = JotAppDelegate()
+        #endif
         application.delegate = delegate
         application.run()
         withExtendedLifetime(delegate) {}

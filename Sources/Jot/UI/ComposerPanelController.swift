@@ -34,6 +34,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
     let bridge = EditorBridge()
     private let resourceHandler = LocalResourceSchemeHandler()
     private let webView: WKWebView
+    private let motionLabMode: Bool
     private var isProgrammaticFrameChange = false
     private var userHasResized = false
     private var userPlacedPanel = false
@@ -42,7 +43,8 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
     weak var panelDelegate: (any ComposerPanelDelegate)?
     var onEscape: (() -> Void)?
 
-    init(savedFrame: String?) {
+    init(savedFrame: String?, motionLabMode: Bool = false) {
+        self.motionLabMode = motionLabMode
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
@@ -52,24 +54,24 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
 
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.setValue(false, forKey: "drawsBackground")
-        let initialFrame = NSRect(x: 0, y: 0, width: 560, height: 260)
+        let initialFrame = NSRect(x: 0, y: 0, width: motionLabMode ? 1050 : 560, height: motionLabMode ? 700 : 260)
         let panel = ComposerPanel(
             contentRect: initialFrame,
-            styleMask: [.titled, .closable, .resizable, .fullSizeContentView, .nonactivatingPanel],
+            styleMask: motionLabMode ? [.titled, .closable, .resizable, .miniaturizable] : [.titled, .closable, .resizable, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
-        panel.title = "Jot"
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
+        panel.title = motionLabMode ? "Jot · Motion Lab" : "Jot"
+        panel.titleVisibility = motionLabMode ? .visible : .hidden
+        panel.titlebarAppearsTransparent = !motionLabMode
         panel.isMovable = true
         panel.isMovableByWindowBackground = true
-        panel.isFloatingPanel = true
-        panel.level = .floating
+        panel.isFloatingPanel = !motionLabMode
+        panel.level = motionLabMode ? .normal : .floating
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.minSize = NSSize(width: 360, height: 180)
-        panel.maxSize = NSSize(width: 900, height: 900)
+        panel.minSize = motionLabMode ? NSSize(width: 780, height: 520) : NSSize(width: 360, height: 180)
+        panel.maxSize = motionLabMode ? NSSize(width: 1400, height: 1000) : NSSize(width: 900, height: 900)
         let contentView = NSView(frame: initialFrame)
         let dragView = WindowDragContainerView(frame: .zero)
         webView.translatesAutoresizingMaskIntoConstraints = false
@@ -77,17 +79,22 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
         contentView.setAccessibilityElement(false)
         dragView.setAccessibilityElement(false)
         contentView.addSubview(webView)
-        contentView.addSubview(dragView)
+        if !motionLabMode { contentView.addSubview(dragView) }
         NSLayoutConstraint.activate([
             webView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             webView.topAnchor.constraint(equalTo: contentView.topAnchor),
             webView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-            dragView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: WindowDragContainerView.trafficLightClearance),
-            dragView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            dragView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            dragView.heightAnchor.constraint(equalToConstant: WindowDragContainerView.dragHeight),
+
         ])
+        if !motionLabMode {
+            NSLayoutConstraint.activate([
+                dragView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: WindowDragContainerView.trafficLightClearance),
+                dragView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+                dragView.topAnchor.constraint(equalTo: contentView.topAnchor),
+                dragView.heightAnchor.constraint(equalToConstant: WindowDragContainerView.dragHeight),
+            ])
+        }
         panel.contentView = contentView
         panel.isReleasedWhenClosed = false
 
@@ -115,7 +122,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func loadEditor() {
-        webView.load(URLRequest(url: URL(string: "jot://local/index.html")!))
+        webView.load(URLRequest(url: URL(string: motionLabMode ? "jot://local/index.html?motionLab=1" : "jot://local/index.html")!))
     }
 
     func showAndFocus() {
@@ -140,7 +147,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
     func send(_ payload: [String: Any]) { bridge.send(payload) }
 
     func applyPreferredContentHeight(_ requestedHeight: CGFloat) {
-        guard !userHasResized, let panel = window else { return }
+        guard !motionLabMode, !userHasResized, let panel = window else { return }
         let contentHeight = min(max(requestedHeight, 180), 700)
         let frameHeight = panel.frameRect(forContentRect: NSRect(x: 0, y: 0, width: panel.contentLayoutRect.width, height: contentHeight)).height
         guard abs(panel.frame.height - frameHeight) > 1 else { return }

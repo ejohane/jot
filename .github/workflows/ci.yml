@@ -16,6 +16,10 @@ jobs:
           cache-dependency-path: Web/package-lock.json
       - run: npm --prefix Web ci
       - run: npm --prefix Web test
+      - name: Build developer motion lab web entry
+        run: |
+          npm --prefix Web run build -- --mode motion-lab
+          test -f Web/dist/index.html
       - run: swift test
       - run: python3 script/test_release.py
       - name: Build and validate universal app
@@ -27,8 +31,18 @@ jobs:
           lipo dist/Jot.app/Contents/MacOS/Jot -verify_arch arm64 x86_64
           lipo dist/Jot.app/Contents/MacOS/jot-whisper -verify_arch arm64 x86_64
           codesign --verify --deep --strict dist/Jot.app
+          test -z "$(find dist/Jot.app/Contents/Resources/Editor/assets -name 'motionLab-*.css' -print -quit)"
       - name: Launch packaged app
         run: |
           open -n dist/Jot.app
           sleep 5
           pgrep -x Jot
+          pkill -x Jot
+      - name: Build and launch Jot developer mode
+        run: |
+          JOT_MOTION_LAB=1 ./script/package_app.sh
+          test -n "$(find dist/Jot.app/Contents/Resources/Editor/assets -name 'motionLab-*.css' -print -quit)"
+          codesign --verify --deep --strict dist/Jot.app
+          open -n dist/Jot.app --args --motion-lab
+          sleep 5
+          pgrep -f 'Jot.app/Contents/MacOS/Jot --motion-lab'
