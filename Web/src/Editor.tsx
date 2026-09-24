@@ -1,7 +1,7 @@
 import { deleteMarkupBackward, insertNewlineContinueMarkupCommand, markdown } from "@codemirror/lang-markdown";
 import { history, historyKeymap } from "@codemirror/commands";
 import { Annotation, EditorSelection, EditorState, Transaction } from "@codemirror/state";
-import { EditorView, keymap, tooltips } from "@codemirror/view";
+import { drawSelection, EditorView, keymap, tooltips } from "@codemirror/view";
 import { GFM } from "@lezer/markdown";
 import { useEffect, useRef, useState } from "react";
 import { sendToNative, type EditorToNative } from "./bridge";
@@ -9,6 +9,7 @@ import { editorTheme } from "./editorTheme";
 import { markdownPresentation } from "./presentation";
 import { beginDictation, clearDictation, dictationPreview, insertionForDictation, reviseDictation } from "./dictationPreview";
 import { inlineTagEditor, setTagVocabulary } from "./tagEditor";
+import { indentBulletItem, outdentBulletItem } from "./listIndent";
 
 type RecoveryAction = "restoreRoot" | "saveCopy" | "reloadExternal";
 type ErrorStatus = { message: string; actions?: RecoveryAction[] };
@@ -121,6 +122,8 @@ export function Editor() {
         inlineTagEditor,
         dictationPreview,
         editorTheme,
+        // WebKit's native caret animates behind programmatic list indentation.
+        drawSelection(),
         tooltips({ tooltipSpace: (view) => view.scrollDOM.getBoundingClientRect() }),
         EditorView.lineWrapping,
         history(),
@@ -137,6 +140,8 @@ export function Editor() {
           { key: "Enter", run: insertLiteralNewline },
           { key: "Shift-Enter", run: insertLiteralNewline },
           { key: "Backspace", run: deleteMarkupBackward },
+          { key: "Tab", run: indentBulletItem },
+          { key: "Shift-Tab", run: outdentBulletItem },
           {
             key: "Escape",
             run: () => {

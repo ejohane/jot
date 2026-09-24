@@ -34,5 +34,6 @@ export const editorTheme = [
     ".cm-markdown-marker": { color: "var(--marker)", transition: "color 100ms ease" },
     ".cm-markdown-marker-active": { color: "var(--text)" },
     ".cm-list-bullet": { display: "inline-block", width: "0.65em", textAlign: "center", color: "var(--text)" },
+    ".cm-list-bullet-open": { fontSize: "0.45em", width: "1.45em", verticalAlign: "0.12em" },
   }),
 ];
