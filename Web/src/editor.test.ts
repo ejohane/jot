@@ -356,9 +356,12 @@ describe("source-first Markdown presentation", () => {
 
   it("shows the nested marker in the same update as Tab", async () => {
     const { view } = await makeConnectedEditor("- one\n- two");
+    view.focus();
+    expect(view.dom.querySelector(".cm-cursorLayer")).not.toBeNull();
     await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true })));
     expect(view.state.doc.toString()).toBe("- one\n     - two");
     expect([...view.dom.querySelectorAll(".cm-list-bullet")].map((bullet) => bullet.textContent)).toEqual(["•", "○"]);
+    expect(view.dom.querySelector(".cm-cursorLayer")).not.toBeNull();
   });
 
   it("accepts Tab immediately after a bullet was typed", async () => {

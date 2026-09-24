@@ -1,7 +1,7 @@
 import { deleteMarkupBackward, insertNewlineContinueMarkupCommand, markdown } from "@codemirror/lang-markdown";
 import { history, historyKeymap } from "@codemirror/commands";
 import { Annotation, EditorSelection, EditorState, Transaction } from "@codemirror/state";
-import { EditorView, keymap, tooltips } from "@codemirror/view";
+import { drawSelection, EditorView, keymap, tooltips } from "@codemirror/view";
 import { GFM } from "@lezer/markdown";
 import { useEffect, useRef, useState } from "react";
 import { sendToNative, type EditorToNative } from "./bridge";
@@ -122,6 +122,8 @@ export function Editor() {
         inlineTagEditor,
         dictationPreview,
         editorTheme,
+        // WebKit's native caret animates behind programmatic list indentation.
+        drawSelection(),
         tooltips({ tooltipSpace: (view) => view.scrollDOM.getBoundingClientRect() }),
         EditorView.lineWrapping,
         history(),
