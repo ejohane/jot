@@ -16,6 +16,10 @@ jobs:
           cache-dependency-path: Web/package-lock.json
       - run: npm --prefix Web ci
       - run: npm --prefix Web test
+      - name: Build developer motion lab web entry
+        run: |
+          npm --prefix Web run build -- --mode motion-lab
+          test -f Web/dist/lab.html
       - run: swift test
       - run: python3 script/test_release.py
       - name: Build and validate universal app
@@ -27,6 +31,7 @@ jobs:
           lipo dist/Jot.app/Contents/MacOS/Jot -verify_arch arm64 x86_64
           lipo dist/Jot.app/Contents/MacOS/jot-whisper -verify_arch arm64 x86_64
           codesign --verify --deep --strict dist/Jot.app
+          test ! -e dist/Jot.app/Contents/Resources/Editor/lab.html
       - name: Launch packaged app
         run: |
           open -n dist/Jot.app

@@ -30,7 +30,7 @@ export type NativeToEditor =
 
 declare global {
   interface Window {
-    webkit?: { messageHandlers?: { jot?: { postMessage(message: EditorToNative): void } } };
+    webkit?: { messageHandlers?: { jot?: { postMessage(message: EditorToNative): void }; motionLab?: { postMessage(message: Record<string, unknown>): void } } };
     JotNative?: { receive(message: NativeToEditor): void };
   }
 }

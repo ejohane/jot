@@ -156,3 +156,7 @@ The v1 grammar is intentionally small: `#` followed by an ASCII letter, then zer
 The native index holds tag sets per Markdown file and a distinct vocabulary in memory. A scan after each save and a periodic background reconciliation pick up external additions, edits, renames, removals, and missed file events. Capture and typing never wait for that scan; the editor filters the latest vocabulary locally.
 
 For disposable UI verification, launch the packaged app with `JOT_TEST_SESSION_PATH` set to an absolute path outside the normal Application Support directory, then choose a disposable Jots folder. This keeps the test session separate from the installed app's session.
+
+## Developer motion lab
+
+The separate, sample-only note navigation jig is documented in [MOTION_LAB.md](MOTION_LAB.md). Run `./script/run_motion_lab.sh` from a checkout; it does not install over Jot.

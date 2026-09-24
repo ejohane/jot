@@ -15,7 +15,11 @@ if [[ "${JOT_DISTRIBUTION:-0}" == 1 ]]; then
 fi
 
 [[ -d Web/node_modules ]] || npm --prefix Web ci
-npm --prefix Web run build
+if [[ "${JOT_MOTION_LAB:-0}" == 1 ]]; then
+  npm --prefix Web run build -- --mode motion-lab
+else
+  npm --prefix Web run build
+fi
 swift package resolve --force-resolved-versions
 mkdir -p dist
 ./script/build_whisper.sh

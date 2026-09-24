@@ -34,7 +34,8 @@ final class JotAppDelegate: NSObject, NSApplicationDelegate {
 enum JotApplication {
     static func main() {
         let application = NSApplication.shared
-        let delegate = JotAppDelegate()
+        let delegate: any NSApplicationDelegate = Bundle.main.bundleIdentifier == "com.erikjohansson.JotMotionLab"
+            ? MotionLabApplication() : JotAppDelegate()
         application.delegate = delegate
         application.run()
         withExtendedLifetime(delegate) {}

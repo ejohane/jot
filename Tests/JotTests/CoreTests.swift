@@ -132,6 +132,37 @@ final class PanelDelegateSpy: ComposerPanelDelegate {
     func composerFrameDidChange(_ frame: NSRect) { movedFrames.append(frame) }
 }
 
+@MainActor
+final class MotionLabStoreTests: XCTestCase {
+    func testSampleDraftAndPositionSurviveSelectionAndRelaunchInIsolatedStore() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("sample-notes.json")
+        let store = MotionLabStore(fileURL: url)
+        XCTAssertEqual(store.data.notes.count, 64)
+        XCTAssertEqual(store.data.selectedID, "sample-4")
+        XCTAssertTrue(store.save(id: "sample-4", text: "# An edited draft", anchor: 9, head: 9, scrollTop: 125))
+        XCTAssertTrue(store.select(id: "sample-5"))
+        let reopened = MotionLabStore(fileURL: url)
+        XCTAssertEqual(reopened.data.selectedID, "sample-5")
+        XCTAssertEqual(reopened.data.notes[3].text, "# An edited draft")
+        XCTAssertEqual(reopened.data.notes[3].anchor, 9)
+        XCTAssertEqual(reopened.data.notes[3].scrollTop, 125)
+        XCTAssertTrue(reopened.select(id: "sample-4"))
+        XCTAssertFalse(reopened.select(id: "unknown"))
+        reopened.reset()
+        XCTAssertEqual(reopened.data.notes[3].text, MotionLabStore.sampleData().notes[3].text)
+    }
+
+    func testFailedSampleSaveBlocksNavigation() {
+        let store = MotionLabStore(fileURL: URL(fileURLWithPath: "/dev/null/sample-notes.json"))
+        XCTAssertFalse(store.save(id: "sample-4", text: "Unsaved draft", anchor: 13, head: 13, scrollTop: 0))
+        XCTAssertFalse(store.select(id: "sample-5"))
+        XCTAssertEqual(store.data.selectedID, "sample-4")
+        XCTAssertEqual(store.data.notes[3].text, "Unsaved draft")
+    }
+}
+
 final class CoreTests: XCTestCase {
     func testVoiceAudioSinkReportsMicrophoneLevelFromSamples() throws {
         let format = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 1, interleaved: false))
