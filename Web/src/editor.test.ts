@@ -1,4 +1,4 @@
-import { history, undo } from "@codemirror/commands";
+import { history, redo, undo } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
@@ -140,7 +140,7 @@ describe("source-first Markdown presentation", () => {
     expect(view.state.doc.toString()).toBe("Hello #Project.");
   });
 
-  it("completes an existing tag with Tab while keeping Enter and unsuggested Tab behavior", async () => {
+  it("completes an existing tag with Tab while keeping Enter and list Tab behavior", async () => {
     const { view, messages } = await makeConnectedEditor("- ");
     await act(async () => window.JotNative?.receive({ version: 1, type: "tagVocabulary", tags: ["MyTag", "other"] }));
     view.focus();
@@ -156,9 +156,8 @@ describe("source-first Markdown presentation", () => {
     view.dispatch({ changes: { from: 2, to: 5, insert: "#MyTag" }, selection: { anchor: 8 } });
     await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true })));
     expect(view.state.doc.toString()).toBe("- #MyTag\n- ");
-    const before = view.state.doc.toString();
     await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true })));
-    expect(view.state.doc.toString()).toBe(before);
+    expect(view.state.doc.toString()).toBe("- #MyTag\n  - ");
     view.dispatch({ changes: { from: view.state.doc.length, insert: "#fresh" }, selection: { anchor: view.state.doc.length + 6 }, userEvent: "input.type" });
     expect(view.state.doc.toString()).toContain("#fresh");
   });
@@ -377,6 +376,100 @@ describe("source-first Markdown presentation", () => {
       });
       expect(view.state.doc.toString()).toBe(expected);
     }
+  });
+
+  it("indents one bullet level at a time and outdents back to top level", async () => {
+    const { view, messages } = await makeConnectedEditor("- parent\n  - first child\n  - next child");
+    const press = async (shiftKey = false) => act(async () => {
+      view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", shiftKey, bubbles: true, cancelable: true }));
+    });
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
+    await press();
+    expect(view.state.doc.toString()).toBe("- parent\n  - first child\n    - next child");
+    expect(view.state.selection.main.head).toBe(view.state.doc.length);
+    await press();
+    expect(view.state.doc.toString()).toBe("- parent\n  - first child\n    - next child");
+    await press(true);
+    expect(view.state.doc.toString()).toBe("- parent\n  - first child\n  - next child");
+    await press(true);
+    expect(view.state.doc.toString()).toBe("- parent\n  - first child\n- next child");
+    await press(true);
+    expect(view.state.doc.toString()).toBe("- parent\n  - first child\n- next child");
+    expect(messages.filter((message) => message.type === "contentChanged").map((message) => message.text)).toEqual([
+      "- parent\n  - first child\n    - next child",
+      "- parent\n  - first child\n  - next child",
+      "- parent\n  - first child\n- next child",
+    ]);
+  });
+
+  it("keeps the first bullet and an already nested first child from skipping a level", async () => {
+    for (const [text, position] of [["- first\n- second", 2], ["- parent\n  - child", 18]] as const) {
+      const { view } = await makeConnectedEditor(text);
+      view.dispatch({ selection: { anchor: position } });
+      await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true })));
+      expect(view.state.doc.toString()).toBe(text);
+    }
+  });
+
+  it("moves a selected item with its descendants and preserves selection, undo, and redo", async () => {
+    const original = "- first\n- second\n  - child\n- third";
+    const { view, messages } = await makeConnectedEditor(original);
+    view.dispatch({ selection: { anchor: 8, head: 16 } });
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true })));
+    const nested = "- first\n  - second\n    - child\n- third";
+    expect(view.state.doc.toString()).toBe(nested);
+    expect(view.state.selection.main.from).toBe(10);
+    expect(view.state.selection.main.to).toBe(18);
+    expect(messages.filter((message) => message.type === "contentChanged").at(-1)).toMatchObject({ text: nested });
+    expect(undo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe(original);
+    expect(redo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe(nested);
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", shiftKey: true, bubbles: true })));
+    expect(view.state.doc.toString()).toBe(original);
+  });
+
+  it("indents selected sibling bullets, including an empty item, exactly once", async () => {
+    const { view } = await makeConnectedEditor("- first\n- second\n- \n- fourth");
+    view.dispatch({ selection: { anchor: 8, head: 19 } });
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true })));
+    expect(view.state.doc.toString()).toBe("- first\n  - second\n  - \n- fourth");
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", shiftKey: true, bubbles: true })));
+    expect(view.state.doc.toString()).toBe("- first\n- second\n- \n- fourth");
+  });
+
+  it("outdents existing nested bullets with their original Markdown spacing", async () => {
+    for (const spaces of ["   ", "    ", "\t"]) {
+      const { view } = await makeConnectedEditor(`- parent\n${spaces}* child`);
+      await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", shiftKey: true, bubbles: true })));
+      expect(view.state.doc.toString()).toBe("- parent\n* child");
+    }
+  });
+
+  it("does not partially indent a selection that includes the first bullet", async () => {
+    const original = "- first\n- second\n- third";
+    const { view } = await makeConnectedEditor(original);
+    view.dispatch({ selection: { anchor: 0, head: 17 } });
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true })));
+    expect(view.state.doc.toString()).toBe(original);
+  });
+
+  it("leaves prose, ordered lists, code, and mixed selections to their existing Tab behavior", async () => {
+    for (const [text, position] of [
+      ["plain prose", 5], ["1. ordered", 5], ["```\n- code\n```", 7],
+      ["- bullet\n  ```\n  code\n  ```", 18],
+    ] as const) {
+      const { view } = await makeConnectedEditor(text);
+      view.dispatch({ selection: { anchor: position } });
+      const event = new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true, cancelable: true });
+      await act(async () => view.contentDOM.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(false);
+      expect(view.state.doc.toString()).toBe(text);
+    }
+    const { view } = await makeConnectedEditor("- bullet\nprose");
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true })));
+    expect(view.state.doc.toString()).toBe("- bullet\nprose");
   });
 
   it("copies bullets as Markdown, and Backspace removes an empty bullet", async () => {

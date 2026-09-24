@@ -9,6 +9,7 @@ import { editorTheme } from "./editorTheme";
 import { markdownPresentation } from "./presentation";
 import { beginDictation, clearDictation, dictationPreview, insertionForDictation, reviseDictation } from "./dictationPreview";
 import { inlineTagEditor, setTagVocabulary } from "./tagEditor";
+import { indentBulletItem, outdentBulletItem } from "./listIndent";
 
 type RecoveryAction = "restoreRoot" | "saveCopy" | "reloadExternal";
 type ErrorStatus = { message: string; actions?: RecoveryAction[] };
@@ -137,6 +138,8 @@ export function Editor() {
           { key: "Enter", run: insertLiteralNewline },
           { key: "Shift-Enter", run: insertLiteralNewline },
           { key: "Backspace", run: deleteMarkupBackward },
+          { key: "Tab", run: indentBulletItem },
+          { key: "Shift-Tab", run: outdentBulletItem },
           {
             key: "Escape",
             run: () => {

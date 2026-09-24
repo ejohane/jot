@@ -73,6 +73,7 @@ replace a working development build.
 - Command-Return: finish the active jot and show a new blank composer
 - Command-Q: flush session state and quit
 - Enter in a Markdown list: continue the list; Enter on an empty item exits it
+- Tab / Shift-Tab on a bullet item: indent / outdent one level (also works on selected bullet items)
 - Shift-Enter: insert a plain newline without a new list marker
 - Command-Shift-D or the microphone button: start voice dictation
 - Check button: finish recording and keep the transcript
