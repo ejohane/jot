@@ -17,6 +17,7 @@ export type EditorToNative =
 
 export type NativeToEditor =
   | { version: 1; type: "loadSession"; text: string; noteID?: string; revision: number; selection: Selection; viewport: Viewport }
+  | { version: 1; type: "toggleFormat"; format: "bold" | "italic" }
   | { version: 1; type: "noteAllocated"; noteID: string; path: string; revision: number }
   | { version: 1; type: "saving"; revision: number }
   | { version: 1; type: "writeSucceeded"; noteID: string; revision: number }

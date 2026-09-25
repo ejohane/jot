@@ -35,5 +35,9 @@ export const editorTheme = [
     ".cm-markdown-marker-active": { color: "var(--text)" },
     ".cm-list-bullet": { display: "inline-block", width: "0.65em", textAlign: "center", color: "var(--text)" },
     ".cm-list-bullet-open": { fontSize: "0.45em", width: "1.45em", verticalAlign: "0.12em" },
+    ".cm-list-number": { color: "var(--text)" },
+    ".cm-task-checkbox": { display: "inline-block", width: "0.9em", height: "0.9em", border: "1.5px solid var(--secondary)", borderRadius: "3px", verticalAlign: "-0.08em", position: "relative" },
+    ".cm-task-checkbox.is-checked::after": { content: "''", position: "absolute", left: "0.18em", top: "0.01em", width: "0.3em", height: "0.52em", borderRight: "1.5px solid var(--text)", borderBottom: "1.5px solid var(--text)", transform: "rotate(42deg)" },
+    ".cm-horizontal-rule": { display: "inline-block", width: "100%", borderTop: "1px solid var(--secondary)", verticalAlign: "middle" },
   }),
 ];

@@ -299,6 +299,12 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
     @objc private func finishAndNewFromMenu() { editorRequestedFinish(revision: latestRevision) }
 
+    @objc private func toggleInlineFormatFromMenu(_ sender: NSMenuItem) {
+        guard let format = sender.representedObject as? String else { return }
+        if panelController.window?.isVisible != true { panelController.showAndFocus() }
+        panelController.send(["version": 1, "type": "toggleFormat", "format": format])
+    }
+
     @objc private func revealCurrentJot() {
         guard let path = session.activeJot?.path else { return }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
@@ -445,6 +451,16 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         editMenu.addItem(responderItem("Select All", action: #selector(NSText.selectAll(_:)), key: "a"))
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)
+
+        let formatItem = NSMenuItem()
+        let formatMenu = NSMenu(title: "Format")
+        for (title, format, key) in [("Bold", "bold", "b"), ("Italic", "italic", "i")] {
+            let formatAction = item(title, action: #selector(toggleInlineFormatFromMenu(_:)), key: key)
+            formatAction.representedObject = format
+            formatMenu.addItem(formatAction)
+        }
+        formatItem.submenu = formatMenu
+        mainMenu.addItem(formatItem)
 
         NSApp.mainMenu = mainMenu
     }

@@ -200,8 +200,9 @@ Tables, images, raw HTML, footnotes, math, diagrams, frontmatter, tags, highligh
 
 - Headings receive typographic hierarchy without removing their source line.
 - Strong, emphasis, strikethrough, inline code, links, quotes, lists, task items, and code fences receive semantic styling.
-- Markdown delimiter characters remain present in the document and are visually de-emphasized.
-- Delimiters belonging to the current selection or construct become sufficiently visible for precise editing.
+- Completed supported Markdown syntax remains in the document but is hidden while the caret is elsewhere; it reappears when the construct is being edited or selected.
+- List markers present as bullets or numbers, task markers as checkboxes, and horizontal rules as dividers when inactive.
+- Command-B and Command-I toggle bold and italic by editing the same Markdown source that a user can type by hand.
 - Unsupported or incomplete constructs remain legible source rather than flickering between representations.
 - Decorations must not change document offsets, undo history, copied Markdown, selection, or autosaved text.
 - Pasting rich text inserts plain text. Pasting files or images does not create attachments in v0.1.
