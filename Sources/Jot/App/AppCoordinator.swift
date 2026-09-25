@@ -8,6 +8,12 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     private let appUpdater = AppUpdater()
     private let voiceDictation = VoiceDictation()
     private let tagIndex = TagIndex()
+    private var noteRailIndex: NoteRailIndex!
+    private var railNoteIDs: Set<String> = []
+    private var latestRailID: String?
+    private var navigation = NoteNavigationHistory()
+    private var hasBlankCapture = false
+    private var isOpeningNote = false
     private var tagRefreshTask: Task<Void, Never>?
     private var sentTags: [String] = []
     private var session: PersistedSession
@@ -17,6 +23,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     private var shortcut: GlobalShortcut!
     private var statusItem: NSStatusItem!
     private var latestRevision = 0
+    private var documentGeneration = 0
     private var sessionGeneration = 0
     private var shortcutRegistrationFailed = false
     private var hasBlockingWriteError = false
@@ -26,7 +33,9 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         self.sessionStore = sessionStore
         super.init()
 
+        hasBlankCapture = session.activeJot == nil
         rootURL = rootAccess.restore(from: session.rootBookmark)
+        noteRailIndex = NoteRailIndex(root: rootURL)
         Task { await tagIndex.configure(root: rootURL); await refreshTags(force: true) }
         hasBlockingWriteError = session.activeJot != nil && rootURL == nil
         writer = JotWriter(rootURL: rootURL) { [weak self] event in self?.handle(event) }
@@ -84,7 +93,10 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         }
     }
 
-    func show() { panelController.showAndFocus() }
+    func show() {
+        panelController.showAndFocus()
+        Task { await refreshRail() }
+    }
 
     func prepareToTerminate(completion: @escaping (Bool) -> Void) {
         tagRefreshTask?.cancel()
@@ -113,6 +125,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
     func editorDidBecomeReady() {
         Task { await refreshTags(force: true) }
+        Task { await refreshRail() }
         panelController.send(["version": 1, "type": "dictationState", "status": voiceDictation.state.rawValue])
         if let activeJot = session.activeJot, rootURL == nil {
             hasBlockingWriteError = true
@@ -164,12 +177,16 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
     func editorContentChanged(_ snapshot: EditorSnapshot, noteID: String?) {
         if let noteID, noteID != session.activeJot?.id { return }
+        let generation = documentGeneration
         latestRevision = max(latestRevision, snapshot.revision)
         session.selection = snapshot.selection
         session.viewport = snapshot.viewport
         session.recoveryText = snapshot.text
         session.recoveryRevision = snapshot.revision
-        Task { await writer.receive(snapshot) }
+        Task {
+            guard documentGeneration == generation else { return }
+            await writer.receive(snapshot)
+        }
     }
 
     func editorStateChanged(selection: EditorSelection, viewport: EditorViewport) {
@@ -182,10 +199,23 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     func editorRequestedFinish(revision: Int) {
+        guard !isOpeningNote else { return }
+        isOpeningNote = true
         voiceDictation.cancel()
         Task {
+            defer { isOpeningNote = false }
             guard await writer.currentJot() != nil else { return }
             guard await writer.finishAndNew(through: revision) else { return }
+            let source = currentLocation
+            navigation.forgetPosition(for: .blank)
+            navigation.recordTransition(
+                from: source,
+                to: .blank,
+                movement: .direct,
+                sourcePosition: currentReadingPosition
+            )
+            hasBlankCapture = true
+            documentGeneration += 1
             session.activeJot = nil
             session.selection = .start
             session.viewport = .top
@@ -195,6 +225,125 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             hasBlockingWriteError = false
             await persistSessionNow()
             sendLoadSession(text: "")
+            await refreshRail()
+        }
+    }
+
+    func editorRequestedOpenNote(id: String, revision: Int) {
+        openNote(id: id, revision: revision, movement: .direct)
+    }
+
+    func editorRequestedNavigation(_ direction: NoteNavigationDirection) {
+        navigate(direction)
+    }
+
+    private var currentLocation: NoteLocation {
+        session.activeJot.map { .note($0.id) } ?? .blank
+    }
+
+    private var currentReadingPosition: NoteReadingPosition {
+        NoteReadingPosition(selection: session.selection, viewport: session.viewport)
+    }
+
+    private func openNote(id: String, revision: Int, movement: NoteNavigationMovement) {
+        guard !isOpeningNote, currentLocation != .note(id) else { return }
+        isOpeningNote = true
+        voiceDictation.cancel()
+        Task {
+            defer { isOpeningNote = false }
+            guard let entry = await noteRailIndex.entry(id: id) else { return }
+            do {
+                let result = try await writer.openExisting(id: id, path: entry.path, through: revision)
+                let source = currentLocation
+                let destination = NoteLocation.note(id)
+                navigation.recordTransition(
+                    from: source,
+                    to: destination,
+                    movement: movement,
+                    sourcePosition: currentReadingPosition
+                )
+                let position = navigation.position(for: destination)
+                documentGeneration += 1
+                session.activeJot = result.jot
+                session.selection = position.selection
+                session.viewport = position.viewport
+                session.recoveryText = result.text
+                session.recoveryRevision = 0
+                latestRevision = 0
+                hasBlockingWriteError = false
+                await persistSessionNow()
+                sendLoadSession(text: result.text)
+            } catch {
+                if !(await writer.hasBlockingError) {
+                    let message = (error as? PersistenceError) == .activeFileMissing
+                        ? "This jot is no longer available."
+                        : "Could not switch notes. Save the current jot and try again."
+                    sendError(message: message, actions: [])
+                }
+                await refreshRail()
+            }
+        }
+    }
+
+    private func openBlankCapture(movement: NoteNavigationMovement) {
+        guard !isOpeningNote, currentLocation != .blank else { return }
+        isOpeningNote = true
+        voiceDictation.cancel()
+        Task {
+            defer { isOpeningNote = false }
+            guard await writer.finishAndNew(through: latestRevision) else { return }
+            let position = navigation.position(for: .blank)
+            navigation.recordTransition(
+                from: currentLocation,
+                to: .blank,
+                movement: movement,
+                sourcePosition: currentReadingPosition
+            )
+            documentGeneration += 1
+            session.activeJot = nil
+            session.selection = position.selection
+            session.viewport = position.viewport
+            session.recoveryText = nil
+            session.recoveryRevision = nil
+            latestRevision = 0
+            hasBlockingWriteError = false
+            await persistSessionNow()
+            sendLoadSession(text: "")
+        }
+    }
+
+    private func navigate(_ direction: NoteNavigationDirection) {
+        guard !isOpeningNote else { return }
+        let movement: NoteNavigationMovement
+        let destination: NoteLocation?
+        switch direction {
+        case .back:
+            movement = .back
+            destination = navigation.target(for: .back)
+        case .forward:
+            movement = .forward
+            destination = navigation.target(for: .forward)
+        case .latest:
+            movement = .direct
+            if hasBlankCapture {
+                destination = .blank
+            } else {
+                if latestRailID == nil {
+                    Task {
+                        await refreshRail()
+                        if latestRailID != nil { navigate(.latest) }
+                    }
+                    return
+                }
+                destination = latestRailID.map(NoteLocation.note)
+            }
+        }
+        guard let destination, destination != currentLocation else { return }
+        switch destination {
+        case .blank:
+            openBlankCapture(movement: movement)
+        case let .note(id):
+            openNote(id: id, revision: latestRevision, movement: movement)
         }
     }
 
@@ -278,9 +427,15 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             return Self.finishAndNewIsEnabled(
                 activeJot: session.activeJot,
                 hasBlockingWriteError: hasBlockingWriteError
-            )
+            ) && !isOpeningNote
         case #selector(revealCurrentJot):
             return session.activeJot != nil
+        case #selector(navigateBackFromMenu):
+            return navigation.canGoBack && !isOpeningNote
+        case #selector(navigateForwardFromMenu):
+            return navigation.canGoForward && !isOpeningNote
+        case #selector(navigateLatestFromMenu):
+            return !isOpeningNote && (hasBlankCapture || latestRailID != nil)
         default:
             return true
         }
@@ -290,7 +445,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         activeJot != nil && !hasBlockingWriteError
     }
 
-    @objc private func showJot() { panelController.showAndFocus() }
+    @objc private func showJot() { show() }
 
     @objc private func toggleDictationFromMenu() {
         panelController.showAndFocus()
@@ -304,6 +459,10 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         if panelController.window?.isVisible != true { panelController.showAndFocus() }
         panelController.send(["version": 1, "type": "toggleFormat", "format": format])
     }
+
+    @objc private func navigateLatestFromMenu() { navigate(.latest) }
+    @objc private func navigateBackFromMenu() { navigate(.back) }
+    @objc private func navigateForwardFromMenu() { navigate(.forward) }
 
     @objc private func revealCurrentJot() {
         guard let path = session.activeJot?.path else { return }
@@ -322,6 +481,11 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         guard let choice = rootAccess.chooseRoot() else { return }
         rootURL = choice.url
         Task { await tagIndex.configure(root: choice.url); await refreshTags(force: true) }
+        railNoteIDs = []
+        latestRailID = nil
+        navigation.reset()
+        hasBlankCapture = session.activeJot == nil
+        Task { await noteRailIndex.configure(root: choice.url); await refreshRail() }
         session.rootBookmark = choice.bookmark
         Task {
             await writer.configureRoot(choice.url)
@@ -400,7 +564,6 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         menu.addItem(item("Reveal Current Jot in Finder", action: #selector(revealCurrentJot), key: ""))
         menu.addItem(item("Open Jots Folder", action: #selector(openJotsFolder), key: ""))
         menu.addItem(item("Change Jots Folder…", action: #selector(chooseRoot), key: ""))
-
         let shortcutMenu = NSMenu()
         for choice in ShortcutChoice.allCases {
             let menuItem = item(choice.displayName, action: #selector(changeShortcut(_:)), key: "")
@@ -462,6 +625,15 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         formatItem.submenu = formatMenu
         mainMenu.addItem(formatItem)
 
+        let navigateItem = NSMenuItem()
+        let navigateMenu = NSMenu(title: "Navigate")
+        navigateMenu.addItem(item("Latest Jot", action: #selector(navigateLatestFromMenu), key: "l"))
+        navigateMenu.addItem(.separator())
+        navigateMenu.addItem(item("Back", action: #selector(navigateBackFromMenu), key: "["))
+        navigateMenu.addItem(item("Forward", action: #selector(navigateForwardFromMenu), key: "]"))
+        navigateItem.submenu = navigateMenu
+        mainMenu.addItem(navigateItem)
+
         NSApp.mainMenu = mainMenu
     }
 
@@ -486,12 +658,26 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     private func handle(_ event: WriterEvent) {
         switch event {
         case let .noteAllocated(id, path, revision):
+            if session.activeJot == nil {
+                navigation.replaceBlank(with: id)
+                hasBlankCapture = false
+                latestRailID = id
+            }
             session.activeJot = ActiveJot(id: id, path: path, acknowledgedRevision: -1)
             panelController.send(["version": 1, "type": "noteAllocated", "noteID": id, "path": path, "revision": revision])
         case let .saving(revision):
             panelController.send(["version": 1, "type": "saving", "revision": revision])
         case let .writeSucceeded(id, revision):
             Task { await refreshTags() }
+            if !railNoteIDs.contains(id) { Task { await refreshRail() } }
+            else if session.recoveryRevision == revision, let text = session.recoveryText {
+                panelController.send([
+                    "version": 1,
+                    "type": "notePreview",
+                    "noteID": id,
+                    "excerpt": String(text.split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(180)),
+                ])
+            }
             hasBlockingWriteError = false
             if var jot = session.activeJot, jot.id == id {
                 jot.acknowledgedRevision = revision
@@ -554,6 +740,21 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         guard let tags, force || tags != sentTags else { return }
         sentTags = tags
         panelController.send(["version": 1, "type": "tagVocabulary", "tags": tags])
+    }
+
+    private func refreshRail() async {
+        guard let entries = await noteRailIndex.refresh() else { return }
+        railNoteIDs = Set(entries.map(\.id))
+        latestRailID = entries.first?.id
+        panelController.send([
+            "version": 1,
+            "type": "noteRail",
+            "notes": entries.map { [
+                "id": $0.id,
+                "timestamp": Int($0.timestamp.timeIntervalSince1970 * 1_000),
+                "excerpt": $0.excerpt,
+            ] as [String: Any] },
+        ])
     }
 
     private func sendError(message: String, actions: [String]) {

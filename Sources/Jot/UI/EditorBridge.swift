@@ -9,6 +9,8 @@ protocol EditorBridgeDelegate: AnyObject {
     func editorPreferredHeightChanged(_ height: Double)
     func editorRequestedFinish(revision: Int)
     func editorRequestedHide(revision: Int)
+    func editorRequestedOpenNote(id: String, revision: Int)
+    func editorRequestedNavigation(_ direction: NoteNavigationDirection)
     func editorRequestedRecovery(_ action: String)
     func editorRequestedDictationToggle()
     func editorRequestedDictationFinish()
@@ -65,6 +67,16 @@ final class EditorBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             if let revision = integer(body["revision"]) { delegate?.editorRequestedFinish(revision: revision) }
         case "hide":
             if let revision = integer(body["revision"]) { delegate?.editorRequestedHide(revision: revision) }
+        case "openNote":
+            if let id = body["noteID"] as? String, let revision = integer(body["revision"]) {
+                delegate?.editorRequestedOpenNote(id: id, revision: revision)
+            }
+        case "navigateLatest":
+            delegate?.editorRequestedNavigation(.latest)
+        case "navigateBack":
+            delegate?.editorRequestedNavigation(.back)
+        case "navigateForward":
+            delegate?.editorRequestedNavigation(.forward)
         case "recover":
             if let action = body["action"] as? String { delegate?.editorRequestedRecovery(action) }
         case "toggleDictation":

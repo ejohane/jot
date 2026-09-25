@@ -20,6 +20,7 @@ export const editorTheme = [
     "&": { height: "100%", background: "transparent", color: "var(--text)" },
     ".cm-scroller": {
       overflow: "auto",
+      scrollbarWidth: "thin",
       fontFamily: "-apple-system, BlinkMacSystemFont, system-ui, sans-serif",
       fontSize: "var(--editor-size)",
       lineHeight: "1.55",

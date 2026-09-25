@@ -11,6 +11,7 @@ import { beginDictation, clearDictation, dictationPreview, insertionForDictation
 import { inlineTagEditor, setTagVocabulary } from "./tagEditor";
 import { indentBulletItem, outdentBulletItem } from "./listIndent";
 import { toggleInlineFormat } from "./formatting";
+import { NoteRail, type RailNote } from "./NoteRail";
 
 type RecoveryAction = "restoreRoot" | "saveCopy" | "reloadExternal";
 type ErrorStatus = { message: string; actions?: RecoveryAction[] };
@@ -38,6 +39,8 @@ export function Editor() {
   const [error, setError] = useState<ErrorStatus | null>(null);
   const [dictation, setDictation] = useState<{ status: "idle" | "downloading" | "recording" | "transcribing" | "error"; message?: string }>({ status: "idle" });
   const [waveform, setWaveform] = useState<number[]>(() => Array(waveformBars).fill(0));
+  const [railNotes, setRailNotes] = useState<RailNote[]>([]);
+  const [activeNoteID, setActiveNoteID] = useState<string | undefined>();
 
   useEffect(() => {
     if (!host.current) return;
@@ -139,6 +142,9 @@ export function Editor() {
             },
           },
           { key: "Mod-Shift-d", run: () => sendToNative({ version: 1, type: "toggleDictation" }) },
+          { key: "Mod-l", run: () => sendToNative({ version: 1, type: "navigateLatest" }) },
+          { key: "Mod-[", run: () => sendToNative({ version: 1, type: "navigateBack" }) },
+          { key: "Mod-]", run: () => sendToNative({ version: 1, type: "navigateForward" }) },
           { key: "Enter", run: continueMarkdownList },
           { key: "Enter", run: insertLiteralNewline },
           { key: "Shift-Enter", run: insertLiteralNewline },
@@ -201,6 +207,7 @@ export function Editor() {
           case "loadSession": {
             view.dispatch({ effects: clearDictation.of() });
             noteIDRef.current = message.noteID;
+            setActiveNoteID(message.noteID);
             hasLoadedSession.current = true;
             const pending = pendingBridgeSnapshot.current;
             if (pending) {
@@ -245,6 +252,14 @@ export function Editor() {
           }
           case "noteAllocated":
             noteIDRef.current = message.noteID;
+            setActiveNoteID(message.noteID);
+            break;
+          case "noteRail":
+            setRailNotes(message.notes);
+            break;
+          case "notePreview":
+            setRailNotes((notes) => notes.map((note) => note.id === message.noteID
+              ? { ...note, excerpt: message.excerpt } : note));
             break;
           case "saving":
             break;
@@ -322,9 +337,19 @@ export function Editor() {
   };
   const dictationActive = dictation.status === "downloading" || dictation.status === "recording" || dictation.status === "transcribing";
 
+  const openNote = (id: string) => {
+    const pending = pendingBridgeSnapshot.current;
+    if (pending) {
+      if (!sendToNative(pending)) return;
+      pendingBridgeSnapshot.current = null;
+    }
+    sendToNative({ version: 1, type: "openNote", noteID: id, revision: revisionRef.current });
+  };
+
   return (
     <main className="composer">
       <div ref={host} className="editor" role="textbox" aria-label="Jot — editable Markdown document" />
+      <NoteRail notes={railNotes} activeID={activeNoteID} onOpen={openNote} />
       <div className="dictation-controls">
         {dictationActive ? (
           <>

@@ -107,6 +107,8 @@ final class BridgeDelegateSpy: EditorBridgeDelegate {
     var preferredHeight: Double?
     var finishRevision: Int?
     var hideRevision: Int?
+    var openNote: (String, Int)?
+    var navigation: [NoteNavigationDirection] = []
     var recoveryAction: String?
     var dictationToggleCount = 0
     var dictationFinishCount = 0
@@ -118,6 +120,8 @@ final class BridgeDelegateSpy: EditorBridgeDelegate {
     func editorPreferredHeightChanged(_ height: Double) { preferredHeight = height }
     func editorRequestedFinish(revision: Int) { finishRevision = revision }
     func editorRequestedHide(revision: Int) { hideRevision = revision }
+    func editorRequestedOpenNote(id: String, revision: Int) { openNote = (id, revision) }
+    func editorRequestedNavigation(_ direction: NoteNavigationDirection) { navigation.append(direction) }
     func editorRequestedRecovery(_ action: String) { recoveryAction = action }
     func editorRequestedDictationToggle() { dictationToggleCount += 1 }
     func editorRequestedDictationFinish() { dictationFinishCount += 1 }
@@ -133,6 +137,44 @@ final class PanelDelegateSpy: ComposerPanelDelegate {
 }
 
 final class CoreTests: XCTestCase {
+    func testNoteNavigationHistoryFollowsVisitsAndRestoresReadingPosition() {
+        var history = NoteNavigationHistory()
+        let old = NoteLocation.note("old")
+        let latest = NoteLocation.note("latest")
+        let other = NoteLocation.note("other")
+        let oldPosition = NoteReadingPosition(
+            selection: EditorSelection(anchor: 8, head: 8),
+            viewport: EditorViewport(scrollTop: 240)
+        )
+
+        history.recordTransition(from: old, to: latest, movement: .direct, sourcePosition: oldPosition)
+        XCTAssertEqual(history.target(for: .back), old)
+        XCTAssertEqual(history.position(for: old), oldPosition)
+
+        history.recordTransition(from: latest, to: old, movement: .back, sourcePosition: .start)
+        XCTAssertEqual(history.target(for: .forward), latest)
+        history.recordTransition(from: old, to: latest, movement: .forward, sourcePosition: oldPosition)
+        XCTAssertEqual(history.target(for: .back), old)
+        XCTAssertFalse(history.canGoForward)
+
+        history.recordTransition(from: latest, to: other, movement: .direct, sourcePosition: .start)
+        XCTAssertEqual(history.target(for: .back), latest)
+        XCTAssertFalse(history.canGoForward)
+    }
+
+    func testBlankCaptureCanBeVisitedAndBecomeARealNote() {
+        var history = NoteNavigationHistory()
+        let old = NoteLocation.note("old")
+        history.recordTransition(from: .blank, to: old, movement: .direct, sourcePosition: .start)
+        XCTAssertEqual(history.target(for: .back), .blank)
+        history.recordTransition(from: old, to: .blank, movement: .back, sourcePosition: .start)
+        XCTAssertEqual(history.target(for: .forward), old)
+
+        history.replaceBlank(with: "new")
+        history.recordTransition(from: .note("new"), to: old, movement: .forward, sourcePosition: .start)
+        XCTAssertEqual(history.target(for: .back), .note("new"))
+    }
+
     func testVoiceAudioSinkReportsMicrophoneLevelFromSamples() throws {
         let format = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 1, interleaved: false))
         let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4_800))
@@ -464,6 +506,10 @@ final class CoreTests: XCTestCase {
         bridge.handle(["version": 1, "type": "preferredHeightChanged", "height": NSNumber(value: 333.5)] as NSDictionary)
         bridge.handle(["version": 1, "type": "finishAndNew", "revision": NSNumber(value: 9)] as NSDictionary)
         bridge.handle(["version": 1, "type": "hide", "revision": NSNumber(value: 10)] as NSDictionary)
+        bridge.handle(["version": 1, "type": "openNote", "noteID": "note-2", "revision": NSNumber(value: 10)] as NSDictionary)
+        bridge.handle(["version": 1, "type": "navigateLatest"] as NSDictionary)
+        bridge.handle(["version": 1, "type": "navigateBack"] as NSDictionary)
+        bridge.handle(["version": 1, "type": "navigateForward"] as NSDictionary)
         bridge.handle(["version": 1, "type": "recover", "action": "saveCopy"] as NSDictionary)
         bridge.handle(["version": 1, "type": "toggleDictation"] as NSDictionary)
         bridge.handle(["version": 1, "type": "finishDictation"] as NSDictionary)
@@ -481,6 +527,9 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(delegate.preferredHeight, 333.5)
         XCTAssertEqual(delegate.finishRevision, 9)
         XCTAssertEqual(delegate.hideRevision, 10)
+        XCTAssertEqual(delegate.openNote?.0, "note-2")
+        XCTAssertEqual(delegate.openNote?.1, 10)
+        XCTAssertEqual(delegate.navigation, [.latest, .back, .forward])
         XCTAssertEqual(delegate.recoveryAction, "saveCopy")
         XCTAssertEqual(delegate.dictationToggleCount, 1)
         XCTAssertEqual(delegate.dictationFinishCount, 1)
@@ -701,6 +750,72 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(text, "canonical")
         XCTAssertEqual(try fileSystem.data(at: canonicalURL), Data("canonical".utf8))
         XCTAssertFalse(fileSystem.fileExists(at: temporaryURL))
+    }
+
+    @MainActor
+    func testOpeningExistingJotKeepsItEditableAndPreservesPreviousJot() async throws {
+        let files = InMemoryFileSystem()
+        let oldURL = URL(fileURLWithPath: "/Jots/2026/09/24/10-00-00-000--old.md")
+        let nextURL = URL(fileURLWithPath: "/Jots/2026/09/24/11-00-00-000--next.md")
+        files.replaceExternally(at: oldURL, with: "old text")
+        files.replaceExternally(at: nextURL, with: "next text")
+        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: files) { _ in }
+        _ = try await writer.restore(ActiveJot(id: "old", path: oldURL.path, acknowledgedRevision: 1))
+        await writer.receive(EditorSnapshot(revision: 2, text: "edited old text", selection: .start, viewport: .top))
+
+        let opened = try await writer.openExisting(id: "next", path: nextURL.path, through: 2)
+        XCTAssertEqual(opened.text, "next text")
+        XCTAssertEqual(opened.jot.id, "next")
+        XCTAssertEqual(try files.data(at: oldURL), Data("edited old text".utf8))
+        await writer.receive(EditorSnapshot(revision: 1, text: "edited next text", selection: .start, viewport: .top))
+        let flushed = await writer.flush(through: 1)
+        XCTAssertTrue(flushed)
+        XCTAssertEqual(try files.data(at: nextURL), Data("edited next text".utf8))
+    }
+
+    @MainActor
+    func testOpeningJotDoesNotSwitchAfterSaveFailure() async throws {
+        let files = InMemoryFileSystem()
+        let oldURL = URL(fileURLWithPath: "/Jots/old.md")
+        let nextURL = URL(fileURLWithPath: "/Jots/next.md")
+        files.replaceExternally(at: oldURL, with: "old")
+        files.replaceExternally(at: nextURL, with: "next")
+        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: files) { _ in }
+        _ = try await writer.restore(ActiveJot(id: "old", path: oldURL.path, acknowledgedRevision: 1))
+        files.writeError = CocoaError(.fileWriteVolumeReadOnly)
+        await writer.receive(EditorSnapshot(revision: 2, text: "unsaved", selection: .start, viewport: .top))
+
+        do {
+            _ = try await writer.openExisting(id: "next", path: nextURL.path, through: 2)
+            XCTFail("Expected switching to be blocked")
+        } catch {
+            let current = await writer.currentJot()
+            XCTAssertEqual(current?.id, "old")
+            XCTAssertEqual(try files.data(at: oldURL), Data("old".utf8))
+        }
+    }
+
+    func testNoteRailScansMarkdownWithBoundedPreviewAndCreationTime() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let allocator = JotPathAllocator()
+        let earlier = Date(timeIntervalSince1970: 1_700_000_000)
+        let later = earlier.addingTimeInterval(60)
+        let first = allocator.allocate(root: root, at: earlier, id: "first")
+        let second = allocator.allocate(root: root, at: later, id: "second")
+        try FileManager.default.createDirectory(at: first.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try String(repeating: "long word ", count: 100).write(to: first.fileURL, atomically: true, encoding: .utf8)
+        try "second note".write(to: second.fileURL, atomically: true, encoding: .utf8)
+        let index = NoteRailIndex(root: root)
+
+        let refreshed = await index.refresh()
+        let notes = try XCTUnwrap(refreshed)
+        XCTAssertEqual(notes.map(\.id), ["second", "first"])
+        XCTAssertEqual(notes[0].excerpt, "second note")
+        XCTAssertLessThanOrEqual(notes[1].excerpt.count, 180)
+        let selected = await index.entry(id: "second")
+        XCTAssertEqual(try XCTUnwrap(selected).id, "second")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(selected).path))
     }
 
     func testSessionStoreRoundTripsApplicationSupportState() async throws {

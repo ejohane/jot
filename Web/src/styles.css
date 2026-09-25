@@ -49,9 +49,23 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
 }
 .editor {
   position: absolute;
-  inset: var(--editor-top-inset) 0 var(--editor-bottom-inset);
+  inset: var(--editor-top-inset) 37px var(--editor-bottom-inset) 0;
   overflow: hidden;
 }
+.note-rail { position: absolute; top: min(var(--editor-top-inset), calc(100% - var(--editor-bottom-inset) - 24px)); right: 0; bottom: var(--editor-bottom-inset); width: 37px; z-index: 3; }
+.note-rail-scroll { width: 100%; height: 100%; display: flex; flex-direction: column; overflow-y: auto; scrollbar-width: none; }
+.note-rail-scroll::-webkit-scrollbar { display: none; }
+.note-rail-list { position: relative; width: 100%; flex: none; margin-block: auto; }
+.note-tick { position: absolute; right: 0; width: 37px; height: 10px; display: flex; align-items: center; justify-content: flex-end; border: 0; background: transparent; padding: 0 6px 0 0; cursor: pointer; }
+.note-tick span { display: block; width: 31px; height: 1.5px; border-radius: 1.5px; background: color-mix(in srgb, var(--text) 25%, transparent); transform-origin: right center; transition: transform 45ms ease-out, background 45ms ease-out; }
+.note-rail.is-resting .note-tick span { transition-duration: 160ms; }
+.note-tick.is-hovered span, .note-tick:focus-visible span, .note-tick.is-active span { background: var(--text); }
+.note-tick:focus-visible { outline: 2px solid var(--link); outline-offset: -3px; }
+.note-rail-preview { position: absolute; right: 41px; width: min(320px, calc(100vw - 61px)); padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--background) 90%, var(--text) 10%); border: 1px solid color-mix(in srgb, var(--text) 12%, transparent); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18); translate: 0 -50%; animation: note-rail-preview-in 45ms ease-out both; pointer-events: none; overflow: hidden; }
+@keyframes note-rail-preview-in { from { opacity: 0; transform: translateX(6px); } to { opacity: 1; transform: translateX(0); } }
+.note-rail-date { font-size: 13px; font-weight: 650; color: var(--text); margin-bottom: 7px; }
+.note-rail-excerpt { font-size: 14px; line-height: 1.45; color: var(--secondary); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) { .note-rail-preview { animation: none; } }
 .status {
   align-items: center;
   bottom: 11px;
@@ -74,7 +88,7 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
   padding: 3px 7px;
 }
 .status button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
-.dictation-controls { position: absolute; bottom: 12px; left: 16px; z-index: 2; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 32px); }
+.dictation-controls { position: absolute; bottom: 12px; right: 16px; z-index: 2; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 32px); }
 .dictation-button { display: grid; flex: none; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 50%; background: transparent; color: var(--secondary); cursor: pointer; }
 .dictation-button:hover, .dictation-button:focus-visible { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
 .dictation-button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
