@@ -13,6 +13,7 @@ import { markdownPresentation } from "./presentation";
 import { findInlineTags } from "./tags";
 import { completionStatus, currentCompletions } from "@codemirror/autocomplete";
 import { indentBulletItem } from "./listIndent";
+import { toggleInlineFormat } from "./formatting";
 
 const views: EditorView[] = [];
 const roots: Root[] = [];
@@ -332,22 +333,28 @@ describe("source-first Markdown presentation", () => {
     expect(parent.querySelector(".status")).toBeNull();
   });
 
-  it("renders typed list markers as round bullets while preserving Markdown", async () => {
+  it("reveals a list marker while editing and renders it as a bullet when the caret leaves", async () => {
     const { view, messages } = await makeConnectedEditor("-");
     await act(async () => view.dispatch({ ...view.state.replaceSelection(" "), userEvent: "input.type" }));
-    expect(view.dom.querySelector(".cm-list-bullet")?.textContent).toBe("•");
+    expect(view.dom.querySelector(".cm-list-bullet")).toBeNull();
+    expect(view.contentDOM.textContent).toContain("- ");
     expect(view.state.doc.toString()).toBe("- ");
     expect(messages.filter((message) => message.type === "contentChanged").at(-1)).toMatchObject({ text: "- " });
+    view.dispatch({ changes: { from: 2, insert: "one\nplain" }, selection: { anchor: 11 } });
+    expect(view.dom.querySelector(".cm-list-bullet")?.textContent).toBe("•");
   });
 
   it("renders unordered markers, but leaves code and ordered lists alone", () => {
     const view = makeView("- one\n  - nested\n\n* two\n\n+ three\n\n1. ordered\n\n```\n- code\n```\n\n`- inline code`");
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
     expect(view.dom.querySelectorAll(".cm-list-bullet")).toHaveLength(4);
+    expect(view.dom.querySelector(".cm-list-number")?.textContent).toBe("1.");
   });
 
   it("alternates filled and open bullets by list depth without changing Markdown", () => {
-    const source = "- one\n     - two\n          - three\n     - four\n- five";
+    const source = "- one\n     - two\n          - three\n     - four\n- five\nplain";
     const view = makeView(source);
+    view.dispatch({ selection: { anchor: source.length } });
     expect([...view.dom.querySelectorAll(".cm-list-bullet")].map((bullet) => bullet.textContent)).toEqual([
       "•", "○", "•", "○", "•",
     ]);
@@ -360,7 +367,8 @@ describe("source-first Markdown presentation", () => {
     expect(view.dom.querySelector(".cm-cursorLayer")).not.toBeNull();
     await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true })));
     expect(view.state.doc.toString()).toBe("- one\n     - two");
-    expect([...view.dom.querySelectorAll(".cm-list-bullet")].map((bullet) => bullet.textContent)).toEqual(["•", "○"]);
+    expect([...view.dom.querySelectorAll(".cm-list-bullet")].map((bullet) => bullet.textContent)).toEqual(["•"]);
+    expect(view.contentDOM.textContent).toContain("- two");
     expect(view.dom.querySelector(".cm-cursorLayer")).not.toBeNull();
   });
 
@@ -551,12 +559,150 @@ describe("source-first Markdown presentation", () => {
     expect(view.state.doc.toString()).toBe(fixture);
   });
 
-  it("fades markers away from the caret and reveals the active line", () => {
-    const view = makeView("# One\n\n**Two**");
-    expect(view.dom.querySelectorAll(".cm-markdown-marker").length).toBeGreaterThan(0);
-    view.dispatch({ selection: { anchor: 9 } });
-    expect(view.dom.querySelectorAll(".cm-markdown-marker-active").length).toBeGreaterThan(0);
-    expect(view.state.doc.toString()).toBe("# One\n\n**Two**");
+  it("hides completed hand-typed emphasis markers away from the caret and reveals them for editing", () => {
+    const source = "plain\n**bold** and *italic*\nunfinished **marker";
+    const view = makeView(source);
+    expect(view.contentDOM.textContent).toContain("bold and italic");
+    expect(view.contentDOM.textContent).not.toContain("**bold**");
+    expect(view.contentDOM.textContent).toContain("unfinished **marker");
+    view.dispatch({ selection: { anchor: source.indexOf("bold") + 1 } });
+    expect(view.contentDOM.textContent).toContain("**bold**");
+    expect(view.contentDOM.textContent).not.toContain("*italic*");
+    view.dispatch({ selection: { anchor: source.indexOf("italic") + 1 } });
+    expect(view.contentDOM.textContent).toContain("*italic*");
+    expect(view.contentDOM.textContent).not.toContain("**bold**");
+    view.dispatch({ selection: { anchor: source.indexOf("*italic*") + "*italic*".length } });
+    expect(view.contentDOM.textContent).not.toContain("*italic*");
+    expect(view.state.doc.toString()).toBe(source);
+  });
+
+  it("presents headings, code, strikethrough, links, and quotes without Markdown markers", () => {
+    const source = "plain\n# Heading\n`code` ~~strike~~ [label](https://example.test/a)\n> quote\n[incomplete](";
+    const view = makeView(source);
+    expect(view.contentDOM.textContent).toContain("Heading");
+    expect(view.contentDOM.textContent).not.toContain("# Heading");
+    expect(view.contentDOM.textContent).toContain("code strike label");
+    expect(view.contentDOM.textContent).not.toContain("`code`");
+    expect(view.contentDOM.textContent).not.toContain("~~strike~~");
+    expect(view.contentDOM.textContent).not.toContain("https://example.test/a");
+    expect(view.contentDOM.textContent).toContain("quote");
+    expect(view.contentDOM.textContent).not.toContain("> quote");
+    expect(view.contentDOM.textContent).toContain("[incomplete](");
+
+    view.dispatch({ selection: { anchor: source.indexOf("Heading") + 2 } });
+    expect(view.contentDOM.textContent).toContain("# Heading");
+    expect(view.contentDOM.textContent).not.toContain("`code`");
+    view.dispatch({ selection: { anchor: source.indexOf("code") + 2 } });
+    expect(view.contentDOM.textContent).toContain("`code`");
+    expect(view.contentDOM.textContent).not.toContain("# Heading");
+    view.dispatch({ selection: { anchor: source.indexOf("label") + 2 } });
+    expect(view.contentDOM.textContent).toContain("[label](https://example.test/a)");
+    expect(view.state.doc.toString()).toBe(source);
+  });
+
+  it("handles closing heading marks, multiline quotes, and autolinks without hiding unsupported source", () => {
+    const source = "plain\n# Heading ###\n> first\n> second\n<https://example.test>\n![alt](image.png)\n# \nplain";
+    const view = makeView(source);
+    expect(view.contentDOM.textContent).toContain("Heading");
+    expect(view.contentDOM.textContent).not.toContain("###");
+    expect(view.contentDOM.textContent).not.toContain("> first");
+    expect(view.contentDOM.textContent).not.toContain("> second");
+    expect(view.contentDOM.textContent).toContain("https://example.test");
+    expect(view.contentDOM.textContent).not.toContain("<https://example.test>");
+    expect(view.contentDOM.textContent).toContain("![alt](image.png)");
+    expect(view.contentDOM.textContent).toContain("# ");
+    view.dispatch({ selection: { anchor: source.indexOf("second") + 1 } });
+    expect(view.contentDOM.textContent).toContain("> second");
+    expect(view.contentDOM.textContent).not.toContain("> first");
+    expect(view.state.doc.toString()).toBe(source);
+  });
+
+  it("shows list, task, fence, and rule source only while editing those constructs", () => {
+    const source = "plain\n- bullet\n1. numbered\n- [x] done\n---\n```js\nconst x = 1\n```\nplain";
+    const view = makeView(source);
+    expect(view.dom.querySelectorAll(".cm-list-bullet")).toHaveLength(2);
+    expect(view.dom.querySelector(".cm-list-number")?.textContent).toBe("1.");
+    expect(view.dom.querySelector(".cm-task-checkbox.is-checked")).not.toBeNull();
+    expect(view.dom.querySelector(".cm-horizontal-rule")).not.toBeNull();
+    expect(view.contentDOM.textContent).not.toContain("[x]");
+    expect(view.contentDOM.textContent).not.toContain("```js");
+
+    view.dispatch({ selection: { anchor: source.indexOf("done") + 1 } });
+    expect(view.contentDOM.textContent).toContain("- [x] done");
+    expect(view.dom.querySelector(".cm-task-checkbox.is-checked")).toBeNull();
+    view.dispatch({ selection: { anchor: source.indexOf("const x") + 2 } });
+    expect(view.contentDOM.textContent).toContain("```js");
+    view.dispatch({ selection: { anchor: source.indexOf("---") + 1 } });
+    expect(view.contentDOM.textContent).toContain("---");
+    expect(view.dom.querySelector(".cm-horizontal-rule")).toBeNull();
+    expect(view.state.doc.toString()).toBe(source);
+  });
+
+  it("leaves an unfinished code fence visible", () => {
+    const view = makeView("plain\n```js\nwork in progress");
+    expect(view.contentDOM.textContent).toContain("```js");
+    expect(view.state.doc.toString()).toBe("plain\n```js\nwork in progress");
+  });
+
+  it("formats selected text as Markdown, toggles it off, and keeps undo and persistence intact", async () => {
+    const { view, messages } = await makeConnectedEditor("hello world");
+    view.dispatch({ selection: { anchor: 6, head: 11 } });
+    expect(toggleInlineFormat(view, "bold")).toBe(true);
+    expect(view.state.doc.toString()).toBe("hello **world**");
+    expect(view.state.selection.main.from).toBe(8);
+    expect(view.state.selection.main.to).toBe(13);
+    expect(messages.filter((message) => message.type === "contentChanged").at(-1)).toMatchObject({ text: "hello **world**" });
+    expect(toggleInlineFormat(view, "bold")).toBe(true);
+    expect(view.state.doc.toString()).toBe("hello world");
+    expect(undo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe("hello **world**");
+  });
+
+  it("formats at an empty caret and accepts the same toggle through the native menu bridge", async () => {
+    const { view } = await makeConnectedEditor("hello ");
+    expect(toggleInlineFormat(view, "italic")).toBe(true);
+    expect(view.state.doc.toString()).toBe("hello **");
+    expect(view.state.selection.main.head).toBe(7);
+    view.dispatch({ ...view.state.replaceSelection("world"), userEvent: "input.type" });
+    expect(view.state.doc.toString()).toBe("hello *world*");
+    view.dispatch({ selection: { anchor: 1, head: 5 } });
+    window.JotNative?.receive({ version: 1, type: "toggleFormat", format: "bold" });
+    expect(view.state.doc.toString()).toBe("h**ello** *world*");
+  });
+
+  it("toggles hand-typed formatting off from a caret within its text", () => {
+    const view = makeView("before **bold** after");
+    view.dispatch({ selection: { anchor: 11 } });
+    expect(toggleInlineFormat(view, "bold")).toBe(true);
+    expect(view.state.doc.toString()).toBe("before bold after");
+    for (const [source, format, position, expected] of [
+      ["_italic_", "italic", 4, "italic"],
+      ["__bold__", "bold", 4, "bold"],
+    ] as const) {
+      const handTyped = makeView(source);
+      handTyped.dispatch({ selection: { anchor: position } });
+      expect(toggleInlineFormat(handTyped, format)).toBe(true);
+      expect(handTyped.state.doc.toString()).toBe(expected);
+    }
+  });
+
+  it("starts a new format at the boundary after an existing span", () => {
+    const view = makeView("**bold**");
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
+    expect(toggleInlineFormat(view, "bold")).toBe(true);
+    expect(view.state.doc.toString()).toBe("**bold******");
+    expect(view.state.selection.main.head).toBe(10);
+  });
+
+  it("handles the platform formatting shortcut in the editor", async () => {
+    const { view } = await makeConnectedEditor("text");
+    view.focus();
+    view.dispatch({ selection: { anchor: 0, head: 4 } });
+    const modifier = /Mac/.test(navigator.platform) ? { metaKey: true } : { ctrlKey: true };
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "b", code: "KeyB", ...modifier, bubbles: true, cancelable: true,
+    })));
+    expect(view.state.doc.toString()).toBe("**text**");
   });
 
   it("keeps malformed and incomplete source editable", () => {

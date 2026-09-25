@@ -10,6 +10,7 @@ import { markdownPresentation } from "./presentation";
 import { beginDictation, clearDictation, dictationPreview, insertionForDictation, reviseDictation } from "./dictationPreview";
 import { inlineTagEditor, setTagVocabulary } from "./tagEditor";
 import { indentBulletItem, outdentBulletItem } from "./listIndent";
+import { toggleInlineFormat } from "./formatting";
 
 type RecoveryAction = "restoreRoot" | "saveCopy" | "reloadExternal";
 type ErrorStatus = { message: string; actions?: RecoveryAction[] };
@@ -128,6 +129,8 @@ export function Editor() {
         EditorView.lineWrapping,
         history(),
         keymap.of([
+          { key: "Mod-b", run: (view) => toggleInlineFormat(view, "bold") },
+          { key: "Mod-i", run: (view) => toggleInlineFormat(view, "italic") },
           {
             key: "Mod-Enter",
             run: () => {
@@ -192,6 +195,9 @@ export function Editor() {
       receive(message) {
         if (message.version !== 1) return;
         switch (message.type) {
+          case "toggleFormat":
+            toggleInlineFormat(view, message.format);
+            break;
           case "loadSession": {
             view.dispatch({ effects: clearDictation.of() });
             noteIDRef.current = message.noteID;

@@ -71,6 +71,7 @@ replace a working development build.
 - Option-Space by default: show and focus Jot
 - Escape: flush pending changes and hide
 - Command-Return: finish the active jot and show a new blank composer
+- Command-B / Command-I: toggle bold or italic Markdown for the selection, or start typing inside a new pair of markers
 - Command-Q: flush session state and quit
 - Enter in a Markdown list: continue the list; Enter on an empty item exits it
 - Tab / Shift-Tab on a bullet item: indent / outdent one level (also works on selected bullet items)
@@ -79,8 +80,9 @@ replace a working development build.
 - Check button: finish recording and keep the transcript
 - X button: cancel recording and discard the provisional transcript
 
-Unordered list markers (`-`, `*`, or `+` followed by a space) display as round
-bullets while the saved and copied text remains ordinary Markdown.
+Completed Markdown displays as formatted text, with its syntax revealed while
+you edit that construct. Lists show bullets, numbers, or checkboxes; horizontal
+rules show a divider. The saved and copied text remains ordinary Markdown.
 
 The menu-bar item can change the shortcut or Jots folder, reveal the active jot,
 open the Jots folder, and control launch at login.
