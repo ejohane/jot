@@ -10,6 +10,8 @@ export type EditorToNative =
   | { version: 1; type: "preferredHeightChanged"; height: number }
   | { version: 1; type: "finishAndNew"; revision: number }
   | { version: 1; type: "hide"; revision: number }
+  | { version: 1; type: "openNote"; noteID: string; revision: number }
+  | { version: 1; type: "navigateLatest" | "navigateBack" | "navigateForward" }
   | { version: 1; type: "toggleDictation" }
   | { version: 1; type: "finishDictation" }
   | { version: 1; type: "cancelDictation" }
@@ -27,7 +29,9 @@ export type NativeToEditor =
   | { version: 1; type: "dictationResult"; text: string }
   | { version: 1; type: "dictationPartial"; text: string }
   | { version: 1; type: "dictationLevel"; level: number }
-  | { version: 1; type: "tagVocabulary"; tags: string[] };
+  | { version: 1; type: "tagVocabulary"; tags: string[] }
+  | { version: 1; type: "notePreview"; noteID: string; excerpt: string }
+  | { version: 1; type: "noteRail"; notes: Array<{ id: string; timestamp: number; excerpt: string }> };
 
 declare global {
   interface Window {

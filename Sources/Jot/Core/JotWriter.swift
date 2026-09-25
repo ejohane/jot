@@ -156,6 +156,29 @@ actor JotWriter {
 
     func currentJot() -> ActiveJot? { activeJot }
 
+    func openExisting(id: String, path: String, through revision: Int) throws -> (text: String, jot: ActiveJot) {
+        guard flush(through: revision) else {
+            throw PersistenceError.writeFailed("The current jot has not been saved.")
+        }
+        let url = URL(fileURLWithPath: path)
+        guard fileSystem.fileExists(at: url) else { throw PersistenceError.activeFileMissing }
+        let data = try fileSystem.data(at: url)
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw PersistenceError.writeFailed("The selected jot is not valid UTF-8.")
+        }
+        idleTask?.cancel()
+        sustainedTask?.cancel()
+        idleTask = nil
+        sustainedTask = nil
+        let jot = ActiveJot(id: id, path: path, acknowledgedRevision: 0)
+        activeJot = jot
+        lastWrittenData = data
+        latestSnapshot = EditorSnapshot(revision: 0, text: text, selection: .start, viewport: .top)
+        activeFileWasMissing = false
+        hasBlockingError = false
+        return (text, jot)
+    }
+
     func saveCurrentVersionAsCopy() -> ActiveJot? {
         guard let latestSnapshot, let rootURL else { return nil }
         let previousJot = activeJot

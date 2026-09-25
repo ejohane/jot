@@ -108,6 +108,123 @@ afterEach(async () => {
 });
 
 describe("source-first Markdown presentation", () => {
+  it("shows rail previews and requests the selected jot in this editor", async () => {
+    const { parent, messages } = await makeConnectedEditor("current note");
+    await act(async () => window.JotNative?.receive({
+      version: 1,
+      type: "noteRail",
+      notes: [
+        { id: "note-2", timestamp: Date.parse("2026-09-24T18:20:00Z"), excerpt: "A short preview" },
+        { id: "note-1", timestamp: Date.parse("2026-09-23T18:20:00Z"), excerpt: "Current note" },
+      ],
+    }));
+    const ticks = parent.querySelectorAll<HTMLButtonElement>(".note-tick");
+    expect(ticks).toHaveLength(2);
+    expect(ticks[1].getAttribute("aria-current")).toBe("true");
+    await act(async () => ticks[0].dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientY: 5 })));
+    expect(parent.querySelector(".note-rail-preview")?.textContent).toContain("A short preview");
+    await act(async () => ticks[0].click());
+    expect(messages.at(-1)).toEqual({ version: 1, type: "openNote", noteID: "note-2", revision: 1 });
+  });
+
+  it("updates the preview as the rail scrolls under a stationary pointer", async () => {
+    const { parent } = await makeConnectedEditor();
+    await act(async () => window.JotNative?.receive({
+      version: 1,
+      type: "noteRail",
+      notes: Array.from({ length: 100 }, (_, index) => ({
+        id: `note-${index}`, timestamp: Date.now() - index * 1_000, excerpt: `Preview ${index}`,
+      })),
+    }));
+    const rail = parent.querySelector<HTMLElement>(".note-rail-scroll");
+    if (!rail) throw new Error("Note rail was unavailable");
+    const list = parent.querySelector<HTMLElement>(".note-rail-list")!;
+    list.getBoundingClientRect = () => new DOMRect(0, -rail.scrollTop, 37, 1_000);
+    await act(async () => rail.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientY: 5 })));
+    expect(parent.querySelector(".note-rail-preview")?.textContent).toContain("Preview 0");
+    await act(async () => {
+      rail.scrollTop = 100;
+      rail.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    expect(parent.querySelector(".note-rail-preview")?.textContent).toContain("Preview 10");
+    expect(parent.querySelectorAll(".note-tick").length).toBeLessThan(100);
+  });
+
+  it("maps hover and hovercard position to a centered short stack", async () => {
+    const { parent } = await makeConnectedEditor();
+    await act(async () => window.JotNative?.receive({
+      version: 1,
+      type: "noteRail",
+      notes: Array.from({ length: 3 }, (_, index) => ({
+        id: `note-${index}`, timestamp: Date.now() - index * 1_000, excerpt: `Centered ${index}`,
+      })),
+    }));
+    const rail = parent.querySelector<HTMLElement>(".note-rail-scroll")!;
+    const list = parent.querySelector<HTMLElement>(".note-rail-list")!;
+    Object.defineProperty(rail, "clientHeight", { configurable: true, value: 200 });
+    rail.getBoundingClientRect = () => new DOMRect(0, 0, 37, 200);
+    list.getBoundingClientRect = () => new DOMRect(0, 85, 37, 30);
+    await act(async () => rail.dispatchEvent(new Event("scroll", { bubbles: true })));
+    await act(async () => rail.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientY: 90 })));
+    expect(parent.querySelector(".note-rail-preview")?.textContent).toContain("Centered 0");
+    expect(parent.querySelector<HTMLElement>(".note-rail-preview")?.style.top).toBe("90px");
+    await act(async () => rail.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientY: 70 })));
+    expect(parent.querySelector(".note-rail-preview")).toBeNull();
+    expect(parent.querySelector(".note-rail")?.classList.contains("is-resting")).toBe(true);
+  });
+
+  it("swells nearby ticks and settles to a fixed selected tick when the pointer leaves", async () => {
+    const { parent, messages } = await makeConnectedEditor("Selected note");
+    await act(async () => window.JotNative?.receive({
+      version: 1,
+      type: "noteRail",
+      notes: Array.from({ length: 9 }, (_, index) => ({
+        id: `note-${index}`, timestamp: Date.now() - index * 1_000, excerpt: `Note ${index}`,
+      })),
+    }));
+    const rail = parent.querySelector<HTMLElement>(".note-rail-scroll")!;
+    const list = parent.querySelector<HTMLElement>(".note-rail-list")!;
+    list.getBoundingClientRect = () => new DOMRect(0, -rail.scrollTop, 37, 90);
+    Object.defineProperty(rail, "clientHeight", { configurable: true, value: 180 });
+    await act(async () => rail.dispatchEvent(new Event("scroll", { bubbles: true })));
+    const lengths = () => Array.from(parent.querySelectorAll<HTMLElement>(".note-tick span"), (span) =>
+      Number.parseFloat(span.style.transform.match(/scaleX\(([^)]+)\)/)?.[1] ?? "0") * 31);
+    expect(lengths()[1]).toBeCloseTo(10);
+    expect(lengths()[2]).toBeCloseTo(6);
+    expect(parent.querySelector(".note-rail")?.classList.contains("is-resting")).toBe(true);
+    await act(async () => rail.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientY: 3.5 * 10 })));
+    expect(parent.querySelector(".note-rail")?.classList.contains("is-resting")).toBe(false);
+    const wave = lengths();
+    expect(wave[3]).toBeCloseTo(26);
+    expect(wave[1]).toBeLessThan(wave[2]);
+    expect(wave[2]).toBeLessThan(wave[3]);
+    expect(parent.querySelectorAll<HTMLButtonElement>(".note-tick")[1].classList.contains("is-active")).toBe(true);
+    expect(wave[4]).toBeGreaterThan(wave[5]);
+    expect(wave[5]).toBeGreaterThan(wave[6]);
+    expect(wave[4]).toBeCloseTo(wave[2]);
+    await act(async () => {
+      const tick = parent.querySelectorAll<HTMLButtonElement>(".note-tick")[3];
+      tick.focus();
+      tick.blur();
+    });
+    expect(lengths()[2]).toBeCloseTo(wave[2]);
+    await act(async () => rail.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body })));
+    expect(parent.querySelector(".note-rail")?.classList.contains("is-resting")).toBe(true);
+    expect(lengths()[1]).toBeCloseTo(10);
+    lengths().forEach((length, index) => {
+      if (index !== 1) expect(length).toBeCloseTo(6);
+    });
+    await act(async () => parent.querySelectorAll<HTMLButtonElement>(".note-tick")[3].click());
+    expect(messages.at(-1)).toMatchObject({ type: "openNote", noteID: "note-3" });
+    await act(async () => window.JotNative?.receive({
+      version: 1, type: "loadSession", text: "Note 3", noteID: "note-3", revision: 2,
+      selection: { anchor: 0, head: 0 }, viewport: { scrollTop: 0 },
+    }));
+    expect(lengths()[3]).toBeCloseTo(10);
+    expect(lengths()[1]).toBeCloseTo(6);
+    expect(parent.querySelectorAll<HTMLButtonElement>(".note-tick")[3].getAttribute("aria-current")).toBe("true");
+  });
+
   it("includes the fixed editor bands when requesting a taller panel", async () => {
     const { parent, view, messages } = await makeConnectedEditor("Short note");
     const composer = parent.querySelector<HTMLElement>(".composer")!;
