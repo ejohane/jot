@@ -198,6 +198,10 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         panelController.applyPreferredContentHeight(height)
     }
 
+    func editorFormattingToolbarBoundsChanged(_ bounds: CGRect?) {
+        panelController.applyFormattingToolbarBounds(bounds)
+    }
+
     func editorRequestedFinish(revision: Int) {
         guard !isOpeningNote else { return }
         isOpeningNote = true

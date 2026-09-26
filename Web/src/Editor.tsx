@@ -11,6 +11,7 @@ import { beginDictation, clearDictation, dictationPreview, insertionForDictation
 import { inlineTagEditor, setTagVocabulary } from "./tagEditor";
 import { indentBulletItem, outdentBulletItem } from "./listIndent";
 import { toggleInlineFormat } from "./formatting";
+import { formattingToolbar } from "./formattingToolbar";
 import { usePointerActivity } from "./usePointerActivity";
 import { NoteRail, type RailNote } from "./NoteRail";
 
@@ -126,11 +127,12 @@ export function Editor() {
         markdown({ extensions: GFM, addKeymap: false, pasteURLAsLink: false }),
         markdownPresentation,
         inlineTagEditor,
+        formattingToolbar,
         dictationPreview,
         editorTheme,
         // WebKit's native caret animates behind programmatic list indentation.
         drawSelection(),
-        tooltips({ tooltipSpace: (view) => view.scrollDOM.getBoundingClientRect() }),
+        tooltips({ parent: document.body, tooltipSpace: () => ({ top: 8, left: 8, right: window.innerWidth - 8, bottom: window.innerHeight - 8 }) }),
         EditorView.lineWrapping,
         history(),
         keymap.of([

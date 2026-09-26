@@ -105,6 +105,7 @@ final class BridgeDelegateSpy: EditorBridgeDelegate {
     var content: (EditorSnapshot, String?)?
     var state: (EditorSelection, EditorViewport)?
     var preferredHeight: Double?
+    var formattingToolbarBounds: CGRect?
     var finishRevision: Int?
     var hideRevision: Int?
     var openNote: (String, Int)?
@@ -118,6 +119,7 @@ final class BridgeDelegateSpy: EditorBridgeDelegate {
     func editorContentChanged(_ snapshot: EditorSnapshot, noteID: String?) { content = (snapshot, noteID) }
     func editorStateChanged(selection: EditorSelection, viewport: EditorViewport) { state = (selection, viewport) }
     func editorPreferredHeightChanged(_ height: Double) { preferredHeight = height }
+    func editorFormattingToolbarBoundsChanged(_ bounds: CGRect?) { formattingToolbarBounds = bounds }
     func editorRequestedFinish(revision: Int) { finishRevision = revision }
     func editorRequestedHide(revision: Int) { hideRevision = revision }
     func editorRequestedOpenNote(id: String, revision: Int) { openNote = (id, revision) }
@@ -214,6 +216,32 @@ final class CoreTests: XCTestCase {
         let editorPoint = NSPoint(x: 300, y: contentView.bounds.maxY - 50)
         XCTAssertTrue(contentView.hitTest(dragPoint) is WindowDragContainerView)
         XCTAssertFalse(contentView.hitTest(editorPoint) is WindowDragContainerView)
+
+        controller.applyFormattingToolbarBounds(CGRect(x: 8, y: 8, width: 205, height: 44))
+        XCTAssertTrue(controller.window!.standardWindowButton(.closeButton)!.isHidden)
+        let toolbarPoint = NSPoint(x: 100, y: contentView.bounds.maxY - 32)
+        XCTAssertFalse(contentView.hitTest(toolbarPoint) is WindowDragContainerView)
+        XCTAssertTrue(contentView.hitTest(dragPoint) is WindowDragContainerView)
+
+        controller.applyFormattingToolbarBounds(CGRect(x: 200, y: 100, width: 205, height: 44))
+        XCTAssertFalse(controller.window!.standardWindowButton(.closeButton)!.isHidden)
+        controller.applyFormattingToolbarBounds(nil)
+        XCTAssertTrue(contentView.hitTest(toolbarPoint) is WindowDragContainerView)
+        for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            XCTAssertFalse(controller.window!.standardWindowButton(kind)!.isHidden)
+        }
+    }
+
+    @MainActor
+    func testFormattingToolbarBridgeDecodesBoundsAndClearsThemOnDismissal() {
+        let bridge = EditorBridge()
+        let delegate = BridgeDelegateSpy()
+        bridge.delegate = delegate
+        bridge.handle(["version": 1, "type": "formattingToolbarBounds",
+                       "bounds": ["x": 8, "y": 10, "width": 205, "height": 44]] as NSDictionary)
+        XCTAssertEqual(delegate.formattingToolbarBounds, CGRect(x: 8, y: 10, width: 205, height: 44))
+        bridge.handle(["version": 1, "type": "formattingToolbarBounds", "bounds": NSNull()] as NSDictionary)
+        XCTAssertNil(delegate.formattingToolbarBounds)
     }
 
     @MainActor
