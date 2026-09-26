@@ -8,6 +8,7 @@ export type EditorToNative =
   | { version: 1; type: "contentChanged"; noteID?: string; revision: number; text: string; selection: Selection; viewport: Viewport }
   | { version: 1; type: "editorStateChanged"; selection: Selection; viewport: Viewport }
   | { version: 1; type: "preferredHeightChanged"; height: number }
+  | { version: 1; type: "formattingToolbarBounds"; bounds: { x: number; y: number; width: number; height: number } | null }
   | { version: 1; type: "finishAndNew"; revision: number }
   | { version: 1; type: "hide"; revision: number }
   | { version: 1; type: "openNote"; noteID: string; revision: number }

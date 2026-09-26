@@ -144,7 +144,7 @@ describe("source-first Markdown presentation", () => {
     await act(async () => ticks[0].dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientY: 5 })));
     expect(parent.querySelector(".note-rail-preview")?.textContent).toContain("A short preview");
     await act(async () => ticks[0].click());
-    expect(messages.at(-1)).toEqual({ version: 1, type: "openNote", noteID: "note-2", revision: 1 });
+    expect(messages.filter((message) => message.type === "openNote").at(-1)).toEqual({ version: 1, type: "openNote", noteID: "note-2", revision: 1 });
   });
 
   it("updates the preview as the rail scrolls under a stationary pointer", async () => {

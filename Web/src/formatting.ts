@@ -43,7 +43,10 @@ export function toggleInlineFormat(view: EditorView, format: InlineFormat): bool
   const opening = source.slice(from - markLength, from);
   if (!selection.empty && from >= markLength
     && (opening === marker || opening === alternate)
-    && source.slice(to, to + markLength) === opening) {
+    && source.slice(to, to + markLength) === opening
+    // A single star beside a selection may belong to bold's double marker.
+    && (format !== "italic" || (source[from - markLength - 1] !== opening[0]
+      && source[to + markLength] !== opening[0]))) {
     view.dispatch({
       changes: [{ from: from - markLength, to: from }, { from: to, to: to + markLength }],
       selection: EditorSelection.single(from - markLength, to - markLength),

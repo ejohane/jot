@@ -7,6 +7,7 @@ protocol EditorBridgeDelegate: AnyObject {
     func editorContentChanged(_ snapshot: EditorSnapshot, noteID: String?)
     func editorStateChanged(selection: EditorSelection, viewport: EditorViewport)
     func editorPreferredHeightChanged(_ height: Double)
+    func editorFormattingToolbarBoundsChanged(_ bounds: CGRect?)
     func editorRequestedFinish(revision: Int)
     func editorRequestedHide(revision: Int)
     func editorRequestedOpenNote(id: String, revision: Int)
@@ -63,6 +64,15 @@ final class EditorBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             )
         case "preferredHeightChanged":
             if let height = double(body["height"]) { delegate?.editorPreferredHeightChanged(height) }
+        case "formattingToolbarBounds":
+            if body["bounds"] is NSNull {
+                delegate?.editorFormattingToolbarBoundsChanged(nil)
+            } else if let bounds = body["bounds"] as? NSDictionary,
+                      let x = double(bounds["x"]), let y = double(bounds["y"]),
+                      let width = double(bounds["width"]), let height = double(bounds["height"]),
+                      width > 0, height > 0 {
+                delegate?.editorFormattingToolbarBoundsChanged(CGRect(x: x, y: y, width: width, height: height))
+            }
         case "finishAndNew":
             if let revision = integer(body["revision"]) { delegate?.editorRequestedFinish(revision: revision) }
         case "hide":
@@ -91,6 +101,7 @@ final class EditorBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        delegate?.editorFormattingToolbarBoundsChanged(nil)
         webView.load(URLRequest(url: URL(string: "jot://local/index.html")!))
     }
 

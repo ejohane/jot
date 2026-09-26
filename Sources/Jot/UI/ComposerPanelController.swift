@@ -15,6 +15,12 @@ final class ComposerPanel: NSPanel {
 final class WindowDragContainerView: NSView {
     static let dragHeight: CGFloat = 44
     static let trafficLightClearance: CGFloat = 76
+    var formattingToolbarRect: NSRect?
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let formattingToolbarRect, formattingToolbarRect.contains(convert(point, from: superview)) { return nil }
+        return super.hitTest(point)
+    }
 
     override var mouseDownCanMoveWindow: Bool { true }
 
@@ -34,6 +40,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
     let bridge = EditorBridge()
     private let resourceHandler = LocalResourceSchemeHandler()
     private let webView: WKWebView
+    private let dragView = WindowDragContainerView(frame: .zero)
     private var isProgrammaticFrameChange = false
     private var userHasResized = false
     private var userPlacedPanel = false
@@ -71,7 +78,6 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
         panel.minSize = NSSize(width: 360, height: 180)
         panel.maxSize = NSSize(width: 900, height: 900)
         let contentView = NSView(frame: initialFrame)
-        let dragView = WindowDragContainerView(frame: .zero)
         webView.translatesAutoresizingMaskIntoConstraints = false
         dragView.translatesAutoresizingMaskIntoConstraints = false
         contentView.setAccessibilityElement(false)
@@ -115,7 +121,22 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func loadEditor() {
+        applyFormattingToolbarBounds(nil)
         webView.load(URLRequest(url: URL(string: "jot://local/index.html")!))
+    }
+
+    func applyFormattingToolbarBounds(_ bounds: CGRect?) {
+        let rect = bounds.map { bounds in
+            NSRect(x: bounds.minX, y: webView.isFlipped ? bounds.minY : webView.bounds.height - bounds.maxY,
+                   width: bounds.width, height: bounds.height)
+        }
+        dragView.formattingToolbarRect = rect.map { dragView.convert($0, from: webView) }
+        let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
+            .compactMap { window?.standardWindowButton($0) }
+        let overlaps = rect.map { rect in
+            buttons.contains { rect.intersects($0.convert($0.bounds, to: webView)) }
+        } ?? false
+        for button in buttons { button.isHidden = overlaps }
     }
 
     func showAndFocus() {
