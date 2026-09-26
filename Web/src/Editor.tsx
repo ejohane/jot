@@ -11,6 +11,7 @@ import { beginDictation, clearDictation, dictationPreview, insertionForDictation
 import { inlineTagEditor, setTagVocabulary } from "./tagEditor";
 import { indentBulletItem, outdentBulletItem } from "./listIndent";
 import { toggleInlineFormat } from "./formatting";
+import { usePointerActivity } from "./usePointerActivity";
 import { NoteRail, type RailNote } from "./NoteRail";
 
 type RecoveryAction = "restoreRoot" | "saveCopy" | "reloadExternal";
@@ -29,6 +30,7 @@ export function insertLiteralNewline(view: EditorView): boolean {
 }
 
 export function Editor() {
+  const pointer = usePointerActivity();
   const host = useRef<HTMLDivElement>(null);
   const revisionRef = useRef(0);
   const noteIDRef = useRef<string | undefined>(undefined);
@@ -347,10 +349,15 @@ export function Editor() {
   };
 
   return (
-    <main className="composer">
+    <main
+      className={`composer${pointer.active ? " is-pointer-active" : ""}`}
+      onPointerEnter={pointer.reveal}
+      onPointerMove={pointer.reveal}
+      onPointerLeave={pointer.hide}
+    >
       <div ref={host} className="editor" role="textbox" aria-label="Jot — editable Markdown document" />
       <NoteRail notes={railNotes} activeID={activeNoteID} onOpen={openNote} />
-      <div className="dictation-controls">
+      <div className={`dictation-controls${dictation.status !== "idle" ? " is-persistent" : ""}`}>
         {dictationActive ? (
           <>
             <button

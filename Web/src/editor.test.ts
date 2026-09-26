@@ -108,6 +108,26 @@ afterEach(async () => {
 });
 
 describe("source-first Markdown presentation", () => {
+  it("reveals chrome on pointer movement, resets its idle delay, and hides on window blur", async () => {
+    const { parent, view, messages } = await makeConnectedEditor("A quiet jot");
+    vi.useFakeTimers();
+    const composer = parent.querySelector(".composer")!;
+    expect(composer.classList.contains("is-pointer-active")).toBe(false);
+    await act(async () => composer.dispatchEvent(new Event("pointermove", { bubbles: true })));
+    expect(composer.classList.contains("is-pointer-active")).toBe(true);
+    await act(async () => vi.advanceTimersByTime(1400));
+    await act(async () => composer.dispatchEvent(new Event("pointermove", { bubbles: true })));
+    await act(async () => vi.advanceTimersByTime(1400));
+    expect(composer.classList.contains("is-pointer-active")).toBe(true);
+    await act(async () => vi.advanceTimersByTime(100));
+    expect(composer.classList.contains("is-pointer-active")).toBe(false);
+    await act(async () => composer.dispatchEvent(new Event("pointermove", { bubbles: true })));
+    await act(async () => window.dispatchEvent(new Event("blur")));
+    expect(composer.classList.contains("is-pointer-active")).toBe(false);
+    expect(view.state.doc.toString()).toBe("A quiet jot");
+    expect(messages.filter((message) => message.type === "contentChanged")).toHaveLength(0);
+  });
+
   it("shows rail previews and requests the selected jot in this editor", async () => {
     const { parent, messages } = await makeConnectedEditor("current note");
     await act(async () => window.JotNative?.receive({
