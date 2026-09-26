@@ -53,6 +53,19 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
   overflow: hidden;
 }
 .note-rail { position: absolute; top: min(var(--editor-top-inset), calc(100% - var(--editor-bottom-inset) - 24px)); right: 0; bottom: var(--editor-bottom-inset); width: 37px; z-index: 3; }
+.note-rail, .dictation-controls {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease-out;
+}
+.composer.is-pointer-active .note-rail,
+.composer.is-pointer-active .dictation-controls,
+.note-rail:hover, .note-rail:focus-within,
+.dictation-controls:hover, .dictation-controls:focus-within,
+.dictation-controls.is-persistent {
+  opacity: 1;
+  pointer-events: auto;
+}
 .note-rail-scroll { width: 100%; height: 100%; display: flex; flex-direction: column; overflow-y: auto; scrollbar-width: none; }
 .note-rail-scroll::-webkit-scrollbar { display: none; }
 .note-rail-list { position: relative; width: 100%; flex: none; margin-block: auto; }
