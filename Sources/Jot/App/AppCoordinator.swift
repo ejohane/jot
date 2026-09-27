@@ -9,11 +9,13 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     private let voiceDictation = VoiceDictation()
     private let tagIndex = TagIndex()
     private var noteRailIndex: NoteRailIndex!
+    private var noteSearchIndex: NoteSearchIndex!
     private var railNoteIDs: Set<String> = []
     private var latestRailID: String?
     private var navigation = NoteNavigationHistory()
     private var hasBlankCapture = false
     private var isOpeningNote = false
+    private var noteSearchTask: Task<Void, Never>?
     private var tagRefreshTask: Task<Void, Never>?
     private var sentTags: [String] = []
     private var session: PersistedSession
@@ -36,6 +38,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         hasBlankCapture = session.activeJot == nil
         rootURL = rootAccess.restore(from: session.rootBookmark)
         noteRailIndex = NoteRailIndex(root: rootURL)
+        noteSearchIndex = NoteSearchIndex(root: rootURL)
         Task { await tagIndex.configure(root: rootURL); await refreshTags(force: true) }
         hasBlockingWriteError = session.activeJot != nil && rootURL == nil
         writer = JotWriter(rootURL: rootURL) { [weak self] event in self?.handle(event) }
@@ -60,7 +63,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         }
         panelController.onEscape = { [weak self] in
             guard let self else { return }
-            self.editorRequestedHide(revision: self.latestRevision)
+            self.panelController.send(["version": 1, "type": "escape"])
         }
         shortcut = GlobalShortcut { [weak self] in self?.showJot() }
         let candidates = [session.shortcut] + ShortcutChoice.allCases.filter { $0 != session.shortcut }
@@ -202,12 +205,68 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         panelController.applyFormattingToolbarBounds(bounds)
     }
 
+    func editorRequestedNoteSearch(query: String, requestID: Int, refresh: Bool) {
+        let currentID = session.activeJot?.id
+        let currentText = session.recoveryText
+        noteSearchTask?.cancel()
+        guard rootURL != nil else {
+            panelController.send(["version": 1, "type": "noteSearchResults", "requestID": requestID, "results": [],
+                                  "message": "Choose an accessible Jots folder to search your notes."])
+            return
+        }
+        noteSearchTask = Task {
+            guard let results = await noteSearchIndex.search(query: query, refresh: refresh, currentID: currentID, currentText: currentText), !Task.isCancelled else { return }
+            panelController.send([
+                "version": 1, "type": "noteSearchResults", "requestID": requestID,
+                "results": results.map { result in [
+                    "id": result.id, "timestamp": Int(result.timestamp.timeIntervalSince1970 * 1_000),
+                    "title": result.title, "excerpt": result.excerpt,
+                    "titleMatches": result.titleMatches.map { ["from": $0.from, "to": $0.to] },
+                    "excerptMatches": result.excerptMatches.map { ["from": $0.from, "to": $0.to] },
+                ] as [String: Any] },
+            ])
+        }
+    }
+
+    func editorActionPanelChanged(visible: Bool) {
+        panelController.applyActionPanelVisibility(visible)
+        if visible { sendActionState() }
+    }
+
+    func editorRequestedNoteAction(_ action: String, text: String?, revision: Int) {
+        switch action {
+        case "copyNote":
+            guard let text else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        case "openNotesFolder":
+            openJotsFolder()
+        case "revealInFinder":
+            Task {
+                guard await writer.flush(through: revision) else { return }
+                revealCurrentJot()
+            }
+        default: break
+        }
+    }
+
+    private func sendActionState() {
+        panelController.send([
+            "version": 1, "type": "actionState",
+            "canNew": Self.finishAndNewIsEnabled(activeJot: session.activeJot, hasBlockingWriteError: hasBlockingWriteError) && !isOpeningNote,
+            "canReveal": session.activeJot != nil && rootURL != nil,
+            "canLatest": !isOpeningNote && (hasBlankCapture || latestRailID != nil),
+            "canBack": navigation.canGoBack && !isOpeningNote,
+            "canForward": navigation.canGoForward && !isOpeningNote,
+        ])
+    }
+
     func editorRequestedFinish(revision: Int) {
         guard !isOpeningNote else { return }
         isOpeningNote = true
         voiceDictation.cancel()
         Task {
-            defer { isOpeningNote = false }
+            defer { isOpeningNote = false; sendActionState() }
             guard await writer.currentJot() != nil else { return }
             guard await writer.finishAndNew(through: revision) else { return }
             let source = currentLocation
@@ -254,8 +313,10 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         isOpeningNote = true
         voiceDictation.cancel()
         Task {
-            defer { isOpeningNote = false }
-            guard let entry = await noteRailIndex.entry(id: id) else { return }
+            defer { isOpeningNote = false; sendActionState() }
+            let railEntry = await noteRailIndex.entry(id: id)
+            let searchEntry = await noteSearchIndex.entry(id: id)
+            guard let entry = railEntry ?? searchEntry else { return }
             do {
                 let result = try await writer.openExisting(id: id, path: entry.path, through: revision)
                 let source = currentLocation
@@ -294,7 +355,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         isOpeningNote = true
         voiceDictation.cancel()
         Task {
-            defer { isOpeningNote = false }
+            defer { isOpeningNote = false; sendActionState() }
             guard await writer.finishAndNew(through: latestRevision) else { return }
             let position = navigation.position(for: .blank)
             navigation.recordTransition(
@@ -458,6 +519,21 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
     @objc private func finishAndNewFromMenu() { editorRequestedFinish(revision: latestRevision) }
 
+    @objc private func showActionsFromMenu() {
+        panelController.showAndFocus()
+        panelController.send(["version": 1, "type": "toggleActionPanel"])
+    }
+
+    @objc private func searchNotesFromMenu() {
+        panelController.showAndFocus()
+        panelController.send(["version": 1, "type": "showNoteSearch"])
+    }
+
+    @objc private func findInNoteFromMenu() {
+        panelController.showAndFocus()
+        panelController.send(["version": 1, "type": "findInNote"])
+    }
+
     @objc private func toggleInlineFormatFromMenu(_ sender: NSMenuItem) {
         guard let format = sender.representedObject as? String else { return }
         if panelController.window?.isVisible != true { panelController.showAndFocus() }
@@ -489,7 +565,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         latestRailID = nil
         navigation.reset()
         hasBlankCapture = session.activeJot == nil
-        Task { await noteRailIndex.configure(root: choice.url); await refreshRail() }
+        Task { await noteRailIndex.configure(root: choice.url); await noteSearchIndex.configure(root: choice.url); await refreshRail() }
         session.rootBookmark = choice.bookmark
         Task {
             await writer.configureRoot(choice.url)
@@ -616,6 +692,8 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         editMenu.addItem(responderItem("Copy", action: #selector(NSText.copy(_:)), key: "c"))
         editMenu.addItem(responderItem("Paste", action: #selector(NSText.paste(_:)), key: "v"))
         editMenu.addItem(responderItem("Select All", action: #selector(NSText.selectAll(_:)), key: "a"))
+        editMenu.addItem(.separator())
+        editMenu.addItem(item("Find in Note…", action: #selector(findInNoteFromMenu), key: "f"))
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)
 
@@ -631,6 +709,9 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
         let navigateItem = NSMenuItem()
         let navigateMenu = NSMenu(title: "Navigate")
+        navigateMenu.addItem(item("Search Notes…", action: #selector(searchNotesFromMenu), key: "p"))
+        navigateMenu.addItem(item("Actions…", action: #selector(showActionsFromMenu), key: "k"))
+        navigateMenu.addItem(.separator())
         navigateMenu.addItem(item("Latest Jot", action: #selector(navigateLatestFromMenu), key: "l"))
         navigateMenu.addItem(.separator())
         navigateMenu.addItem(item("Back", action: #selector(navigateBackFromMenu), key: "["))
@@ -660,6 +741,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     private func handle(_ event: WriterEvent) {
+        defer { sendActionState() }
         switch event {
         case let .noteAllocated(id, path, revision):
             if session.activeJot == nil {
@@ -731,6 +813,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         ]
         if let id = session.activeJot?.id { payload["noteID"] = id }
         panelController.send(payload)
+        sendActionState()
         if voiceDictation.state == .recording || voiceDictation.state == .transcribing {
             panelController.send(["version": 1, "type": "dictationState", "status": voiceDictation.state.rawValue])
             panelController.send(["version": 1, "type": "dictationPartial", "text": voiceDictation.currentPartial])
@@ -750,6 +833,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         guard let entries = await noteRailIndex.refresh() else { return }
         railNoteIDs = Set(entries.map(\.id))
         latestRailID = entries.first?.id
+        sendActionState()
         panelController.send([
             "version": 1,
             "type": "noteRail",

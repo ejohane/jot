@@ -71,6 +71,9 @@ replace a working development build.
 - Option-Space by default: show and focus Jot
 - Escape: flush pending changes and hide
 - Command-Return: finish the active jot and show a new blank composer
+- Command button (⌘) beside dictation or Command-K: open the searchable action panel; Escape closes it and returns to writing
+- Command-P: search all notes or switch between recent notes; Return opens a result
+- Command-F: find in the current note; Return / Shift-Return select the next / previous match
 - Command-L: return to the latest jot, including a newly started blank jot
 - Command-[ / Command-]: go back / forward through viewed jots
 - Command-B / Command-I: toggle bold or italic Markdown for the selection, or start typing inside a new pair of markers
@@ -89,6 +92,10 @@ rules show a divider. The saved and copied text remains ordinary Markdown.
 The right-side note rail shows one mark per jot, newest at the bottom. Hover to
 preview its date and an excerpt, or click a mark to open that jot. Back and
 Forward follow viewing history and restore the caret and scroll position.
+
+The action panel offers New Note, Search Notes, Reveal in Finder, Open Notes Folder, Copy Note (exact Markdown), Find in Note, dictation, Latest Note, Back, and Forward. Unavailable actions show a reason. It uses existing save and navigation behavior; opening or dismissing the panel preserves the editor selection.
+
+Note search uses an in-memory cache of the local Markdown archive, refreshed when you open the palette. Search matches all typed words, prioritizes first-line and exact-phrase matches, and shows dates and highlighted excerpts. Moving through results does not open them; Return or a click saves the current note and opens the selected result using viewing history. Escape returns to the unchanged editor selection.
 
 The menu-bar item can change the shortcut or Jots folder, reveal the active jot,
 open the Jots folder, and control launch at login.

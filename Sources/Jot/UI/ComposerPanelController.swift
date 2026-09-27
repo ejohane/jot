@@ -36,7 +36,7 @@ final class WindowDragContainerView: NSView {
 }
 
 @MainActor
-final class ComposerPanelController: NSWindowController, NSWindowDelegate {
+final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
     let bridge = EditorBridge()
     private let resourceHandler = LocalResourceSchemeHandler()
     private let webView: WKWebView
@@ -46,6 +46,8 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
     private var userPlacedPanel = false
     private var hasShown = false
     private var escapeMonitor: Any?
+    private var actionPanelVisible = false
+    private var frameBeforeActions: NSRect?
     weak var panelDelegate: (any ComposerPanelDelegate)?
     var onEscape: (() -> Void)?
 
@@ -99,6 +101,13 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
 
         super.init(window: panel)
         panel.delegate = self
+        let toolbar = NSToolbar(identifier: "JotTitlebar")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        toolbar.showsBaselineSeparator = false
+        panel.toolbarStyle = .unifiedCompact
+        panel.toolbar = toolbar
         bridge.webView = webView
         webView.navigationDelegate = bridge
         if let savedFrame {
@@ -139,6 +148,10 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
         for button in buttons { button.isHidden = overlaps }
     }
 
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { [] }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { [] }
+
     func showAndFocus() {
         guard let panel = window else { return }
         isProgrammaticFrameChange = true
@@ -158,10 +171,28 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
 
     func hide() { window?.orderOut(nil) }
 
+    func applyActionPanelVisibility(_ visible: Bool) {
+        guard let panel = window, visible != actionPanelVisible else { return }
+        actionPanelVisible = visible
+        isProgrammaticFrameChange = true
+        defer { isProgrammaticFrameChange = false }
+        if visible, panel.frame.height < 430 {
+            frameBeforeActions = panel.frame
+            var frame = panel.frame
+            frame.origin.y = frame.maxY - 430
+            frame.size.height = 430
+            if let screen = panel.screen { frame = Self.clampedFrame(frame, to: screen.visibleFrame) }
+            panel.setFrame(frame, display: true)
+        } else if !visible, let frame = frameBeforeActions {
+            panel.setFrame(frame, display: true)
+            frameBeforeActions = nil
+        }
+    }
+
     func send(_ payload: [String: Any]) { bridge.send(payload) }
 
     func applyPreferredContentHeight(_ requestedHeight: CGFloat) {
-        guard !userHasResized, let panel = window else { return }
+        guard !actionPanelVisible, !userHasResized, let panel = window else { return }
         let contentHeight = min(max(requestedHeight, 180), 700)
         let frameHeight = panel.frameRect(forContentRect: NSRect(x: 0, y: 0, width: panel.contentLayoutRect.width, height: contentHeight)).height
         guard abs(panel.frame.height - frameHeight) > 1 else { return }
@@ -184,11 +215,13 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate {
 
     func windowDidMove(_ notification: Notification) {
         guard hasShown, !isProgrammaticFrameChange else { return }
+        frameBeforeActions = nil
         userPlacedPanel = true
         recordFrame()
     }
     func windowDidResize(_ notification: Notification) {
         guard hasShown, !isProgrammaticFrameChange else { return }
+        frameBeforeActions = nil
         userHasResized = true
         userPlacedPanel = true
         recordFrame()

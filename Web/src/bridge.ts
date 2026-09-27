@@ -9,6 +9,9 @@ export type EditorToNative =
   | { version: 1; type: "editorStateChanged"; selection: Selection; viewport: Viewport }
   | { version: 1; type: "preferredHeightChanged"; height: number }
   | { version: 1; type: "formattingToolbarBounds"; bounds: { x: number; y: number; width: number; height: number } | null }
+  | { version: 1; type: "searchNotes"; query: string; requestID: number; refresh: boolean }
+  | { version: 1; type: "actionPanelChanged"; visible: boolean }
+  | { version: 1; type: "noteAction"; action: "revealInFinder" | "openNotesFolder" | "copyNote"; revision: number; text?: string }
   | { version: 1; type: "finishAndNew"; revision: number }
   | { version: 1; type: "hide"; revision: number }
   | { version: 1; type: "openNote"; noteID: string; revision: number }
@@ -18,7 +21,12 @@ export type EditorToNative =
   | { version: 1; type: "cancelDictation" }
   | { version: 1; type: "recover"; action: "restoreRoot" | "saveCopy" | "reloadExternal" };
 
+export type NoteSearchResult = { id: string; timestamp: number; title: string; excerpt: string; titleMatches: Array<{ from: number; to: number }>; excerptMatches: Array<{ from: number; to: number }> };
+
 export type NativeToEditor =
+  | { version: 1; type: "noteSearchResults"; requestID: number; results: NoteSearchResult[]; message?: string }
+  | { version: 1; type: "toggleActionPanel" | "showNoteSearch" | "findInNote" | "escape" }
+  | { version: 1; type: "actionState"; canNew: boolean; canReveal: boolean; canLatest: boolean; canBack: boolean; canForward: boolean }
   | { version: 1; type: "loadSession"; text: string; noteID?: string; revision: number; selection: Selection; viewport: Viewport }
   | { version: 1; type: "toggleFormat"; format: "bold" | "italic" }
   | { version: 1; type: "noteAllocated"; noteID: string; path: string; revision: number }

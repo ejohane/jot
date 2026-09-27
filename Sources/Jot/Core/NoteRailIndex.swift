@@ -36,23 +36,26 @@ actor NoteRailIndex {
 
     func entry(id: String) -> NoteRailEntry? { entriesByID[id] }
 
-    private static func scan(root: URL?) -> [NoteRailEntry] {
-        guard let root,
+    static func scan(root: URL?, includeOtherMarkdown: Bool = false) -> [NoteRailEntry] {
+        guard let root = root?.resolvingSymlinksInPath(),
               let files = FileManager.default.enumerator(
                 at: root,
-                includingPropertiesForKeys: [.isRegularFileKey, .creationDateKey],
+                includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .creationDateKey],
                 options: [.skipsHiddenFiles, .skipsPackageDescendants]
               ) else { return [] }
         var result: [NoteRailEntry] = []
         for case let url as URL in files where url.pathExtension.lowercased() == "md" {
             let filename = url.deletingPathExtension().lastPathComponent
             let parts = filename.components(separatedBy: "--")
-            guard parts.count == 2, !parts[1].isEmpty,
-                  let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .creationDateKey]),
-                  values.isRegularFile == true else { continue }
-            let timestamp = date(from: url, clock: parts[0]) ?? values.creationDate ?? .distantPast
+            let isJot = parts.count == 2 && !parts[1].isEmpty
+            guard isJot || includeOtherMarkdown,
+                  let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .creationDateKey]),
+                  values.isRegularFile == true, values.isSymbolicLink != true else { continue }
+            let timestamp = (isJot ? date(from: url, clock: parts[0]) : nil) ?? values.creationDate ?? .distantPast
             let excerpt = preview(of: url)
-            result.append(NoteRailEntry(id: parts[1], path: url.path, timestamp: timestamp, excerpt: excerpt))
+            let path = url.resolvingSymlinksInPath().path
+            let id = isJot ? parts[1] : "file:" + String(path.dropFirst(root.path.count + 1))
+            result.append(NoteRailEntry(id: id, path: path, timestamp: timestamp, excerpt: excerpt))
         }
         return result.sorted { $0.timestamp == $1.timestamp ? $0.id > $1.id : $0.timestamp > $1.timestamp }
     }
