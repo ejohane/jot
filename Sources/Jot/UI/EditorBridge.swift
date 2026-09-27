@@ -8,6 +8,9 @@ protocol EditorBridgeDelegate: AnyObject {
     func editorStateChanged(selection: EditorSelection, viewport: EditorViewport)
     func editorPreferredHeightChanged(_ height: Double)
     func editorFormattingToolbarBoundsChanged(_ bounds: CGRect?)
+    func editorRequestedNoteSearch(query: String, requestID: Int, refresh: Bool)
+    func editorActionPanelChanged(visible: Bool)
+    func editorRequestedNoteAction(_ action: String, text: String?, revision: Int)
     func editorRequestedFinish(revision: Int)
     func editorRequestedHide(revision: Int)
     func editorRequestedOpenNote(id: String, revision: Int)
@@ -64,6 +67,19 @@ final class EditorBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             )
         case "preferredHeightChanged":
             if let height = double(body["height"]) { delegate?.editorPreferredHeightChanged(height) }
+        case "searchNotes":
+            if let query = body["query"] as? String, let requestID = integer(body["requestID"]), requestID >= 0,
+               let refresh = body["refresh"] as? Bool {
+                delegate?.editorRequestedNoteSearch(query: query, requestID: requestID, refresh: refresh)
+            }
+        case "actionPanelChanged":
+            if let visible = body["visible"] as? Bool { delegate?.editorActionPanelChanged(visible: visible) }
+        case "noteAction":
+            if let action = body["action"] as? String,
+               ["revealInFinder", "openNotesFolder", "copyNote"].contains(action),
+               let revision = integer(body["revision"]), revision >= 0 {
+                delegate?.editorRequestedNoteAction(action, text: body["text"] as? String, revision: revision)
+            }
         case "formattingToolbarBounds":
             if body["bounds"] is NSNull {
                 delegate?.editorFormattingToolbarBoundsChanged(nil)
@@ -102,6 +118,7 @@ final class EditorBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         delegate?.editorFormattingToolbarBoundsChanged(nil)
+        delegate?.editorActionPanelChanged(visible: false)
         webView.load(URLRequest(url: URL(string: "jot://local/index.html")!))
     }
 

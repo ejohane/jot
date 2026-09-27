@@ -14,6 +14,7 @@ import { findInlineTags } from "./tags";
 import { completionStatus, currentCompletions } from "@codemirror/autocomplete";
 import { indentBulletItem } from "./listIndent";
 import { toggleInlineFormat } from "./formatting";
+import { searchPanelOpen } from "@codemirror/search";
 
 const views: EditorView[] = [];
 const roots: Root[] = [];
@@ -124,6 +125,21 @@ describe("source-first Markdown presentation", () => {
     await act(async () => composer.dispatchEvent(new Event("pointermove", { bubbles: true })));
     await act(async () => window.dispatchEvent(new Event("blur")));
     expect(composer.classList.contains("is-pointer-active")).toBe(false);
+    expect(view.state.doc.toString()).toBe("A quiet jot");
+    expect(messages.filter((message) => message.type === "contentChanged")).toHaveLength(0);
+  });
+
+  it("opens commands from the button beside dictation without changing the note", async () => {
+    const { parent, view, messages } = await makeConnectedEditor("A quiet jot");
+    const controls = parent.querySelector(".dictation-controls")!;
+    const buttons = controls.querySelectorAll("button");
+    expect(buttons[0].getAttribute("aria-label")).toBe("Start dictation");
+    expect(buttons[1].getAttribute("aria-label")).toBe("Commands");
+    expect(buttons[1].getAttribute("title")).toBe("Commands (⌘K)");
+    expect(buttons[0].className).toBe(buttons[1].className);
+    await act(async () => buttons[1].click());
+    expect(parent.querySelector('[aria-label="Search for actions"][role="combobox"]')).not.toBeNull();
+    expect(messages.some((message) => message.type === "searchNotes")).toBe(false);
     expect(view.state.doc.toString()).toBe("A quiet jot");
     expect(messages.filter((message) => message.type === "contentChanged")).toHaveLength(0);
   });
@@ -325,14 +341,14 @@ describe("source-first Markdown presentation", () => {
     const { parent, view, messages } = await makeConnectedEditor("Hello world");
     view.dispatch({ selection: { anchor: 5 } });
     await act(async () => {
-      parent.querySelector<HTMLButtonElement>(".dictation-button")?.click();
+      parent.querySelector<HTMLButtonElement>(".chrome-button")?.click();
       window.JotNative?.receive({ version: 1, type: "dictationState", status: "downloading" });
       window.JotNative?.receive({ version: 1, type: "dictationState", status: "recording", message: "Recording…" });
     });
     expect(messages.some((message) => message.type === "toggleDictation")).toBe(true);
-    expect(parent.querySelector('.dictation-button[aria-label="Keep dictation"]')).not.toBeNull();
-    expect(parent.querySelector('.dictation-button[aria-label="Cancel dictation"]')).not.toBeNull();
-    await act(async () => parent.querySelector<HTMLButtonElement>('.dictation-button[aria-label="Keep dictation"]')?.click());
+    expect(parent.querySelector('.chrome-button[aria-label="Keep dictation"]')).not.toBeNull();
+    expect(parent.querySelector('.chrome-button[aria-label="Cancel dictation"]')).not.toBeNull();
+    await act(async () => parent.querySelector<HTMLButtonElement>('.chrome-button[aria-label="Keep dictation"]')?.click());
     expect(messages.some((message) => message.type === "finishDictation")).toBe(true);
     await act(async () => {
       window.JotNative?.receive({ version: 1, type: "dictationResult", text: "there" });
@@ -340,7 +356,7 @@ describe("source-first Markdown presentation", () => {
     });
     expect(view.state.doc.toString()).toBe("Hello there world");
     expect(messages.filter((message) => message.type === "contentChanged").at(-1)).toMatchObject({ text: "Hello there world" });
-    expect(parent.querySelector('.dictation-button[aria-label="Start dictation"]')).not.toBeNull();
+    expect(parent.querySelector('.chrome-button[aria-label="Start dictation"]')).not.toBeNull();
   });
 
   it("discards provisional dictation when cancelled, without touching existing text", async () => {
@@ -350,7 +366,7 @@ describe("source-first Markdown presentation", () => {
       window.JotNative?.receive({ version: 1, type: "dictationPartial", text: "throw away" });
     });
     await act(async () => {
-      parent.querySelector<HTMLButtonElement>('.dictation-button[aria-label="Cancel dictation"]')?.click();
+      parent.querySelector<HTMLButtonElement>('.chrome-button[aria-label="Cancel dictation"]')?.click();
       window.JotNative?.receive({ version: 1, type: "dictationState", status: "idle" });
       window.JotNative?.receive({ version: 1, type: "dictationResult", text: "throw away" });
     });
@@ -926,5 +942,173 @@ describe("source-first Markdown presentation", () => {
     view.contentDOM.dispatchEvent(paste.event);
     expect(paste.event.defaultPrevented).toBe(true);
     expect(view.state.doc.toString()).toBe("keep me");
+  });
+});
+
+
+describe("note actions", () => {
+  async function openActions(parent: HTMLElement) {
+    await act(async () => window.JotNative?.receive({ version: 1, type: "toggleActionPanel" }));
+    const input = parent.querySelector<HTMLInputElement>(".action-panel-search")!;
+    expect(document.activeElement).toBe(input);
+    return input;
+  }
+  async function query(input: HTMLInputElement, value: string) {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+  it("opens with Command-K and native Escape restores the selection without changing or saving text", async () => {
+    const { parent, view, messages } = await makeConnectedEditor("Keep **this** source");
+    view.dispatch({ selection: { anchor: 2, head: 8 } });
+    messages.length = 0;
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true, cancelable: true })));
+    expect(parent.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(parent.querySelector(".composer-content")?.hasAttribute("inert")).toBe(true);
+    await act(async () => window.JotNative?.receive({ version: 1, type: "escape" }));
+    expect(parent.querySelector('[role="dialog"]')).toBeNull();
+    expect(view.state.selection.main.anchor).toBe(2);
+    expect(view.state.selection.main.head).toBe(8);
+    expect(view.state.doc.toString()).toBe("Keep **this** source");
+    expect(messages.some((message) => message.type === "hide" || message.type === "contentChanged")).toBe(false);
+    expect(messages.filter((message) => message.type === "actionPanelChanged")).toEqual([
+      { version: 1, type: "actionPanelChanged", visible: true },
+      { version: 1, type: "actionPanelChanged", visible: false },
+    ]);
+  });
+  it("filters synonyms and copies the entire Markdown while preserving the editor selection", async () => {
+    const { parent, view, messages } = await makeConnectedEditor("# Title\n\n**exact** 📝");
+    view.dispatch({ selection: { anchor: 0, head: 2 } });
+    const input = await openActions(parent);
+    await query(input, "clipboard");
+    expect(parent.querySelectorAll('[role="option"]')).toHaveLength(1);
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    expect(messages.find((message) => message.type === "noteAction")).toEqual({
+      version: 1, type: "noteAction", action: "copyNote", revision: 1, text: "# Title\n\n**exact** 📝",
+    });
+    expect(view.state.selection.main.to).toBe(2);
+    expect(parent.querySelector('[role="dialog"]')).toBeNull();
+  });
+  it("keeps unavailable file and history actions disabled, shows reasons, and handles no matches", async () => {
+    const { parent, messages } = await makeConnectedEditor();
+    const input = await openActions(parent);
+    await query(input, "reveal");
+    expect(parent.querySelector('[role="option"]')?.getAttribute("aria-disabled")).toBe("true");
+    expect(parent.querySelector(".action-panel-reason")?.textContent).toContain("saved note");
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    expect(messages.some((message) => message.type === "noteAction")).toBe(false);
+    await query(input, "no such action");
+    expect(parent.querySelector(".action-panel-empty")?.textContent).toBe("No matching actions");
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
+    expect(parent.querySelector('[role="dialog"]')).not.toBeNull();
+  });
+  it("uses current native availability and routes new-note, history, and active dictation actions", async () => {
+    const { parent, messages } = await makeConnectedEditor("Saved note");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "actionState", canNew: true, canReveal: true, canLatest: true, canBack: true, canForward: false }));
+    let input = await openActions(parent);
+    await query(input, "new note");
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    expect(messages.some((message) => message.type === "finishAndNew" && message.revision === 1)).toBe(true);
+    input = await openActions(parent);
+    await query(input, "back");
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    expect(messages.some((message) => message.type === "navigateBack")).toBe(true);
+    await act(async () => window.JotNative?.receive({ version: 1, type: "dictationState", status: "recording" }));
+    input = await openActions(parent);
+    await query(input, "microphone");
+    expect(parent.querySelector('[role="option"]')?.textContent).toContain("Finish Dictation");
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    expect(messages.some((message) => message.type === "finishDictation")).toBe(true);
+  });
+  it("finds text from the panel, steps through matches, and closes find before hiding Jot", async () => {
+    const { parent, view, messages } = await makeConnectedEditor("one two one");
+    const input = await openActions(parent);
+    await query(input, "find");
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    // The find panel opens after the editor receives focus again.
+    await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    const find = parent.querySelector<HTMLInputElement>(".note-find input")!;
+    expect(find).not.toBeNull();
+    await query(find, "one");
+    await act(async () => find.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe("one");
+    const first = view.state.selection.main.from;
+    await act(async () => find.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    expect(view.state.selection.main.from).not.toBe(first);
+    await act(async () => window.JotNative?.receive({ version: 1, type: "escape" }));
+    expect(searchPanelOpen(view.state)).toBe(false);
+    expect(messages.some((message) => message.type === "hide")).toBe(false);
+    await act(async () => window.JotNative?.receive({ version: 1, type: "escape" }));
+    expect(messages.some((message) => message.type === "hide")).toBe(true);
+  });
+});
+
+describe("note search palette", () => {
+  const results = [
+    { id: "note-2", title: "A recent thought", excerpt: "Body match", timestamp: 1790400000000, titleMatches: [], excerptMatches: [{ from: 0, to: 4 }] },
+    { id: "note-3", title: "An older thought", excerpt: "Other text", timestamp: 1790300000000, titleMatches: [], excerptMatches: [] },
+  ];
+  async function showSearch(parent: HTMLElement) {
+    await act(async () => window.JotNative?.receive({ version: 1, type: "showNoteSearch" }));
+    const input = parent.querySelector<HTMLInputElement>(".note-search-panel input")!;
+    expect(document.activeElement).toBe(input);
+    return input;
+  }
+  it("opens via Command-P, requests recent notes, and waits for Return to open the selected result", async () => {
+    const { parent, view, messages } = await makeConnectedEditor("Keep this note");
+    view.dispatch({ selection: { anchor: 2, head: 7 } });
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "p", metaKey: true, bubbles: true, cancelable: true })));
+    const request = messages.find((message) => message.type === "searchNotes")!;
+    expect(request).toMatchObject({ query: "", refresh: true });
+    if (request.type !== "searchNotes") throw new Error("Missing request");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "noteSearchResults", requestID: request.requestID, results }));
+    expect(parent.querySelector('[aria-label="Recent notes"]')).not.toBeNull();
+    const input = parent.querySelector<HTMLInputElement>(".note-search-panel input")!;
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
+    expect(view.state.doc.toString()).toBe("Keep this note");
+    expect(view.state.selection.main.anchor).toBe(2);
+    expect(view.state.selection.main.head).toBe(7);
+    expect(messages.some((message) => message.type === "openNote")).toBe(false);
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    expect(messages.find((message) => message.type === "openNote")).toEqual({ version: 1, type: "openNote", noteID: "note-3", revision: 1 });
+    // Keep the palette until native saving and loading succeed.
+    expect(parent.querySelector(".note-search-panel")).not.toBeNull();
+    await act(async () => window.JotNative?.receive({ version: 1, type: "loadSession", noteID: "note-3", text: "An older thought", revision: 0, selection: { anchor: 0, head: 0 }, viewport: { scrollTop: 0 } }));
+    expect(parent.querySelector(".note-search-panel")).toBeNull();
+  });
+  it("ignores stale responses and preserves the note on Escape", async () => {
+    const { parent, view, messages } = await makeConnectedEditor("Original");
+    const input = await showSearch(parent);
+    const old = messages.find((message) => message.type === "searchNotes")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "body");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const latest = messages.filter((message) => message.type === "searchNotes").at(-1)!;
+    if (old.type !== "searchNotes" || latest.type !== "searchNotes") throw new Error("Missing requests");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "noteSearchResults", requestID: old.requestID, results }));
+    expect(parent.querySelectorAll('[role="option"]')).toHaveLength(0);
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    expect(messages.some((message) => message.type === "openNote")).toBe(false);
+    await act(async () => window.JotNative?.receive({ version: 1, type: "noteSearchResults", requestID: latest.requestID, results: [results[0]] }));
+    expect(parent.querySelector("mark")?.textContent).toBe("Body");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "escape" }));
+    expect(parent.querySelector(".note-search-panel")).toBeNull();
+    expect(view.state.doc.toString()).toBe("Original");
+    expect(view.state.selection.main.anchor).toBe(8);
+    expect(messages.some((message) => message.type === "hide" || message.type === "contentChanged")).toBe(false);
+  });
+  it("offers Search Notes in actions and exposes empty results and folder errors", async () => {
+    const { parent, messages } = await makeConnectedEditor("Original");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "toggleActionPanel" }));
+    await act(async () => parent.querySelector<HTMLElement>("#action-search")?.click());
+    expect(parent.querySelector(".note-search-panel")).not.toBeNull();
+    const request = messages.filter((message) => message.type === "searchNotes").at(-1)!;
+    if (request.type !== "searchNotes") throw new Error("Missing request");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "noteSearchResults", requestID: request.requestID, results: [] }));
+    expect(parent.querySelector('[role="status"]')?.textContent).toBe("No notes yet");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "noteSearchResults", requestID: request.requestID, results: [], message: "Choose a notes folder" }));
+    expect(parent.querySelector('[role="status"]')?.textContent).toBe("Choose a notes folder");
   });
 });

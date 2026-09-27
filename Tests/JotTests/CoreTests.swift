@@ -106,6 +106,9 @@ final class BridgeDelegateSpy: EditorBridgeDelegate {
     var state: (EditorSelection, EditorViewport)?
     var preferredHeight: Double?
     var formattingToolbarBounds: CGRect?
+    var noteSearch: (String, Int, Bool)?
+    var actionPanelVisible: Bool?
+    var noteAction: (String, String?, Int)?
     var finishRevision: Int?
     var hideRevision: Int?
     var openNote: (String, Int)?
@@ -120,6 +123,9 @@ final class BridgeDelegateSpy: EditorBridgeDelegate {
     func editorStateChanged(selection: EditorSelection, viewport: EditorViewport) { state = (selection, viewport) }
     func editorPreferredHeightChanged(_ height: Double) { preferredHeight = height }
     func editorFormattingToolbarBoundsChanged(_ bounds: CGRect?) { formattingToolbarBounds = bounds }
+    func editorRequestedNoteSearch(query: String, requestID: Int, refresh: Bool) { noteSearch = (query, requestID, refresh) }
+    func editorActionPanelChanged(visible: Bool) { actionPanelVisible = visible }
+    func editorRequestedNoteAction(_ action: String, text: String?, revision: Int) { noteAction = (action, text, revision) }
     func editorRequestedFinish(revision: Int) { finishRevision = revision }
     func editorRequestedHide(revision: Int) { hideRevision = revision }
     func editorRequestedOpenNote(id: String, revision: Int) { openNote = (id, revision) }
@@ -233,6 +239,18 @@ final class CoreTests: XCTestCase {
     }
 
     @MainActor
+    func testCompactNativeTitlebarHasNoAppControls() throws {
+        let controller = ComposerPanelController(savedFrame: nil)
+        let panel = try XCTUnwrap(controller.window)
+        defer { panel.close() }
+        XCTAssertEqual(panel.toolbarStyle, .unifiedCompact)
+        let toolbar = try XCTUnwrap(panel.toolbar)
+        XCTAssertTrue(controller.toolbarDefaultItemIdentifiers(toolbar).isEmpty)
+        XCTAssertTrue(controller.toolbarAllowedItemIdentifiers(toolbar).isEmpty)
+        XCTAssertNotNil(panel.standardWindowButton(.closeButton))
+    }
+
+    @MainActor
     func testFormattingToolbarBridgeDecodesBoundsAndClearsThemOnDismissal() {
         let bridge = EditorBridge()
         let delegate = BridgeDelegateSpy()
@@ -253,6 +271,22 @@ final class CoreTests: XCTestCase {
             ComposerPanelController.clampedFrame(expandedFromBottomEdge, to: visibleFrame),
             NSRect(x: 0, y: 0, width: 560, height: 700)
         )
+    }
+
+    @MainActor
+    func testActionPanelTemporarilyExpandsAndRestoresTheComposer() {
+        let controller = ComposerPanelController(savedFrame: nil)
+        guard let panel = controller.window else { return XCTFail("Missing composer panel") }
+        defer { panel.close() }
+        let originalFrame = panel.frame
+        controller.applyActionPanelVisibility(true)
+        XCTAssertGreaterThanOrEqual(panel.frame.height, 430)
+        let expandedFrame = panel.frame
+        controller.applyPreferredContentHeight(180)
+        controller.applyActionPanelVisibility(true)
+        XCTAssertEqual(panel.frame, expandedFrame)
+        controller.applyActionPanelVisibility(false)
+        XCTAssertEqual(panel.frame, originalFrame)
     }
 
     @MainActor
@@ -504,6 +538,24 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(jot.acknowledgedRevision, 2)
         XCTAssertEqual(fileSystem.writes.map(\.1), [Data("delayed".utf8), Data("newest".utf8)])
         XCTAssertEqual(try fileSystem.data(at: URL(fileURLWithPath: jot.path)), Data("newest".utf8))
+    }
+
+    @MainActor
+    func testActionPanelBridgePreservesMarkdownAndRejectsUnknownActions() {
+        let bridge = EditorBridge()
+        let delegate = BridgeDelegateSpy()
+        bridge.delegate = delegate
+        bridge.handle(["version": 1, "type": "actionPanelChanged", "visible": true])
+        XCTAssertEqual(delegate.actionPanelVisible, true)
+        bridge.handle(["version": 1, "type": "noteAction", "action": "copyNote", "text": "**exact** 📝\n", "revision": 7])
+        XCTAssertEqual(delegate.noteAction?.0, "copyNote")
+        XCTAssertEqual(delegate.noteAction?.1, "**exact** 📝\n")
+        XCTAssertEqual(delegate.noteAction?.2, 7)
+        bridge.handle(["version": 1, "type": "noteAction", "action": "deleteNote", "revision": 8])
+        bridge.handle(["version": 1, "type": "noteAction", "action": "copyNote", "revision": -1])
+        XCTAssertEqual(delegate.noteAction?.2, 7)
+        bridge.handle(["version": 1, "type": "actionPanelChanged", "visible": false])
+        XCTAssertEqual(delegate.actionPanelVisible, false)
     }
 
     @MainActor
