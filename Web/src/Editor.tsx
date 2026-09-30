@@ -1,6 +1,7 @@
+import { attachmentBaseURL, attachmentPresentation, beginImageImport, endImageImport, insertImportedImage, pendingImageImport } from "./attachments";
 import { deleteMarkupBackward, insertNewlineContinueMarkupCommand, markdown } from "@codemirror/lang-markdown";
-import { history, historyKeymap } from "@codemirror/commands";
-import { Annotation, EditorSelection, EditorState, Transaction } from "@codemirror/state";
+import { defaultKeymap, history, historyKeymap, selectAll } from "@codemirror/commands";
+import { Annotation, Compartment, EditorSelection, EditorState, Transaction } from "@codemirror/state";
 import { drawSelection, EditorView, keymap, tooltips } from "@codemirror/view";
 import { GFM } from "@lezer/markdown";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -77,6 +78,7 @@ export function Editor() {
   const hasLoadedSession = useRef(false);
   const readySent = useRef(false);
   const pendingBridgeSnapshot = useRef<Extract<EditorToNative, { type: "contentChanged" }> | null>(null);
+  const [importingImage, setImportingImage] = useState(false);
   const [error, setError] = useState<ErrorStatus | null>(null);
   const [dictation, setDictation] = useState<{ status: "idle" | "downloading" | "recording" | "transcribing" | "error"; message?: string }>({ status: "idle" });
   const [waveform, setWaveform] = useState<number[]>(() => Array(waveformBars).fill(0));
@@ -86,6 +88,12 @@ export function Editor() {
   useEffect(() => {
     if (!host.current) return;
     let retryTimer: number | undefined;
+    let imageKeepsFrame = false;
+    let nextImageRequest = 0;
+    let droppedImages: File[] = [];
+    let nativeFileDropsRemaining = 0;
+    let nativeDropID = "";
+    const noteHistory = new Compartment();
 
     const scheduleBridgeRetry = () => {
       if (retryTimer !== undefined) return;
@@ -144,6 +152,7 @@ export function Editor() {
 
     const sendPreferredHeight = (view: EditorView) => {
       requestAnimationFrame(() => {
+        if (imageKeepsFrame || view.state.field(pendingImageImport) || /!\[[^\n]*\]\([^\n]*attachments\//.test(view.state.doc.toString())) return;
         const composer = host.current?.parentElement;
         if (!composer) return;
         const { paddingTop, paddingBottom } = getComputedStyle(view.scrollDOM);
@@ -159,11 +168,72 @@ export function Editor() {
       });
     };
 
+    const requestImagePaste = (view: EditorView) => {
+      if (!hasLoadedSession.current || view.state.field(pendingImageImport)) return;
+      const { from, to } = view.state.selection.main;
+      const id = `image-${++nextImageRequest}`;
+      view.dispatch({ effects: beginImageImport.of({ id, from, to }) });
+      setImportingImage(true);
+      if (!sendToNative({ version: 1, type: "importClipboardImage", requestID: id })) {
+        view.dispatch({ effects: endImageImport.of(null) });
+        setImportingImage(false);
+        setError({ message: "Image import is unavailable. Copy the image and retry after reopening Jot." });
+      }
+    };
+
+    const startDroppedImage = (view: EditorView, position?: number) => {
+      if (!hasLoadedSession.current || view.state.field(pendingImageImport)) return;
+      const file = droppedImages.shift();
+      if (!file) return;
+      const from = position ?? view.state.selection.main.from;
+      const to = position ?? view.state.selection.main.to;
+      const id = `image-${++nextImageRequest}`;
+      view.dispatch({ effects: beginImageImport.of({ id, from, to }) });
+      setImportingImage(true);
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (view.state.field(pendingImageImport)?.id !== id) return;
+        const data = typeof reader.result === "string" ? reader.result.split(",", 2)[1] : undefined;
+        if (!data || !sendToNative({ version: 1, type: "importDroppedImage", requestID: id, data })) {
+          droppedImages = [];
+          view.dispatch({ effects: endImageImport.of(null) });
+          setImportingImage(false);
+          setError({ message: `Could not import ${file.name}. Try dropping it again.` });
+        }
+      };
+      reader.onerror = () => {
+        if (view.state.field(pendingImageImport)?.id !== id) return;
+        droppedImages = [];
+        view.dispatch({ effects: endImageImport.of(null) });
+        setImportingImage(false);
+        setError({ message: `Could not read ${file.name}. Try dropping it again.` });
+      };
+      reader.readAsDataURL(file);
+    };
+
+    const startNativeFileDrop = (view: EditorView, position?: number) => {
+      if (!hasLoadedSession.current || !nativeFileDropsRemaining || view.state.field(pendingImageImport)) return;
+      nativeFileDropsRemaining -= 1;
+      const from = position ?? view.state.selection.main.from;
+      const to = position ?? view.state.selection.main.to;
+      const id = `image-${++nextImageRequest}`;
+      view.dispatch({ effects: beginImageImport.of({ id, from, to }) });
+      setImportingImage(true);
+      if (!sendToNative({ version: 1, type: "importDroppedFile", requestID: id, dropID: nativeDropID })) {
+        nativeFileDropsRemaining = 0;
+        view.dispatch({ effects: endImageImport.of(null) });
+        setImportingImage(false);
+        setError({ message: "Image import is unavailable. Drop the file again after reopening Jot." });
+      }
+    };
+
     const state = EditorState.create({
       doc: "",
       extensions: [
         markdown({ extensions: GFM, addKeymap: false, pasteURLAsLink: false }),
         markdownPresentation,
+        attachmentPresentation,
+        pendingImageImport,
         inlineTagEditor,
         formattingToolbar,
         dictationPreview,
@@ -172,7 +242,7 @@ export function Editor() {
         drawSelection(),
         tooltips({ parent: document.body, tooltipSpace: () => ({ top: 8, left: 8, right: window.innerWidth - 8, bottom: window.innerHeight - 8 }) }),
         EditorView.lineWrapping,
-        history(),
+        noteHistory.of(history()),
         findInNote,
         keymap.of([
           { key: "Mod-p", run: () => { showPalette("notes"); return true; } },
@@ -180,6 +250,8 @@ export function Editor() {
           { key: "Mod-f", run: openSearchPanel },
           { key: "Mod-g", run: findNext },
           { key: "Mod-Shift-g", run: findPrevious },
+
+          { key: "Mod-a", run: selectAll },
           { key: "Mod-b", run: (view) => toggleInlineFormat(view, "bold") },
           { key: "Mod-i", run: (view) => toggleInlineFormat(view, "italic") },
           {
@@ -207,6 +279,7 @@ export function Editor() {
               return true;
             },
           },
+          ...defaultKeymap,
           ...historyKeymap,
         ]),
         EditorView.domEventHandlers({
@@ -216,7 +289,13 @@ export function Editor() {
               queueMicrotask(() => sendCurrentDocument(view));
             }
           },
-          paste: (event) => {
+          paste: (event, view) => {
+            const images = Array.from(event.clipboardData?.files ?? []).some((file) => file.type?.startsWith("image/"));
+            if (images) {
+              event.preventDefault();
+              requestImagePaste(view);
+              return true;
+            }
             if (event.clipboardData?.getData("text/plain")) return false;
             if (event.clipboardData?.files.length) {
               event.preventDefault();
@@ -247,6 +326,43 @@ export function Editor() {
 
     const view = new EditorView({ state, parent: host.current });
     viewRef.current = view;
+    const composer = host.current.closest<HTMLElement>(".composer");
+    const acceptsFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes("Files");
+    const dragOver = (event: DragEvent) => {
+      if (!acceptsFiles(event)) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      composer?.classList.add("is-image-dragging");
+    };
+    const dragLeave = (event: DragEvent) => {
+      if (!composer?.contains(event.relatedTarget as Node | null)) composer?.classList.remove("is-image-dragging");
+    };
+    const drop = (event: DragEvent) => {
+      if (!acceptsFiles(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      composer?.classList.remove("is-image-dragging");
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      const supported = (file: File) => file.type.startsWith("image/") || /\.(png|jpe?g|gif|tiff?|heic|webp|bmp)$/i.test(file.name);
+      if (!files.length || files.some((file) => !supported(file))) {
+        setError({ message: "Drop an image file here. Other file types are not supported yet." });
+        return;
+      }
+      if (files.some((file) => file.size > 20 * 1024 * 1024)) {
+        setError({ message: "Images over 20 MB cannot be dropped yet." });
+        return;
+      }
+      if (view.state.field(pendingImageImport)) {
+        setError({ message: "Wait for the current image to finish importing, then drop again." });
+        return;
+      }
+      droppedImages = files;
+      const position = view.posAtCoords({ x: event.clientX, y: event.clientY }) ?? view.state.selection.main.from;
+      startDroppedImage(view, position);
+    };
+    composer?.addEventListener("dragover", dragOver, true);
+    composer?.addEventListener("dragleave", dragLeave, true);
+    composer?.addEventListener("drop", drop, true);
     const documentKeyDown = (event: KeyboardEvent) => {
       if (event.isComposing) return;
       if (event.metaKey && event.key.toLowerCase() === "p") {
@@ -290,13 +406,50 @@ export function Editor() {
             else if (searchPanelOpen(view.state)) { closeSearchPanel(view); view.focus(); }
             else sendToNative({ version: 1, type: "hide", revision: revisionRef.current });
             break;
+          case "selectAll":
+            selectAll(view);
+            break;
+          case "beginImagePaste":
+            requestImagePaste(view);
+            break;
+          case "beginImageFileDrop":
+            if (view.state.field(pendingImageImport)) {
+              setError({ message: "Wait for the current image to finish importing, then drop again." });
+              break;
+            }
+            nativeDropID = message.dropID;
+            nativeFileDropsRemaining = message.count;
+            startNativeFileDrop(view, view.posAtCoords({ x: message.x, y: message.y }) ?? view.state.selection.main.from);
+            break;
+          case "imageImported":
+            if (insertImportedImage(view, message.requestID, message.path, message.baseURL)) {
+              imageKeepsFrame = true;
+              setImportingImage(false);
+              setError(null);
+              if (nativeFileDropsRemaining) startNativeFileDrop(view);
+              else startDroppedImage(view);
+            }
+            break;
+          case "imageImportFailed":
+            if (view.state.field(pendingImageImport)?.id === message.requestID) {
+              droppedImages = [];
+              nativeFileDropsRemaining = 0;
+              view.dispatch({ effects: endImageImport.of(null) });
+              setImportingImage(false);
+              setError({ message: message.message });
+            }
+            break;
           case "toggleFormat":
             toggleInlineFormat(view, message.format);
             break;
           case "loadSession": {
+            droppedImages = [];
+            nativeFileDropsRemaining = 0;
             if (panelOpenRef.current) changePanel(false);
             closeSearchPanel(view);
-            view.dispatch({ effects: clearDictation.of() });
+            view.dispatch({ effects: [clearDictation.of(), endImageImport.of(null), attachmentBaseURL.of(message.baseURL ?? "")] });
+            setImportingImage(false);
+            imageKeepsFrame = false;
             noteIDRef.current = message.noteID;
             setActiveNoteID(message.noteID);
             hasLoadedSession.current = true;
@@ -328,11 +481,14 @@ export function Editor() {
             revisionRef.current = message.revision;
             const anchor = Math.min(message.selection.anchor, message.text.length);
             const head = Math.min(message.selection.head, message.text.length);
+            view.dispatch({ effects: noteHistory.reconfigure([]) });
             view.dispatch({
+              effects: noteHistory.reconfigure(history()),
               changes: { from: 0, to: view.state.doc.length, insert: message.text },
               selection: EditorSelection.single(anchor, head),
               annotations: [loadSession.of(true), Transaction.addToHistory.of(false)],
             });
+            imageKeepsFrame = /!\[[^\n]*\]\([^\n]*attachments\//.test(message.text);
             requestAnimationFrame(() => {
               view.scrollDOM.scrollTop = message.viewport.scrollTop;
               if (!panelOpenRef.current) view.focus();
@@ -344,6 +500,7 @@ export function Editor() {
           case "noteAllocated":
             noteIDRef.current = message.noteID;
             setActiveNoteID(message.noteID);
+            if (message.baseURL) view.dispatch({ effects: attachmentBaseURL.of(message.baseURL) });
             break;
           case "noteRail":
             setRailNotes(message.notes);
@@ -419,6 +576,9 @@ export function Editor() {
     return () => {
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       document.removeEventListener("keydown", documentKeyDown, true);
+      composer?.removeEventListener("dragover", dragOver, true);
+      composer?.removeEventListener("dragleave", dragLeave, true);
+      composer?.removeEventListener("drop", drop, true);
       viewRef.current = null;
       view.destroy();
       delete window.JotNative;
@@ -557,6 +717,7 @@ export function Editor() {
         </button>
         {dictation.status !== "idle" && dictation.message && <span className={`dictation-message ${dictation.status === "error" ? "is-error" : ""}`} role={dictation.status === "error" ? "alert" : "status"}>{dictation.message}</span>}
       </div>
+      {importingImage && <footer className="status" role="status">Importing image…</footer>}
       {error && (
         <footer className="status status-error" role="alert" aria-atomic="true">
           <span>{error.message}</span>

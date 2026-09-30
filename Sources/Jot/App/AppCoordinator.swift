@@ -16,6 +16,9 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     private var hasBlankCapture = false
     private var isOpeningNote = false
     private var noteSearchTask: Task<Void, Never>?
+    private var isImportingImage = false
+    private var droppedImageFiles: [URL] = []
+    private var imageDropID: String?
     private var tagRefreshTask: Task<Void, Never>?
     private var sentTags: [String] = []
     private var session: PersistedSession
@@ -45,6 +48,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         panelController = ComposerPanelController(
             savedFrame: session.panelPositionWasUserChosen == true ? session.panelFrame : nil
         )
+        panelController.configureAttachmentRoot(rootURL)
         panelController.bridge.delegate = self
         panelController.panelDelegate = self
         voiceDictation.onStateChange = { [weak self] state, message in
@@ -64,6 +68,14 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         panelController.onEscape = { [weak self] in
             guard let self else { return }
             self.panelController.send(["version": 1, "type": "escape"])
+        }
+        panelController.onImageFileDrop = { [weak self] files, point in
+            guard let self else { return }
+            self.droppedImageFiles = files
+            let dropID = UUID().uuidString
+            self.imageDropID = dropID
+            self.panelController.send(["version": 1, "type": "beginImageFileDrop", "dropID": dropID,
+                                       "count": files.count, "x": point.x, "y": point.y])
         }
         shortcut = GlobalShortcut { [weak self] in self?.showJot() }
         let candidates = [session.shortcut] + ShortcutChoice.allCases.filter { $0 != session.shortcut }
@@ -126,6 +138,93 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         savedRecovery && (flushed || hasRecoveryText)
     }
 
+    private func imageBaseURL(for path: String) -> String? {
+        guard let rootURL else { return nil }
+        let directory = URL(fileURLWithPath: path).deletingLastPathComponent().path
+        guard directory == rootURL.path || directory.hasPrefix(rootURL.path + "/") else { return nil }
+        let relative = directory == rootURL.path ? "" : String(directory.dropFirst(rootURL.path.count + 1))
+        return "jot://attachment/" + relative.split(separator: "/").map {
+            String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
+        }.joined(separator: "/") + (relative.isEmpty ? "" : "/")
+    }
+
+    func editorRequestedImageImport(requestID: String) {
+        guard let data = NSPasteboard.general.data(forType: .png)
+            ?? NSPasteboard.general.data(forType: .tiff).flatMap({ NSBitmapImageRep(data: $0)?.representation(using: .png, properties: [:]) }) else {
+            imageImportFailed(requestID: requestID, message: "The clipboard image could not be read. Copy it again and retry.")
+            return
+        }
+        importImageData(data, requestID: requestID)
+    }
+
+    func editorRequestedDroppedImage(requestID: String, base64Data: String) {
+        guard let data = Data(base64Encoded: base64Data), !data.isEmpty,
+              let image = NSImage(data: data), let tiff = image.tiffRepresentation,
+              let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else {
+            imageImportFailed(requestID: requestID, message: "This image could not be read. Try another image file.")
+            return
+        }
+        importImageData(png, requestID: requestID)
+    }
+
+    func editorRequestedDroppedFile(requestID: String, dropID: String) {
+        guard dropID == imageDropID, !droppedImageFiles.isEmpty else {
+            imageImportFailed(requestID: requestID, message: "The dropped image is no longer available. Drop it again.")
+            return
+        }
+        let file = droppedImageFiles.removeFirst()
+        if droppedImageFiles.isEmpty { imageDropID = nil }
+        let fileSize = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        if fileSize > 20 * 1024 * 1024 {
+            droppedImageFiles = []
+            imageDropID = nil
+            imageImportFailed(requestID: requestID, message: "Images over 20 MB cannot be dropped yet.")
+            return
+        }
+        guard let data = try? Data(contentsOf: file),
+              let image = NSImage(data: data), let tiff = image.tiffRepresentation,
+              let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else {
+            droppedImageFiles = []
+            imageDropID = nil
+            imageImportFailed(requestID: requestID, message: "This image could not be read. Try dropping it again.")
+            return
+        }
+        importImageData(png, requestID: requestID)
+    }
+
+    private func imageImportFailed(requestID: String, message: String) {
+        panelController.send(["version": 1, "type": "imageImportFailed", "requestID": requestID,
+                              "message": message])
+    }
+
+    private func importImageData(_ data: Data, requestID: String) {
+        guard !isImportingImage, !isOpeningNote else {
+            imageImportFailed(requestID: requestID, message: "Wait for the current image to finish importing, then try again.")
+            return
+        }
+        isImportingImage = true
+        Task {
+            defer { isImportingImage = false }
+            do {
+                let result = try await writer.importAttachment(data, fileExtension: "png")
+                if session.activeJot == nil {
+                    handle(.noteAllocated(id: result.jot.id, path: result.jot.path, revision: latestRevision))
+                }
+                panelController.preservesFrameForImages = true
+                panelController.send(["version": 1, "type": "imageImported", "requestID": requestID,
+                                      "path": result.relativePath,
+                                      "baseURL": imageBaseURL(for: result.jot.path) ?? ""])
+            } catch {
+                imageImportFailed(requestID: requestID, message: "Image import failed. Your note is unchanged. Restore folder access if needed, then try again.")
+            }
+        }
+    }
+
+    func editorRequestedImagePreview(path: String) {
+        guard let rootURL, let file = LocalResourceSchemeHandler.attachmentURL(path: path, root: rootURL) else { return }
+        panelController.previewImage(at: file)
+    }
+
     func editorDidBecomeReady() {
         Task { await refreshTags(force: true) }
         Task { await refreshRail() }
@@ -185,6 +284,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         session.selection = snapshot.selection
         session.viewport = snapshot.viewport
         session.recoveryText = snapshot.text
+        if Self.containsImageAttachment(snapshot.text) { panelController.preservesFrameForImages = true }
         session.recoveryRevision = snapshot.revision
         Task {
             guard documentGeneration == generation else { return }
@@ -262,7 +362,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     func editorRequestedFinish(revision: Int) {
-        guard !isOpeningNote else { return }
+        guard !isOpeningNote, !isImportingImage else { return }
         isOpeningNote = true
         voiceDictation.cancel()
         Task {
@@ -309,7 +409,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     private func openNote(id: String, revision: Int, movement: NoteNavigationMovement) {
-        guard !isOpeningNote, currentLocation != .note(id) else { return }
+        guard !isOpeningNote, !isImportingImage, currentLocation != .note(id) else { return }
         isOpeningNote = true
         voiceDictation.cancel()
         Task {
@@ -351,7 +451,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     private func openBlankCapture(movement: NoteNavigationMovement) {
-        guard !isOpeningNote, currentLocation != .blank else { return }
+        guard !isOpeningNote, !isImportingImage, currentLocation != .blank else { return }
         isOpeningNote = true
         voiceDictation.cancel()
         Task {
@@ -378,7 +478,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     private func navigate(_ direction: NoteNavigationDirection) {
-        guard !isOpeningNote else { return }
+        guard !isOpeningNote, !isImportingImage else { return }
         let movement: NoteNavigationMovement
         let destination: NoteLocation?
         switch direction {
@@ -560,6 +660,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     @objc private func chooseRoot() {
         guard let choice = rootAccess.chooseRoot() else { return }
         rootURL = choice.url
+        panelController.configureAttachmentRoot(choice.url)
         Task { await tagIndex.configure(root: choice.url); await refreshTags(force: true) }
         railNoteIDs = []
         latestRailID = nil
@@ -618,6 +719,8 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             alert.runModal()
         }
     }
+
+    @objc private func selectAllFromMenu() { panelController.send(["version": 1, "type": "selectAll"]) }
 
     @objc private func quit() { NSApp.terminate(nil) }
 
@@ -691,7 +794,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         editMenu.addItem(responderItem("Cut", action: #selector(NSText.cut(_:)), key: "x"))
         editMenu.addItem(responderItem("Copy", action: #selector(NSText.copy(_:)), key: "c"))
         editMenu.addItem(responderItem("Paste", action: #selector(NSText.paste(_:)), key: "v"))
-        editMenu.addItem(responderItem("Select All", action: #selector(NSText.selectAll(_:)), key: "a"))
+        editMenu.addItem(item("Select All", action: #selector(selectAllFromMenu), key: "a"))
         editMenu.addItem(.separator())
         editMenu.addItem(item("Find in Note…", action: #selector(findInNoteFromMenu), key: "f"))
         editItem.submenu = editMenu
@@ -750,7 +853,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 latestRailID = id
             }
             session.activeJot = ActiveJot(id: id, path: path, acknowledgedRevision: -1)
-            panelController.send(["version": 1, "type": "noteAllocated", "noteID": id, "path": path, "revision": revision])
+            panelController.send(["version": 1, "type": "noteAllocated", "noteID": id, "path": path, "revision": revision, "baseURL": imageBaseURL(for: path) ?? ""])
         case let .saving(revision):
             panelController.send(["version": 1, "type": "saving", "revision": revision])
         case let .writeSucceeded(id, revision):
@@ -802,7 +905,12 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         }
     }
 
+    private static func containsImageAttachment(_ text: String) -> Bool {
+        text.range(of: #"!\[[^\n]*\]\([^\n]*attachments/"#, options: .regularExpression) != nil
+    }
+
     private func sendLoadSession(text: String) {
+        panelController.preservesFrameForImages = Self.containsImageAttachment(text)
         var payload: [String: Any] = [
             "version": 1,
             "type": "loadSession",
@@ -811,7 +919,10 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             "selection": ["anchor": session.selection.anchor, "head": session.selection.head],
             "viewport": ["scrollTop": session.viewport.scrollTop],
         ]
-        if let id = session.activeJot?.id { payload["noteID"] = id }
+        if let jot = session.activeJot {
+            payload["noteID"] = jot.id
+            payload["baseURL"] = imageBaseURL(for: jot.path)
+        }
         panelController.send(payload)
         sendActionState()
         if voiceDictation.state == .recording || voiceDictation.state == .transcribing {

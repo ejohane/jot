@@ -115,6 +115,23 @@ Command-Shift-D also finishes an active recording. If the audio device changes
 during capture, Jot restarts its audio engine.
 Jot does not save a recording or upload speech or transcripts.
 
+## Image attachments
+
+Paste a screenshot or clipboard image, or drop an image file into a jot. Jot saves a PNG in an
+`attachments/<note-id>/` directory beside the Markdown file and inserts an
+ordinary relative Markdown image link. An image alone can create a jot.
+
+Inline images shrink proportionally to fit the existing composer. Pasting,
+loading, reopening, and editing a note with images do not automatically resize
+the window; you can resize it yourself. Click an image to open a larger native
+preview in a separate window, then close it to resume writing.
+
+Image insertion and removal support undo. Removing a link keeps the image file
+on disk so it can be restored. Move the Markdown file and its adjacent
+attachment directory together to keep the relative links working. This first
+slice supports clipboard and dropped images; file picking, other file types,
+and automatic removal of unused attachments are not yet implemented.
+
 ## Releases
 
 Every push to `main` runs `.github/workflows/release.yml`: tests, universal build,
