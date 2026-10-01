@@ -107,6 +107,19 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
   height: 100%;
   position: relative;
 }
+.composer.is-image-dragging::after {
+  content: "Drop image to attach";
+  position: absolute;
+  inset: 36px 24px 34px;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--link);
+  border-radius: 12px;
+  color: var(--link);
+  background: color-mix(in srgb, var(--background) 90%, transparent);
+  pointer-events: none;
+}
 .editor {
   position: absolute;
   inset: var(--editor-top-inset) 37px var(--editor-bottom-inset) 0;
@@ -252,3 +265,30 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
 .note-search-excerpt { margin-top: 3px; color: #bdbdbd; font-size: 13px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .note-search-date { display: block; margin-top: 5px; color: #aeaeae; font-size: 11px; }
 .note-search-content mark { color: inherit; background: #59616b; border-radius: 2px; }
+/* Attachment previews fit the existing viewport and never drive the panel frame. */
+.cm-attachment-image {
+  display: inline-block;
+  vertical-align: bottom;
+  max-width: 100%;
+  width: fit-content;
+  padding: 0;
+  margin: 8px 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--secondary);
+  cursor: zoom-in;
+  overflow: hidden;
+  text-align: left;
+}
+.cm-attachment-image img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: max(48px, min(360px, calc(100vh - 110px)));
+  object-fit: contain;
+}
+.cm-attachment-image:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; }
+.cm-attachment-image:disabled { cursor: default; }
+.cm-attachment-status { display: block; font: inherit; padding: 8px 0; }

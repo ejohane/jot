@@ -1,4 +1,5 @@
 import AVFoundation
+import AppKit
 import Foundation
 import XCTest
 @testable import Jot
@@ -101,6 +102,12 @@ final class DelayedFileSystem: @unchecked Sendable, JotFileSystem {
 
 @MainActor
 final class BridgeDelegateSpy: EditorBridgeDelegate {
+    var imageRequest: String?
+    var imagePreview: String?
+    func editorRequestedImageImport(requestID: String) { imageRequest = requestID }
+    func editorRequestedDroppedImage(requestID: String, base64Data: String) { imageRequest = requestID }
+    func editorRequestedDroppedFile(requestID: String, dropID: String) { imageRequest = requestID }
+    func editorRequestedImagePreview(path: String) { imagePreview = path }
     var readyCount = 0
     var content: (EditorSnapshot, String?)?
     var state: (EditorSelection, EditorViewport)?
@@ -594,6 +601,7 @@ final class CoreTests: XCTestCase {
         bridge.handle(["version": 1, "type": "toggleDictation"] as NSDictionary)
         bridge.handle(["version": 1, "type": "finishDictation"] as NSDictionary)
         bridge.handle(["version": 1, "type": "cancelDictation"] as NSDictionary)
+        bridge.handle(["version": 1, "type": "importDroppedFile", "requestID": "image-1", "dropID": "drop-1"] as NSDictionary)
 
         XCTAssertEqual(delegate.readyCount, 1)
         let content = try XCTUnwrap(delegate.content)
@@ -614,6 +622,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(delegate.dictationToggleCount, 1)
         XCTAssertEqual(delegate.dictationFinishCount, 1)
         XCTAssertEqual(delegate.dictationCancelCount, 1)
+        XCTAssertEqual(delegate.imageRequest, "image-1")
     }
 
     @MainActor
@@ -1045,4 +1054,64 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(fresh, ["New"])
     }
 
+}
+
+final class AttachmentTests: XCTestCase {
+    @MainActor
+    func testFinderPasteboardAcceptsOnlyImageFiles() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let image = root.appendingPathComponent("photo.png")
+        let text = root.appendingPathComponent("notes.txt")
+        try Data([1]).write(to: image)
+        try Data([2]).write(to: text)
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("jot-image-drop-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        XCTAssertTrue(pasteboard.writeObjects([image as NSURL]))
+        XCTAssertEqual(AttachmentWebView.imageFiles(on: pasteboard).map(\.lastPathComponent), ["photo.png"])
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([image as NSURL, text as NSURL]))
+        XCTAssertTrue(AttachmentWebView.imageFiles(on: pasteboard).isEmpty)
+    }
+
+    func testImageOnlyJotPersistsPortableLinkAndOriginalAndRetainsFileForUndo() async throws {
+        let files = InMemoryFileSystem()
+        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: files) { _ in }
+        let data = Data([1, 2, 3, 4])
+        let imported = try await writer.importAttachment(data, fileExtension: "png")
+        let file = URL(fileURLWithPath: imported.jot.path).deletingLastPathComponent().appendingPathComponent(imported.relativePath)
+        XCTAssertEqual(try files.data(at: file), data)
+        let markdown = "![Image](\(imported.relativePath))\n\n"
+        await writer.receive(EditorSnapshot(revision: 1, text: markdown, selection: .start, viewport: .top), flushImmediately: true)
+        let saved = await writer.flush(through: 1)
+        XCTAssertTrue(saved)
+        XCTAssertEqual(try files.data(at: URL(fileURLWithPath: imported.jot.path)), Data(markdown.utf8))
+        await writer.receive(EditorSnapshot(revision: 2, text: "", selection: .start, viewport: .top), flushImmediately: true)
+        XCTAssertEqual(try files.data(at: file), data)
+    }
+
+    func testFailedImportDoesNotAllocateNote() async {
+        let files = InMemoryFileSystem()
+        files.writeError = CocoaError(.fileWriteNoPermission)
+        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: files) { _ in }
+        do {
+            _ = try await writer.importAttachment(Data([1]), fileExtension: "png")
+            XCTFail("Expected failure")
+        } catch {}
+        let jot = await writer.currentJot()
+        XCTAssertNil(jot)
+        XCTAssertEqual(files.fileCount, 0)
+    }
+
+    func testAttachmentResourceRejectsEscapesAndNonImages() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        XCTAssertNotNil(LocalResourceSchemeHandler.attachmentURL(path: "2026/09/27/attachments/n/image.png", root: root))
+        XCTAssertNil(LocalResourceSchemeHandler.attachmentURL(path: "../attachments/secret.png", root: root))
+        XCTAssertNil(LocalResourceSchemeHandler.attachmentURL(path: "attachments/code.html", root: root))
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("attachments"), withDestinationURL: URL(fileURLWithPath: "/tmp"))
+        XCTAssertNil(LocalResourceSchemeHandler.attachmentURL(path: "attachments/image.png", root: root))
+    }
 }

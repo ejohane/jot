@@ -154,6 +154,23 @@ actor JotWriter {
         return true
     }
 
+    // Copy first, then reserve a note path. The editor commits the reference as one undoable edit.
+    func importAttachment(_ data: Data, fileExtension: String) throws -> (jot: ActiveJot, relativePath: String) {
+        guard let rootURL, !hasBlockingError else { throw PersistenceError.rootUnavailable }
+        let allocation = activeJot.map { JotAllocation(id: $0.id, fileURL: URL(fileURLWithPath: $0.path)) }
+            ?? allocator.allocate(root: rootURL, at: now())
+        let directory = allocation.fileURL.deletingLastPathComponent()
+            .appendingPathComponent("attachments/\(allocation.id)", isDirectory: true)
+        let filename = "\(ULID.make()).\(fileExtension)"
+        try fileSystem.createDirectory(at: directory)
+        try fileSystem.writeAtomically(data, to: directory.appendingPathComponent(filename))
+        if activeJot == nil {
+            activeJot = ActiveJot(id: allocation.id, path: allocation.fileURL.path, acknowledgedRevision: -1)
+            activeFileWasMissing = false
+        }
+        return (activeJot!, "attachments/\(allocation.id)/\(filename)")
+    }
+
     func currentJot() -> ActiveJot? { activeJot }
 
     func openExisting(id: String, path: String, through revision: Int) throws -> (text: String, jot: ActiveJot) {

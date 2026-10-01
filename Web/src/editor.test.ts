@@ -1,3 +1,4 @@
+import { pendingImageImport } from "./attachments";
 import { history, redo, undo } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { EditorState } from "@codemirror/state";
@@ -1111,4 +1112,174 @@ describe("note search palette", () => {
     await act(async () => window.JotNative?.receive({ version: 1, type: "noteSearchResults", requestID: request.requestID, results: [], message: "Choose a notes folder" }));
     expect(parent.querySelector('[role="status"]')?.textContent).toBe("Choose a notes folder");
   });
+});
+
+describe("image attachments", () => {
+  it("inserts native Finder drops sequentially at the drop point", async () => {
+    const { view, messages } = await makeConnectedEditor("Before After");
+    vi.spyOn(view, "posAtCoords").mockReturnValue(7);
+    await act(async () => window.JotNative?.receive({ version: 1, type: "beginImageFileDrop", dropID: "drop-1", count: 2, x: 40, y: 60 }));
+    const first = messages.find((m) => m.type === "importDroppedFile")!;
+    if (first.type !== "importDroppedFile") throw new Error("Missing Finder import request");
+    expect(first.dropID).toBe("drop-1");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "imageImported", requestID: first.requestID,
+      path: "attachments/n/first.png", baseURL: "jot://attachment/" }));
+    const requests = messages.filter((m) => m.type === "importDroppedFile");
+    expect(requests).toHaveLength(2);
+    const second = requests[1];
+    if (second.type !== "importDroppedFile") throw new Error("Missing second Finder import request");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "imageImported", requestID: second.requestID,
+      path: "attachments/n/second.png", baseURL: "jot://attachment/" }));
+    expect(view.state.doc.toString()).toContain("![Image](attachments/n/first.png)");
+    expect(view.state.doc.toString()).toContain("![Image](attachments/n/second.png)");
+    expect(view.state.doc.toString()).toContain("Before ");
+    expect(view.state.doc.toString()).toContain("After");
+  });
+
+  it("accepts an image drop at the drop position and ignores unsupported files", async () => {
+    const { view, parent, messages } = await makeConnectedEditor("Before After");
+    vi.spyOn(view, "posAtCoords").mockReturnValue(7);
+    const composer = parent.querySelector<HTMLElement>(".composer")!;
+    const dragEvent = (type: string, files: File[]) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperties(event, {
+        dataTransfer: { value: { types: ["Files"], files, dropEffect: "none" } },
+        clientX: { value: 40 },
+        clientY: { value: 60 },
+      });
+      return event;
+    };
+    const image = new File([new Uint8Array([137, 80, 78, 71])], "photo.png", { type: "image/png" });
+    await act(async () => {
+      const over = dragEvent("dragover", [image]);
+      composer.dispatchEvent(over);
+      expect(over.defaultPrevented).toBe(true);
+      expect(composer.classList.contains("is-image-dragging")).toBe(true);
+      const drop = dragEvent("drop", [image]);
+      composer.dispatchEvent(drop);
+      expect(drop.defaultPrevented).toBe(true);
+    });
+    await vi.waitFor(() => expect(messages.some((m) => m.type === "importDroppedImage")).toBe(true));
+    const request = messages.find((m) => m.type === "importDroppedImage")!;
+    if (request.type !== "importDroppedImage") throw new Error("Missing image drop request");
+    expect(request.data).toBe("iVBORw==");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "imageImported", requestID: request.requestID,
+      path: "attachments/n/photo.png", baseURL: "jot://attachment/" }));
+    expect(view.state.doc.toString()).toContain("Before \n\n![Image](attachments/n/photo.png)\n\nAfter");
+    const unsupported = new File(["plain"], "notes.txt", { type: "text/plain" });
+    await act(async () => composer.dispatchEvent(dragEvent("drop", [unsupported])));
+    expect(messages.filter((m) => m.type === "importDroppedImage")).toHaveLength(1);
+    expect(parent.textContent).toContain("Other file types are not supported yet");
+  });
+
+  it("commits an image-only jot as portable Markdown, renders a preview, and undoes as one edit", async () => {
+    const { view, parent, messages } = await makeConnectedEditor();
+    await act(async () => window.JotNative?.receive({ version: 1, type: "beginImagePaste" }));
+    const request = messages.find((m) => m.type === "importClipboardImage");
+    if (request?.type !== "importClipboardImage") throw new Error("No import request");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "imageImported", requestID: request.requestID,
+      path: "attachments/n/screenshot.png", baseURL: "jot://attachment/2026/09/27/" }));
+    expect(view.state.doc.toString()).toBe("![Image](attachments/n/screenshot.png)\n\n");
+    expect(parent.querySelector(".cm-attachment-image img")?.getAttribute("src")).toBe("jot://attachment/2026/09/27/attachments/n/screenshot.png");
+    await act(async () => { undo(view); });
+    expect(view.state.doc.toString()).toBe("");
+    await act(async () => { redo(view); });
+    expect(parent.querySelector(".cm-attachment-image")).not.toBeNull();
+  });
+
+  it("maps the insertion point while typing and keeps image edits out of preferred window height", async () => {
+    const { view, parent, messages } = await makeConnectedEditor("Before\n\nAfter");
+    await act(async () => { view.dispatch({ selection: { anchor: 6 } }); window.JotNative?.receive({ version: 1, type: "beginImagePaste" }); });
+    const pending = view.state.field(pendingImageImport)!;
+    await act(async () => view.dispatch({ changes: { from: 0, insert: "New " } }));
+    expect(view.state.field(pendingImageImport)?.from).toBe(10);
+    messages.length = 0;
+    await act(async () => window.JotNative?.receive({ version: 1, type: "imageImported", requestID: pending.id,
+      path: "attachments/n/screenshot.png", baseURL: "jot://attachment/2026/09/27/" }));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(messages.some((m) => m.type === "preferredHeightChanged")).toBe(false);
+    expect(view.state.doc.toString()).toContain("New Before\n\n![Image]");
+    const button = parent.querySelector<HTMLButtonElement>(".cm-attachment-image")!;
+    await act(async () => button.click());
+    expect(messages).toContainEqual({ version: 1, type: "previewImage", path: "2026/09/27/attachments/n/screenshot.png" });
+  });
+
+  it("rejects late import replies after navigating and leaves text unchanged on failure", async () => {
+    const { view } = await makeConnectedEditor("Keep this");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "beginImagePaste" }));
+    const id = view.state.field(pendingImageImport)!.id;
+    await act(async () => window.JotNative?.receive({ version: 1, type: "imageImportFailed", requestID: id, message: "Retry paste" }));
+    expect(view.state.doc.toString()).toBe("Keep this");
+    expect(view.state.field(pendingImageImport)).toBeNull();
+    await act(async () => {
+      window.JotNative?.receive({ version: 1, type: "loadSession", text: "Other note", revision: 0, noteID: "other",
+        selection: { anchor: 0, head: 0 }, viewport: { scrollTop: 0 } });
+      window.JotNative?.receive({ version: 1, type: "imageImported", requestID: id, path: "attachments/a.png", baseURL: "jot://attachment/" });
+    });
+    expect(view.state.doc.toString()).toBe("Other note");
+  });
+
+  it("keeps the image visible at the caret, restores it after deleting and undoing, and reports a missing file", async () => {
+    const text = "![Image](attachments/n/image.png)\n\n";
+    const { view, parent } = await makeConnectedEditor(text);
+    await act(async () => window.JotNative?.receive({ version: 1, type: "noteAllocated", noteID: "note-1", path: "/Jots/n.md", revision: 1, baseURL: "jot://attachment/" }));
+    await act(async () => view.dispatch({ selection: { anchor: 10 } }));
+    expect(parent.querySelector(".cm-attachment-image")).not.toBeNull();
+    await act(async () => view.dispatch({ changes: { from: 0, to: text.indexOf("\n") } }));
+    expect(parent.querySelector(".cm-attachment-image")).toBeNull();
+    await act(async () => { undo(view); });
+    const image = parent.querySelector<HTMLImageElement>(".cm-attachment-image img")!;
+    image.dispatchEvent(new Event("error"));
+    expect(parent.textContent).toContain("Image unavailable");
+  });
+});
+
+it("starts a fresh undo history when switching notes after an image paste", async () => {
+  const { view } = await makeConnectedEditor();
+  await act(async () => window.JotNative?.receive({ version: 1, type: "beginImagePaste" }));
+  const id = view.state.field(pendingImageImport)!.id;
+  await act(async () => window.JotNative?.receive({ version: 1, type: "imageImported", requestID: id,
+    path: "attachments/n/image.png", baseURL: "jot://attachment/" }));
+  await act(async () => window.JotNative?.receive({ version: 1, type: "loadSession", text: "Other note", revision: 0,
+    noteID: "other", selection: { anchor: 0, head: 0 }, viewport: { scrollTop: 0 } }));
+  expect(undo(view)).toBe(false);
+  expect(view.state.doc.toString()).toBe("Other note");
+});
+
+it("Select All and Backspace remove image source and undo restores the image", async () => {
+  const { view, parent } = await makeConnectedEditor();
+  await act(async () => window.JotNative?.receive({ version: 1, type: "beginImagePaste" }));
+  const id = view.state.field(pendingImageImport)!.id;
+  await act(async () => window.JotNative?.receive({ version: 1, type: "imageImported", requestID: id,
+    path: "attachments/n/image.png", baseURL: "jot://attachment/" }));
+  await act(async () => {
+    window.JotNative?.receive({ version: 1, type: "selectAll" });
+    view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", code: "Backspace", bubbles: true, cancelable: true }));
+  });
+  expect(view.state.doc.toString()).toBe("");
+  expect(parent.querySelector(".cm-attachment-image")).toBeNull();
+  await act(async () => { undo(view); });
+  expect(parent.querySelector(".cm-attachment-image")).not.toBeNull();
+});
+
+it("moves the caret before and after an image using ordinary document navigation", async () => {
+  const { view } = await makeConnectedEditor();
+  await act(async () => window.JotNative?.receive({ version: 1, type: "beginImagePaste" }));
+  const id = view.state.field(pendingImageImport)!.id;
+  await act(async () => window.JotNative?.receive({ version: 1, type: "imageImported", requestID: id,
+    path: "attachments/n/image.png", baseURL: "jot://attachment/" }));
+  await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", code: "Home", ctrlKey: true, bubbles: true, cancelable: true })));
+  expect(view.state.selection.main.head).toBe(0);
+  await act(async () => view.dispatch({ changes: { from: 0, insert: "Above\n\n" } }));
+  expect(view.state.doc.toString()).toMatch(/^Above\n\n!\[Image\]/);
+});
+
+it("places the caret underneath an image pasted between existing paragraphs", async () => {
+  const { view } = await makeConnectedEditor("Before\n\nAfter");
+  await act(async () => { view.dispatch({ selection: { anchor: 6 } }); window.JotNative?.receive({ version: 1, type: "beginImagePaste" }); });
+  const id = view.state.field(pendingImageImport)!.id;
+  await act(async () => window.JotNative?.receive({ version: 1, type: "imageImported", requestID: id,
+    path: "attachments/n/image.png", baseURL: "jot://attachment/" }));
+  await act(async () => view.dispatch(view.state.replaceSelection("Writing below. ")));
+  expect(view.state.doc.toString()).toBe("Before\n\n![Image](attachments/n/image.png)\n\nWriting below. After");
 });

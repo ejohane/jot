@@ -7,9 +7,29 @@ protocol ComposerPanelDelegate: AnyObject {
     func composerFrameDidChange(_ frame: NSRect)
 }
 
-final class ComposerPanel: NSPanel {
+final class ComposerPanel: NSPanel, NSDraggingDestination {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+    var onImageFileDrop: (([URL], NSPoint) -> Void)?
+
+    func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        AttachmentWebView.imageFiles(in: sender).isEmpty ? [] : .copy
+    }
+
+    func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        AttachmentWebView.imageFiles(in: sender).isEmpty ? [] : .copy
+    }
+
+    func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        !AttachmentWebView.imageFiles(in: sender).isEmpty
+    }
+
+    func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let files = AttachmentWebView.imageFiles(in: sender)
+        guard !files.isEmpty else { return false }
+        onImageFileDrop?(files, sender.draggingLocation)
+        return true
+    }
 }
 
 final class WindowDragContainerView: NSView {
@@ -36,10 +56,61 @@ final class WindowDragContainerView: NSView {
 }
 
 @MainActor
+final class AttachmentWebView: WKWebView {
+    var onImagePaste: (() -> Void)?
+    var onImageFileDrop: (([URL], NSPoint) -> Void)?
+
+    static func imageFiles(on pasteboard: NSPasteboard) -> [URL] {
+        let files = pasteboard.readObjects(
+            forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL] ?? []
+        let extensions: Set<String> = ["png", "jpg", "jpeg", "gif", "tif", "tiff", "heic", "webp", "bmp"]
+        return files.isEmpty || files.contains(where: { !extensions.contains($0.pathExtension.lowercased()) }) ? [] : files
+    }
+
+    static func imageFiles(in sender: any NSDraggingInfo) -> [URL] {
+        imageFiles(on: sender.draggingPasteboard)
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        Self.imageFiles(in: sender).isEmpty ? super.draggingEntered(sender) : .copy
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        Self.imageFiles(in: sender).isEmpty ? super.draggingUpdated(sender) : .copy
+    }
+
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        Self.imageFiles(in: sender).isEmpty ? super.prepareForDragOperation(sender) : true
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let files = Self.imageFiles(in: sender)
+        guard !files.isEmpty else { return super.performDragOperation(sender) }
+        let point = convert(sender.draggingLocation, from: nil)
+        onImageFileDrop?(files, NSPoint(x: point.x, y: isFlipped ? point.y : bounds.height - point.y))
+        return true
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "v", Self.clipboardHasImage {
+            onImagePaste?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    static var clipboardHasImage: Bool {
+        NSPasteboard.general.availableType(from: [.png, .tiff]) != nil
+    }
+}
+
+@MainActor
 final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
     let bridge = EditorBridge()
     private let resourceHandler = LocalResourceSchemeHandler()
-    private let webView: WKWebView
+    private let webView: AttachmentWebView
     private let dragView = WindowDragContainerView(frame: .zero)
     private var isProgrammaticFrameChange = false
     private var userHasResized = false
@@ -48,8 +119,11 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
     private var escapeMonitor: Any?
     private var actionPanelVisible = false
     private var frameBeforeActions: NSRect?
+    private var imagePreview: NSWindowController?
+    var preservesFrameForImages = false
     weak var panelDelegate: (any ComposerPanelDelegate)?
     var onEscape: (() -> Void)?
+    var onImageFileDrop: (([URL], NSPoint) -> Void)?
 
     init(savedFrame: String?) {
         let configuration = WKWebViewConfiguration()
@@ -59,7 +133,8 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         configuration.userContentController.add(bridge, name: "jot")
         configuration.setURLSchemeHandler(resourceHandler, forURLScheme: "jot")
 
-        webView = WKWebView(frame: .zero, configuration: configuration)
+        webView = AttachmentWebView(frame: .zero, configuration: configuration)
+        webView.registerForDraggedTypes([.fileURL])
         webView.setValue(false, forKey: "drawsBackground")
         let initialFrame = NSRect(x: 0, y: 0, width: 560, height: 260)
         let panel = ComposerPanel(
@@ -98,6 +173,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         ])
         panel.contentView = contentView
         panel.isReleasedWhenClosed = false
+        panel.registerForDraggedTypes([.fileURL])
 
         super.init(window: panel)
         panel.delegate = self
@@ -110,6 +186,13 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         panel.toolbar = toolbar
         bridge.webView = webView
         webView.navigationDelegate = bridge
+        webView.onImagePaste = { [weak self] in self?.send(["version": 1, "type": "beginImagePaste"]) }
+        webView.onImageFileDrop = { [weak self] files, point in self?.onImageFileDrop?(files, point) }
+        panel.onImageFileDrop = { [weak self] files, location in
+            guard let self else { return }
+            let point = self.webView.convert(location, from: nil)
+            self.onImageFileDrop?(files, NSPoint(x: point.x, y: self.webView.isFlipped ? point.y : self.webView.bounds.height - point.y))
+        }
         if let savedFrame {
             let frame = NSRectFromString(savedFrame)
             if frame.width > 0, frame.height > 0 {
@@ -191,8 +274,30 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
 
     func send(_ payload: [String: Any]) { bridge.send(payload) }
 
+    func configureAttachmentRoot(_ root: URL?) { resourceHandler.configureAttachmentRoot(root) }
+
+    func previewImage(at url: URL) {
+        guard let image = NSImage(contentsOf: url) else { return }
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        panel.title = "Image Preview"
+        panel.level = .floating
+        panel.isReleasedWhenClosed = false
+        panel.minSize = NSSize(width: 300, height: 240)
+        let imageView = NSImageView()
+        imageView.image = image
+        imageView.imageScaling = .scaleProportionallyDown
+        imageView.setAccessibilityLabel("Attached image")
+        panel.contentView = imageView
+        panel.center()
+        imagePreview?.close()
+        imagePreview = NSWindowController(window: panel)
+        imagePreview?.showWindow(nil)
+        panel.makeKeyAndOrderFront(nil)
+    }
+
     func applyPreferredContentHeight(_ requestedHeight: CGFloat) {
-        guard !actionPanelVisible, !userHasResized, let panel = window else { return }
+        guard !actionPanelVisible, !preservesFrameForImages, !userHasResized, let panel = window else { return }
         let contentHeight = min(max(requestedHeight, 180), 700)
         let frameHeight = panel.frameRect(forContentRect: NSRect(x: 0, y: 0, width: panel.contentLayoutRect.width, height: contentHeight)).height
         guard abs(panel.frame.height - frameHeight) > 1 else { return }

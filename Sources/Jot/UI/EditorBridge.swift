@@ -3,6 +3,10 @@ import WebKit
 
 @MainActor
 protocol EditorBridgeDelegate: AnyObject {
+    func editorRequestedImageImport(requestID: String)
+    func editorRequestedDroppedImage(requestID: String, base64Data: String)
+    func editorRequestedDroppedFile(requestID: String, dropID: String)
+    func editorRequestedImagePreview(path: String)
     func editorDidBecomeReady()
     func editorContentChanged(_ snapshot: EditorSnapshot, noteID: String?)
     func editorStateChanged(selection: EditorSelection, viewport: EditorViewport)
@@ -36,6 +40,18 @@ final class EditorBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
               let type = body["type"] as? String else { return }
 
         switch type {
+        case "importClipboardImage":
+            if let id = body["requestID"] as? String { delegate?.editorRequestedImageImport(requestID: id) }
+        case "importDroppedImage":
+            if let id = body["requestID"] as? String, let data = body["data"] as? String {
+                delegate?.editorRequestedDroppedImage(requestID: id, base64Data: data)
+            }
+        case "importDroppedFile":
+            if let id = body["requestID"] as? String, let dropID = body["dropID"] as? String {
+                delegate?.editorRequestedDroppedFile(requestID: id, dropID: dropID)
+            }
+        case "previewImage":
+            if let path = body["path"] as? String { delegate?.editorRequestedImagePreview(path: path) }
         case "editorReady":
             delegate?.editorDidBecomeReady()
         case "contentChanged":
