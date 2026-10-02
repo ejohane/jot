@@ -1,19 +1,18 @@
 import { pendingImageImport } from "./attachments";
 import { history, redo, undo } from "@codemirror/commands";
-import { markdown } from "@codemirror/lang-markdown";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { GFM } from "@lezer/markdown";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { syntaxTree } from "@codemirror/language";
 import { editorTheme } from "./editorTheme";
-import { Editor, insertLiteralNewline } from "./Editor";
+import { Editor, insertLiteralNewline, jotMarkdown } from "./Editor";
 import type { EditorToNative } from "./bridge";
 import { markdownPresentation } from "./presentation";
 import { findInlineTags } from "./tags";
 import { completionStatus, currentCompletions } from "@codemirror/autocomplete";
-import { indentBulletItem } from "./listIndent";
+import { indentListItem } from "./listIndent";
 import { toggleInlineFormat } from "./formatting";
 import { searchPanelOpen } from "@codemirror/search";
 
@@ -35,7 +34,7 @@ function makeView(doc: string) {
     state: EditorState.create({
       doc,
       extensions: [
-        markdown({ extensions: GFM, addKeymap: false, pasteURLAsLink: false }),
+        jotMarkdown,
         markdownPresentation,
         editorTheme,
         history(),
@@ -130,10 +129,9 @@ describe("source-first Markdown presentation", () => {
     expect(messages.filter((message) => message.type === "contentChanged")).toHaveLength(0);
   });
 
-  it("opens commands from the button beside dictation without changing the note", async () => {
+  it("opens commands from its separate corner control without changing the note", async () => {
     const { parent, view, messages } = await makeConnectedEditor("A quiet jot");
-    const controls = parent.querySelector(".dictation-controls")!;
-    const buttons = controls.querySelectorAll("button");
+    const buttons = parent.querySelectorAll<HTMLButtonElement>(".dictation-controls button, .command-controls button");
     expect(buttons[0].getAttribute("aria-label")).toBe("Start dictation");
     expect(buttons[1].getAttribute("aria-label")).toBe("Commands");
     expect(buttons[1].getAttribute("title")).toBe("Commands (⌘K)");
@@ -252,7 +250,7 @@ describe("source-first Markdown presentation", () => {
       if (index !== 1) expect(length).toBeCloseTo(6);
     });
     await act(async () => parent.querySelectorAll<HTMLButtonElement>(".note-tick")[3].click());
-    expect(messages.at(-1)).toMatchObject({ type: "openNote", noteID: "note-3" });
+    expect(messages.filter(message => message.type === "openNote").at(-1)).toMatchObject({ type: "openNote", noteID: "note-3" });
     await act(async () => window.JotNative?.receive({
       version: 1, type: "loadSession", text: "Note 3", noteID: "note-3", revision: 2,
       selection: { anchor: 0, head: 0 }, viewport: { scrollTop: 0 },
@@ -537,7 +535,7 @@ describe("source-first Markdown presentation", () => {
     const source = Array.from({ length: 500 }, (_, index) => `- item ${index}`).join("\n");
     const view = makeView(source);
     view.dispatch({ selection: { anchor: source.length } });
-    expect(indentBulletItem(view)).toBe(true);
+    expect(indentListItem(view)).toBe(true);
     expect(view.state.doc.toString().endsWith("\n     - item 499")).toBe(true);
   });
 
@@ -660,9 +658,9 @@ describe("source-first Markdown presentation", () => {
     expect(view.state.doc.toString()).toBe(original);
   });
 
-  it("leaves prose, ordered lists, code, and mixed selections to their existing Tab behavior", async () => {
+  it("leaves prose, code, and mixed selections to their existing Tab behavior", async () => {
     for (const [text, position] of [
-      ["plain prose", 5], ["1. ordered", 5], ["```\n- code\n```", 7],
+      ["plain prose", 5], ["```\n- code\n```", 7],
       ["- bullet\n  ```\n  code\n  ```", 18],
     ] as const) {
       const { view } = await makeConnectedEditor(text);
@@ -1282,4 +1280,118 @@ it("places the caret underneath an image pasted between existing paragraphs", as
     path: "attachments/n/image.png", baseURL: "jot://attachment/" }));
   await act(async () => view.dispatch(view.state.replaceSelection("Writing below. ")));
   expect(view.state.doc.toString()).toBe("Before\n\n![Image](attachments/n/image.png)\n\nWriting below. After");
+});
+
+describe("starting a dash list after text", () => {
+  it("keeps paragraph styling throughout typing, undo, and redo", () => {
+    const view = makeView("Hello");
+    view.dispatch({ selection: { anchor: 5 } });
+    for (const text of ["\n", "-", " ", "world"]) {
+      view.dispatch({ ...view.state.replaceSelection(text), userEvent: "input.type" });
+      expect(syntaxTree(view.state).toString()).not.toContain("SetextHeading");
+      expect(view.contentDOM.querySelector(".cm-line")?.querySelector("span")).toBeNull();
+    }
+    expect(view.state.doc.toString()).toBe("Hello\n- world");
+    undo(view);
+    expect(syntaxTree(view.state).toString()).not.toContain("SetextHeading");
+    redo(view);
+    expect(syntaxTree(view.state).toString()).not.toContain("SetextHeading");
+  });
+
+  it("retains explicit headings and horizontal rules", () => {
+    const view = makeView("## Heading\n\n---");
+    expect(syntaxTree(view.state).toString()).toContain("ATXHeading2");
+    expect(syntaxTree(view.state).toString()).toContain("HorizontalRule");
+  });
+});
+
+describe("mixed numbered and bullet lists", () => {
+  it.each([
+    ["1. parent\n2. child", "1. parent\n     2. child"],
+    ["1. parent\n- child", "1. parent\n     - child"],
+    ["- parent\n1. child", "- parent\n     1. child"],
+    ["1. parent\n   - first\n   1. child", "1. parent\n   - first\n        1. child"],
+    ["- parent\n  1. first\n  - child", "- parent\n  1. first\n       - child"],
+    ["123456789. parent\n- child", "123456789. parent\n           - child"],
+  ])("nests and outdents %s with Tab", async (original, nested) => {
+    const { view } = await makeConnectedEditor(original);
+    const press = async (shiftKey = false) => act(async () => {
+      view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", shiftKey, bubbles: true, cancelable: true }));
+    });
+    await press();
+    expect(view.state.doc.toString()).toBe(nested);
+    expect(syntaxTree(view.state).toString()).toMatch(/ListItem.*(?:BulletList|OrderedList).*ListItem/);
+    await press();
+    expect(view.state.doc.toString()).toBe(nested);
+    expect(undo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe(original);
+    expect(redo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe(nested);
+    await press(true);
+    expect(view.state.doc.toString()).toBe(original);
+  });
+
+  it("moves numbered parents with mixed descendants", async () => {
+    const original = "1. first\n2. second\n   - child\n     1. grandchild\n3. third";
+    const { view } = await makeConnectedEditor(original);
+    view.dispatch({ selection: { anchor: original.indexOf("second") } });
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", bubbles: true })));
+    expect(view.state.doc.toString()).toBe("1. first\n     2. second\n        - child\n          1. grandchild\n3. third");
+  });
+});
+
+it.each([
+  ["1. parent\n     - child", "1. parent\n     - child\n     - "],
+  ["- parent\n     1. child", "- parent\n     1. child\n     2. "],
+])("continues the nested marker type with Enter in %s", async (source, expected) => {
+  const { view } = await makeConnectedEditor(source);
+  await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true })));
+  expect(view.state.doc.toString()).toBe(expected);
+});
+
+describe("opening presented links", () => {
+  it.each([
+    ["[Example](https://example.com)", "https://example.com/"],
+    ["[**Example**](https://example.com/a?q=1 \"Title\")", "https://example.com/a?q=1"],
+    ["<https://example.com>", "https://example.com/"],
+    ["https://example.com", "https://example.com/"],
+  ])("opens %s without moving the caret or changing Markdown", async (link, url) => {
+    const source = `${link}\nplain`;
+    const { view, messages } = await makeConnectedEditor(source);
+    const target = view.dom.querySelector<HTMLElement>(".cm-browser-link");
+    expect(target).not.toBeNull();
+    const position = view.state.selection.main.head;
+    const mouse = new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true });
+    await act(async () => {
+      target!.dispatchEvent(mouse);
+      target!.dispatchEvent(new MouseEvent("click", { button: 0, bubbles: true, cancelable: true }));
+    });
+    expect(mouse.defaultPrevented).toBe(true);
+    expect(view.state.selection.main.head).toBe(position);
+    expect(view.state.doc.toString()).toBe(source);
+    expect(messages).toContainEqual({ version: 1, type: "openBrowserURL", url });
+    view.dispatch({ selection: { anchor: 0 } });
+    await act(async () => {
+      view.focus();
+      view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", code: "ArrowRight", bubbles: true, cancelable: true }));
+    });
+    expect(view.state.selection.main.head).toBe(1);
+    expect(view.dom.querySelector(".cm-browser-link")).toBeNull();
+    expect(view.contentDOM.textContent).toContain(link.replaceAll("**", ""));
+  });
+
+  it("keeps unsafe destinations, images, and code from opening a browser", async () => {
+    const { view } = await makeConnectedEditor('[bad](javascript:alert) [file](file:///tmp/private) ![image](https://example.com/a.png) `https://example.com`\nplain');
+    expect(view.dom.querySelector(".cm-browser-link")).toBeNull();
+  });
+});
+
+it.each(["n", "Enter"])("finishes the current revision with Command-%s", async key => {
+  const { view, messages } = await makeConnectedEditor("Saved note");
+  const modifier = /Mac/.test(navigator.platform) ? { metaKey: true } : { ctrlKey: true };
+  await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key, ...modifier, bubbles: true, cancelable: true })));
+  expect(messages.filter(message => message.type === "finishAndNew")).toEqual([
+    { version: 1, type: "finishAndNew", revision: 1 },
+  ]);
+  expect(view.state.doc.toString()).toBe("Saved note");
 });

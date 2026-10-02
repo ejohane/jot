@@ -6,11 +6,12 @@ import { drawSelection, EditorView, keymap, tooltips } from "@codemirror/view";
 import { GFM } from "@lezer/markdown";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sendToNative, type EditorToNative, type NoteSearchResult } from "./bridge";
+import { clickableLinks } from "./links";
 import { editorTheme } from "./editorTheme";
 import { markdownPresentation } from "./presentation";
 import { beginDictation, clearDictation, dictationPreview, insertionForDictation, reviseDictation } from "./dictationPreview";
 import { inlineTagEditor, setTagVocabulary } from "./tagEditor";
-import { indentBulletItem, outdentBulletItem } from "./listIndent";
+import { indentListItem, outdentListItem } from "./listIndent";
 import { toggleInlineFormat } from "./formatting";
 import { formattingToolbar } from "./formattingToolbar";
 import { usePointerActivity } from "./usePointerActivity";
@@ -25,6 +26,14 @@ type ErrorStatus = { message: string; actions?: RecoveryAction[] };
 const loadSession = Annotation.define<boolean>();
 const continueMarkdownList = insertNewlineContinueMarkupCommand({ nonTightLists: false });
 const waveformBars = 48;
+
+// A dash below a paragraph is usually the start of a list while typing.
+// Use explicit # headings so Setext parsing cannot resize the previous line.
+export const jotMarkdown = markdown({
+  extensions: [GFM, { remove: ["SetextHeading"] }],
+  addKeymap: false,
+  pasteURLAsLink: false,
+});
 
 export function insertLiteralNewline(view: EditorView): boolean {
   view.dispatch({
@@ -230,8 +239,9 @@ export function Editor() {
     const state = EditorState.create({
       doc: "",
       extensions: [
-        markdown({ extensions: GFM, addKeymap: false, pasteURLAsLink: false }),
+        jotMarkdown,
         markdownPresentation,
+        clickableLinks,
         attachmentPresentation,
         pendingImageImport,
         inlineTagEditor,
@@ -254,13 +264,13 @@ export function Editor() {
           { key: "Mod-a", run: selectAll },
           { key: "Mod-b", run: (view) => toggleInlineFormat(view, "bold") },
           { key: "Mod-i", run: (view) => toggleInlineFormat(view, "italic") },
-          {
-            key: "Mod-Enter",
+          ...["Mod-Enter", "Mod-n"].map(key => ({
+            key,
             run: () => {
               sendToNative({ version: 1, type: "finishAndNew", revision: revisionRef.current });
               return true;
             },
-          },
+          })),
           { key: "Mod-Shift-d", run: () => sendToNative({ version: 1, type: "toggleDictation" }) },
           { key: "Mod-l", run: () => sendToNative({ version: 1, type: "navigateLatest" }) },
           { key: "Mod-[", run: () => sendToNative({ version: 1, type: "navigateBack" }) },
@@ -269,8 +279,8 @@ export function Editor() {
           { key: "Enter", run: insertLiteralNewline },
           { key: "Shift-Enter", run: insertLiteralNewline },
           { key: "Backspace", run: deleteMarkupBackward },
-          { key: "Tab", run: indentBulletItem },
-          { key: "Shift-Tab", run: outdentBulletItem },
+          { key: "Tab", run: indentListItem },
+          { key: "Shift-Tab", run: outdentListItem },
           {
             key: "Escape",
             run: (view) => {
@@ -602,7 +612,7 @@ export function Editor() {
   };
 
   const actions: Action[] = [
-    { id: "new", label: "New Note", keywords: "create blank finish jot", icon: "M12 5v14M5 12h14", shortcut: ["⌘", "↵"], group: 0,
+    { id: "new", label: "New Note", keywords: "create blank finish jot", icon: "M12 5v14M5 12h14", shortcut: ["⌘", "N"], group: 0,
       disabledReason: !actionState.canNew ? documentEmpty ? "You’re already on a blank note." : "Wait for the current note to save before starting a new one." : undefined },
     { id: "search", label: "Search Notes…", keywords: "browse find archive recent switch open", icon: "M11 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm5 13 5 5", shortcut: ["⌘", "P"], group: 0 },
     { id: "reveal", label: "Reveal in Finder", keywords: "file locate show folder markdown", icon: "M3 7h7l2 2h9v11H3V7ZM3 7V4h7l2 3M12 12v5m-2-2 2 2 2-2", group: 0,
@@ -703,6 +713,9 @@ export function Editor() {
             </svg>
           </button>
         )}
+        {dictation.status !== "idle" && dictation.message && <span className={`dictation-message ${dictation.status === "error" ? "is-error" : ""}`} role={dictation.status === "error" ? "alert" : "status"}>{dictation.message}</span>}
+      </div>
+      <div className="command-controls">
         <button
           className="chrome-button"
           type="button"
@@ -715,7 +728,6 @@ export function Editor() {
             <path d="M8 8H5a3 3 0 1 1 3-3v14a3 3 0 1 1-3-3h14a3 3 0 1 1-3 3V5a3 3 0 1 1 3 3H8Z" />
           </svg>
         </button>
-        {dictation.status !== "idle" && dictation.message && <span className={`dictation-message ${dictation.status === "error" ? "is-error" : ""}`} role={dictation.status === "error" ? "alert" : "status"}>{dictation.message}</span>}
       </div>
       {importingImage && <footer className="status" role="status">Importing image…</footer>}
       {error && (

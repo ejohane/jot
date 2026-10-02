@@ -27,6 +27,8 @@ export const editorTheme = [
       padding: "8px 24px",
     },
     ".cm-content": { caretColor: "var(--text)", minHeight: "100%" },
+    ".cm-browser-link": { color: "var(--link)", cursor: "pointer" },
+    ".cm-browser-link:hover": { textDecoration: "underline" },
     ".cm-line": { padding: "0" },
     ".cm-focused": { outline: "none" },
     ".cm-cursor": { borderLeftColor: "var(--text)" },

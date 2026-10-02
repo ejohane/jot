@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import WebKit
 
@@ -52,6 +53,12 @@ final class EditorBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             }
         case "previewImage":
             if let path = body["path"] as? String { delegate?.editorRequestedImagePreview(path: path) }
+        case "openBrowserURL":
+            if let value = body["url"] as? String, let url = URL(string: value),
+               ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
+               url.host != nil {
+                NSWorkspace.shared.open(url)
+            }
         case "editorReady":
             delegate?.editorDidBecomeReady()
         case "contentChanged":
