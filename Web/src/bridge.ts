@@ -5,6 +5,7 @@ export type Viewport = { scrollTop: number };
 
 export type EditorToNative =
   | { version: 1; type: "editorReady" }
+  | { version: 1; type: "openBrowserURL"; url: string }
   | { version: 1; type: "importClipboardImage"; requestID: string }
   | { version: 1; type: "importDroppedImage"; requestID: string; data: string }
   | { version: 1; type: "importDroppedFile"; requestID: string; dropID: string }

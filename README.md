@@ -70,7 +70,7 @@ replace a working development build.
 
 - Option-Space by default: show and focus Jot
 - Escape: flush pending changes and hide
-- Command-Return: finish the active jot and show a new blank composer
+- Command-N or Command-Return: finish the active jot and show a new blank composer
 - Command button (⌘) beside dictation or Command-K: open the searchable action panel; Escape closes it and returns to writing
 - Command-P: search all notes or switch between recent notes; Return opens a result
 - Command-F: find in the current note; Return / Shift-Return select the next / previous match
@@ -79,14 +79,14 @@ replace a working development build.
 - Command-B / Command-I: toggle bold or italic Markdown for the selection, or start typing inside a new pair of markers
 - Command-Q: flush session state and quit
 - Enter in a Markdown list: continue the list; Enter on an empty item exits it
-- Tab / Shift-Tab on a bullet item: indent / outdent one level (also works on selected bullet items)
+- Tab / Shift-Tab on a bullet or numbered item: indent / outdent one level (also works on selected items and mixed list types)
 - Shift-Enter: insert a plain newline without a new list marker
 - Command-Shift-D or the microphone button: start voice dictation
 - Check button: finish recording and keep the transcript
 - X button: cancel recording and discard the provisional transcript
 
 Completed Markdown displays as formatted text, with its syntax revealed while
-you edit that construct. Lists show bullets, numbers, or checkboxes; horizontal
+you edit that construct. Click a link to open it in your default browser; move into it with the keyboard to edit its Markdown. Lists show bullets, numbers, or checkboxes; horizontal
 rules show a divider. The saved and copied text remains ordinary Markdown.
 
 The right-side note rail shows one mark per jot, newest at the bottom. Hover to

@@ -3,27 +3,38 @@ import type { EditorState } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
 
-const indent = "     ";
+const minimumIndent = 5;
 
 type Item = { node: SyntaxNode };
 
-function listItem(mark: SyntaxNode): Item | null {
-  const node = mark.parent;
-  return node?.name === "ListItem" && node.parent?.name === "BulletList" ? { node } : null;
+function isList(node: SyntaxNode | null): boolean {
+  return node?.name === "BulletList" || node?.name === "OrderedList";
 }
 
-function bulletItemAtLine(state: EditorState, number: number): Item | null {
+function previousItem(item: Item): SyntaxNode | null {
+  if (item.node.prevSibling?.name === "ListItem") return item.node.prevSibling;
+  // Changing marker type creates a separate list node at the same level.
+  const previousList = item.node.parent?.prevSibling ?? null;
+  return isList(previousList) ? previousList!.lastChild : null;
+}
+
+function listItem(mark: SyntaxNode): Item | null {
+  const node = mark.parent;
+  return node?.name === "ListItem" && isList(node.parent) ? { node } : null;
+}
+
+function itemAtLine(state: EditorState, number: number): Item | null {
   const line = state.doc.line(number);
-  const match = /^([ \t]*)([*+-])(?:[ \t]+|$)/.exec(line.text);
+  const match = /^([ \t]*)([*+-]|\d{1,9}[.)])(?:[ \t]+|$)/.exec(line.text);
   if (!match) return null;
   const markAt = line.from + match[1].length;
   let mark = syntaxTree(state).resolveInner(markAt, 1);
-  if (mark.name !== "ListMark" && !syntaxTreeAvailable(state, markAt + 1)) {
+  if (mark.name !== "ListMark" && !syntaxTreeAvailable(state, markAt + match[2].length)) {
     // A newly loaded long note may not be parsed to the caret yet. Give that
     // one-time parse enough time to reach the active marker on slower Macs.
-    mark = (ensureSyntaxTree(state, markAt + 1, 100) ?? syntaxTree(state)).resolveInner(markAt, 1);
+    mark = (ensureSyntaxTree(state, markAt + match[2].length, 100) ?? syntaxTree(state)).resolveInner(markAt, 1);
   }
-  return mark.name === "ListMark" && mark.from === markAt && mark.to === markAt + 1
+  return mark.name === "ListMark" && mark.from === markAt && mark.to === markAt + match[2].length
     ? listItem(mark) : null;
 }
 
@@ -37,7 +48,7 @@ function selectedItems(state: EditorState): Item[] | null {
     for (let number = firstLine; number <= lastLine; number += 1) {
       const line = state.doc.line(number);
       if (!line.text.trim() && !range.empty) continue;
-      const item = bulletItemAtLine(state, number);
+      const item = itemAtLine(state, number);
       if (!item) return null;
       selected.push(item);
     }
@@ -71,6 +82,7 @@ function changeIndent(view: EditorView, direction: 1 | -1): boolean {
   if (!selected?.length) return false;
 
   const outdents = new Map<Item, string>();
+  const indents = new Map<Item, string>();
   for (const item of selected) {
     if (direction < 0) {
       const prefix = outdentPrefix(state, item);
@@ -79,7 +91,13 @@ function changeIndent(view: EditorView, direction: 1 | -1): boolean {
     } else {
       // The first item has no parent to nest under. An existing first child
       // cannot skip another level beneath its parent.
-      if (item.node.prevSibling?.name !== "ListItem") return true;
+      const previous = previousItem(item);
+      if (previous?.name !== "ListItem") return true;
+      const marker = previous.getChild("ListMark");
+      const line = state.doc.lineAt(previous.from);
+      const contentColumn = marker ? marker.to - line.from + 1 : minimumIndent;
+      const currentColumn = leadingWhitespace(state, item.node).length;
+      indents.set(item, " ".repeat(Math.max(minimumIndent, contentColumn - currentColumn)));
     }
   }
 
@@ -90,7 +108,7 @@ function changeIndent(view: EditorView, direction: 1 | -1): boolean {
     for (let number = first; number <= last; number += 1) {
       const line = state.doc.line(number);
       if (!line.text) continue;
-      if (direction > 0) changes.push({ from: line.from, insert: indent });
+      if (direction > 0) changes.push({ from: line.from, insert: indents.get(item)! });
       else {
         const prefix = outdents.get(item)!;
         // Markdown permits unindented continuation text inside a list item.
@@ -104,5 +122,5 @@ function changeIndent(view: EditorView, direction: 1 | -1): boolean {
   return true;
 }
 
-export const indentBulletItem = (view: EditorView) => changeIndent(view, 1);
-export const outdentBulletItem = (view: EditorView) => changeIndent(view, -1);
+export const indentListItem = (view: EditorView) => changeIndent(view, 1);
+export const outdentListItem = (view: EditorView) => changeIndent(view, -1);

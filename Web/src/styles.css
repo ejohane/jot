@@ -126,15 +126,17 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
   overflow: hidden;
 }
 .note-rail { position: absolute; top: min(var(--editor-top-inset), calc(100% - var(--editor-bottom-inset) - 24px)); right: 0; bottom: var(--editor-bottom-inset); width: 37px; z-index: 3; }
-.note-rail, .dictation-controls {
+.note-rail, .dictation-controls, .command-controls {
   opacity: 0;
   pointer-events: none;
   transition: opacity 180ms ease-out;
 }
 .composer.is-pointer-active .note-rail,
 .composer.is-pointer-active .dictation-controls,
+.composer.is-pointer-active .command-controls,
 .note-rail:hover, .note-rail:focus-within,
 .dictation-controls:hover, .dictation-controls:focus-within,
+.command-controls:hover, .command-controls:focus-within,
 .dictation-controls.is-persistent {
   opacity: 1;
   pointer-events: auto;
@@ -174,7 +176,8 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
   padding: 3px 7px;
 }
 .status button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
-.dictation-controls { position: absolute; bottom: 12px; right: 16px; z-index: 2; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 32px); }
+.command-controls { position: absolute; bottom: 12px; right: 16px; z-index: 2; }
+.dictation-controls { position: absolute; bottom: 12px; left: 16px; z-index: 2; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 86px); }
 .chrome-button { display: grid; flex: none; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 50%; background: transparent; color: var(--secondary); cursor: pointer; }
 .chrome-button:hover, .chrome-button:focus-visible { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
 .chrome-button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
@@ -188,7 +191,7 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
 .dictation-message.is-error { color: var(--error); }
 @media (max-width: 500px) { .dictation-waveform { width: 94px; } .dictation-waveform-bar:nth-child(-n+24) { display: none; } }
 .cm-dictation-preview { color: var(--secondary); opacity: 0.72; font-style: italic; white-space: pre-wrap; border-bottom: 1px dotted currentColor; }
-.composer:has(.status-error) .dictation-controls { bottom: 48px; }
+.composer:has(.status-error) .dictation-controls, .composer:has(.status-error) .command-controls { bottom: 48px; }
 .cm-inline-tag { color: var(--link); background: color-mix(in srgb, var(--link) 9%, transparent); border-radius: 3px; }
 .cm-tooltip-autocomplete { font-family: inherit; font-size: 13px; border-radius: 8px; overflow: hidden; }
 
