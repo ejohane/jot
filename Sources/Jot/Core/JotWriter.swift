@@ -245,6 +245,31 @@ actor JotWriter {
         return activeJot
     }
 
+    func hasExternalChange() throws -> Bool {
+        guard let jot = activeJot else { return false }
+        let url = URL(fileURLWithPath: jot.path)
+        guard fileSystem.fileExists(at: url) else { return true }
+        return try fileSystem.data(at: url) != lastWrittenData
+    }
+
+    /// Adopt external bytes only when the in-memory document is fully acknowledged.
+    /// A dirty or failed writer preserves its snapshot for Save Copy instead.
+    func reconcileExternal() throws -> (text: String, jot: ActiveJot)? {
+        guard let jot = activeJot else { return nil }
+        let url = URL(fileURLWithPath: jot.path)
+        guard fileSystem.fileExists(at: url) else {
+            conflict(jot: jot, revision: latestSnapshot?.revision ?? jot.acknowledgedRevision, error: .activeFileMissing)
+            return nil
+        }
+        let data = try fileSystem.data(at: url)
+        guard data != lastWrittenData else { return nil }
+        guard !hasBlockingError, (latestSnapshot?.revision ?? jot.acknowledgedRevision) <= jot.acknowledgedRevision else {
+            conflict(jot: jot, revision: latestSnapshot?.revision ?? jot.acknowledgedRevision, error: .externalConflict)
+            return nil
+        }
+        return try reloadExternalVersion()
+    }
+
     func reloadExternalVersion() throws -> (text: String, jot: ActiveJot) {
         guard var activeJot else { throw PersistenceError.activeFileMissing }
         let url = URL(fileURLWithPath: activeJot.path)

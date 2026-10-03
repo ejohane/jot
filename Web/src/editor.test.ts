@@ -1412,3 +1412,14 @@ it("locks native formatting during a notebook transfer and enables it afterward"
   await act(async () => window.JotNative?.receive({ version: 1, type: "toggleFormat", format: "bold" }));
   expect(view.state.doc.toString()).not.toBe("a thought");
 });
+
+it("captures the complete source and caret while locking reconciliation", async () => {
+  const { view } = await makeConnectedEditor("# A heading\n\n**A thought**");
+  await act(async () => view.dispatch({ changes: { from: view.state.doc.length, insert: " just typed" }, selection: { anchor: 5, head: 9 } }));
+  const snapshot = window.JotNative?.lockAndSnapshot();
+  expect(snapshot?.text).toBe("# A heading\n\n**A thought** just typed");
+  expect(snapshot?.selection).toEqual({ anchor: 5, head: 9 });
+  expect(snapshot?.revision).toBeGreaterThan(1);
+  expect(view.state.readOnly).toBe(true);
+  expect(view.contentDOM.getAttribute("contenteditable")).toBe("false");
+});

@@ -139,3 +139,18 @@ Evidence:
 - Tests supply inventory URLs; the actual metadata-query transport and iCloud arrival notifications remain unverified without provisioned access. No live sync acceptance is claimed.
 
 Outstanding: active-note reconciliation, NSFileVersion conflict preservation, attachment download behavior, Mac cloud integration/recovery audit, and manual phone/Mac acceptance.
+
+## Iteration 10 — 2026-10-03
+
+Added active-note reconciliation on phone cloud metadata updates, foregrounding and dictation completion. Unchanged canonical bytes bypass editor locking. A changed file is adopted only when the writer has no unsaved/failed snapshot; otherwise the local snapshot remains protected for Keep Both Versions. Missing active files also preserve the snapshot instead of recreating the external file.
+
+The shared editor now provides a lock-and-snapshot bridge call that returns exact Markdown source, revision, caret and viewport in the same JavaScript turn that disables editing. The phone applies that captured snapshot to the writer before reconciliation, covering content messages queued behind the current operation. Library/new/storage/image/dictation entry points are held during reconciliation.
+
+Evidence:
+
+- Full Swift suite: 82 executed, 1 skipped, 0 failures. New reconciliation tests cover clean external adoption followed by editing, dirty conflict preservation plus a copy, and unchanged-file revision stability.
+- Web suite: 106 passed; new coverage verifies complete source/caret capture and editor locking. Production Web build succeeds.
+- Final Simulator build succeeds.
+- Live iPhone Mirroring inspection still shows the Touch ID gate, so reconciliation has not been manually observed on the physical phone.
+
+Outstanding: NSFileVersion conflict preservation, Mac reconciliation/recovery audit, attachment downloads and live cloud/manual acceptance. The injected-file tests do not prove cross-device delivery or the native WebKit handoff.

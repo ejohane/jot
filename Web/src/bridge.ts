@@ -55,7 +55,10 @@ export type NativeToEditor =
 declare global {
   interface Window {
     webkit?: { messageHandlers?: { jot?: { postMessage(message: EditorToNative): void } } };
-    JotNative?: { receive(message: NativeToEditor): void };
+    JotNative?: {
+      receive(message: NativeToEditor): void;
+      lockAndSnapshot(): { text: string; revision: number; selection: { anchor: number; head: number }; viewport: { scrollTop: number } };
+    };
   }
 }
 

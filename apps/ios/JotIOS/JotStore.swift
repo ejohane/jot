@@ -21,6 +21,8 @@ final class JotStore {
     var configured = false
     var ready = false
     var openingNotebook = false
+    var reconciling = false
+    private var reconciliationQueued = false
     var error: String?
     var hasConflict = false
     let dictation = PhoneDictation()
@@ -52,9 +54,15 @@ final class JotStore {
         cloudNotebook.onChange = { [weak self] urls in
             guard let self else { return }
             self.cloudURLs = urls
+            self.reconcileCloudNote()
             if self.showLibrary { Task { await self.refreshNotes() } }
         }
-        dictation.onMessage = { [weak self] message in self?.send(message) }
+        dictation.onMessage = { [weak self] message in
+            self?.send(message)
+            if message["type"] as? String == "dictationState", message["status"] as? String == "idle" {
+                self?.reconcileCloudNote()
+            }
+        }
         dictation.onError = { [weak self] message in self?.error = message }
         if let storage = session.storage ?? UserDefaults.standard.string(forKey: "storage").flatMap(NotebookStorage.init(rawValue:)) {
             if storage == .local { configureLocal() } else { configureCloud() }
@@ -85,7 +93,7 @@ final class JotStore {
     }
 
     func transfer(to mode: NotebookStorage) {
-        guard mode != storage, !storageBusy, !importingImage, !dictation.active, ready else { return }
+        guard mode != storage, !storageBusy, !reconciling, !importingImage, !dictation.active, ready else { return }
         storageBusy = true
         webView?.endEditing(true)
         enqueue { [self] in
@@ -147,6 +155,7 @@ final class JotStore {
                 await updateActive()
                 ready = true
                 loadEditor()
+                reconcileCloudNote()
             } catch { self.error = error.localizedDescription }
         }
     }
@@ -191,7 +200,7 @@ final class JotStore {
     }
 
     func newJot() {
-        guard !importingImage, !storageBusy, !dictation.active else { return }
+        guard !importingImage, !storageBusy, !reconciling, !dictation.active else { return }
         enqueue { [self] in
             guard await writer.finishAndNew(through: session.revision) else { error = "Your jot could not be saved. Try again before starting another."; return }
             session = PhoneSession(storage: storage)
@@ -206,6 +215,45 @@ final class JotStore {
         pendingCloudNotes = await index.pendingDownloadCount()
     }
 
+    func reconcileCloudNote() {
+        guard storage == .iCloud, ready, !reconciliationQueued, !storageBusy, !importingImage, !dictation.active else { return }
+        reconciliationQueued = true
+        enqueue { [self] in
+            defer { reconciliationQueued = false }
+            guard storage == .iCloud, ready, !storageBusy, !reconciling, !importingImage, !dictation.active else { return }
+            // Metadata also reports our own saves. Avoid disturbing the editor for those.
+            do { guard try await writer.hasExternalChange() else { return } }
+            catch { return }
+            reconciling = true
+            defer {
+                reconciling = false
+                send(["version": 1, "type": "setEditingEnabled", "enabled": true])
+            }
+            // Read the exact editor document in the same JavaScript turn that locks it.
+            // This does not depend on the order of WebKit content-message delivery.
+            guard let webView else { return }
+            do {
+                guard let captured = try await webView.evaluateJavaScript("window.JotNative?.lockAndSnapshot()") as? [String: Any] else { return }
+                changed(captured)
+                stateChanged(captured)
+            } catch { return }
+            do {
+                if let active = session.active {
+                    try await Task.detached { try await NotebookCloudFile.prepare(URL(fileURLWithPath: active.path)) }.value
+                }
+                // Native content messages may have queued a save behind this operation.
+                // Give the writer that latest snapshot before it decides whether adopting is safe.
+                await writer.receive(snapshot, flushImmediately: true)
+                guard let external = try await writer.reconcileExternal() else { return }
+                session.active = external.jot
+                session.text = external.text
+                session.revision = external.jot.acknowledgedRevision
+                await updateActive()
+                loadEditor()
+            } catch { self.error = "This jot couldn’t be refreshed from iCloud. Your current writing is kept safe." }
+        }
+    }
+
     func retryCloudDownloads() {
         let urls = cloudURLs
         Task.detached(priority: .utility) {
@@ -214,7 +262,7 @@ final class JotStore {
     }
 
     func open(_ result: NoteSearchResult) {
-        guard !importingImage, !storageBusy, !dictation.active else { return }
+        guard !importingImage, !storageBusy, !reconciling, !dictation.active else { return }
         enqueue { [self] in
             if result.id == session.active?.id { showLibrary = false; focus(); return }
             guard let entry = await index.entry(id: result.id) else { return }
@@ -232,7 +280,7 @@ final class JotStore {
     }
 
     func insertPickedImage(_ data: Data) {
-        guard ready, !importingImage, !dictation.active else { return }
+        guard ready, !storageBusy, !reconciling, !importingImage, !dictation.active else { return }
         pickedImageData = data
         importingImage = true
         send(["version": 1, "type": "beginImagePaste"])
@@ -285,7 +333,7 @@ final class JotStore {
     }
 
     func toggleDictation() {
-        guard ready, !storageBusy, !importingImage else { return }
+        guard ready, !storageBusy, !reconciling, !importingImage else { return }
         if dictation.state == .recording { dictation.finish() }
         else if !dictation.active { dictation.start() }
     }

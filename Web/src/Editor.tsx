@@ -390,6 +390,12 @@ export function Editor() {
     document.addEventListener("keydown", documentKeyDown, true);
     sendPreferredHeight(view);
     window.JotNative = {
+      lockAndSnapshot() {
+        view.dispatch({ effects: editing.reconfigure([EditorState.readOnly.of(true), EditorView.editable.of(false)]) });
+        const selection = view.state.selection.main;
+        return { text: view.state.doc.toString(), revision: revisionRef.current,
+          selection: { anchor: selection.anchor, head: selection.head }, viewport: { scrollTop: view.scrollDOM.scrollTop } };
+      },
       receive(message) {
         if (message.version !== 1) return;
         switch (message.type) {
