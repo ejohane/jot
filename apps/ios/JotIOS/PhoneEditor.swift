@@ -9,7 +9,7 @@ struct PhoneEditor: UIViewRepresentable {
         configuration.setURLSchemeHandler(store.resources, forURLScheme: "jot")
         configuration.userContentController.add(context.coordinator, name: "jot")
         configuration.userContentController.addUserScript(WKUserScript(source: "document.documentElement.classList.add('ios')", injectionTime: .atDocumentEnd, forMainFrameOnly: true))
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        let view = JotEditorWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.isOpaque = false
         view.backgroundColor = .clear
@@ -80,4 +80,9 @@ struct PhoneEditor: UIViewRepresentable {
             decisionHandler(["jot", "about"].contains(navigationAction.request.url?.scheme) ? .allow : .cancel)
         }
     }
+}
+
+/// Use Jot's unified editing bar rather than WebKit's form-navigation accessory.
+private final class JotEditorWebView: WKWebView {
+    override var inputAccessoryView: UIView? { nil }
 }

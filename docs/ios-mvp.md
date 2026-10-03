@@ -329,3 +329,9 @@ Signed device build, installation and launch succeeded. iPhone Mirroring remains
 User rejected the flat system-bar restyling and requested the previous native visual language in one unified area above the keyboard. The keyboard-following controls now share a rounded native Liquid Glass capsule on iOS 26, with a regular-material capsule fallback for earlier supported systems. Primary monochrome icons, native top navigation, action guards and placement are retained; the full-width flat background is removed.
 
 Signed device build, installation and launch succeeded. Physical keyboard-open appearance remains unobserved by the agent; do not infer visual acceptance from delivery.
+
+## Single keyboard bar and stronger icons — 2026-10-03
+
+User screenshot proved that WebKit's previous/next/Done accessory remained below Jot's glass bar. PhoneEditor now uses a WKWebView subclass overriding the public inputAccessoryView getter to nil. Current upstream WebKit WKContentViewInteraction.mm forwards that getter to the owning web view, confirming this uses the supported subclass route rather than runtime replacement of internal classes. Jot's safe-area bar retains keyboard dismissal.
+
+Icons increased to 21-point semibold; microphone uses its filled symbol. Signed physical build and installation succeeded. Visual confirmation of the single-bar keyboard-open result is still pending.

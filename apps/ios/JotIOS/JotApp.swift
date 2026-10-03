@@ -61,7 +61,7 @@ struct JotRootView: View {
                     .accessibilityLabel("Cancel dictation")
                 .disabled(!store.canEdit || store.storageBusy || store.reconciling)
             } else {
-                Button { store.toggleDictation() } label: { Image(systemName: "mic").frame(width: 44, height: 44) }
+                Button { store.toggleDictation() } label: { Image(systemName: "mic.fill").frame(width: 44, height: 44) }
                     .accessibilityLabel("Start dictation").disabled(!store.canEdit || store.importingImage || store.storageBusy || store.reconciling)
             }
             Spacer()
@@ -72,7 +72,7 @@ struct JotRootView: View {
                 .disabled(!store.canEdit || store.storageBusy || store.reconciling)
         }
         .buttonStyle(.plain)
-        .font(.body)
+        .font(.system(size: 21, weight: .semibold))
         .tint(.primary)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
