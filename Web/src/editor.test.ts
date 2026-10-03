@@ -1432,3 +1432,17 @@ it("captures the complete source and caret while locking reconciliation", async 
   expect(view.state.readOnly).toBe(true);
   expect(view.contentDOM.getAttribute("contenteditable")).toBe("false");
 });
+
+it("routes phone palette shortcuts into the native library", async () => {
+  document.documentElement.classList.add("ios");
+  try {
+    const { view, parent, messages } = await makeConnectedEditor("Phone thought");
+    for (const key of ["p", "k"]) {
+      await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key, metaKey: true, bubbles: true, cancelable: true })));
+    }
+    expect(messages.filter(message => message.type === "showLibrary")).toHaveLength(2);
+    expect(messages.some(message => message.type === "searchNotes")).toBe(false);
+    expect(parent.querySelector(".action-panel")).toBeNull();
+    expect(view.state.doc.toString()).toBe("Phone thought");
+  } finally { document.documentElement.classList.remove("ios"); }
+});

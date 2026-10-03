@@ -18,14 +18,42 @@ struct PhoneEditor: UIViewRepresentable {
         view.load(URLRequest(url: URL(string: "jot://local/index.html")!))
         return view
     }
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
+    func updateUIView(_ uiView: WKWebView, context: Context) {
+        let category: UIContentSizeCategory
+        switch context.environment.dynamicTypeSize {
+        case .xSmall: category = .extraSmall
+        case .small: category = .small
+        case .medium: category = .medium
+        case .large: category = .large
+        case .xLarge: category = .extraLarge
+        case .xxLarge: category = .extraExtraLarge
+        case .xxxLarge: category = .extraExtraExtraLarge
+        case .accessibility1: category = .accessibilityMedium
+        case .accessibility2: category = .accessibilityLarge
+        case .accessibility3: category = .accessibilityExtraLarge
+        case .accessibility4: category = .accessibilityExtraExtraLarge
+        case .accessibility5: category = .accessibilityExtraExtraExtraLarge
+        @unknown default: category = .large
+        }
+        let size = UIFont.preferredFont(forTextStyle: .body, compatibleWith: UITraitCollection(preferredContentSizeCategory: category)).pointSize
+        guard context.coordinator.textSize != size else { return }
+        context.coordinator.textSize = size
+        context.coordinator.applyTextSize(to: uiView)
+    }
     @MainActor final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let store: JotStore
+        var textSize: CGFloat = 17
+        func applyTextSize(to view: WKWebView) {
+            view.evaluateJavaScript("document.documentElement.style.setProperty('--editor-size', '\(textSize)px')")
+        }
         init(store: JotStore) { self.store = store }
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
             switch type {
-            case "editorReady": store.loadEditor()
+            case "editorReady":
+                if let view = store.webView { applyTextSize(to: view) }
+                store.loadEditor()
+            case "showLibrary": store.openLibrary()
             case "importClipboardImage":
                 if let requestID = body["requestID"] as? String { store.importImage(requestID: requestID) }
             case "importDroppedImage":

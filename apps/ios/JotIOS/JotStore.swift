@@ -230,8 +230,13 @@ final class JotStore {
         persist()
     }
 
+    func openLibrary() {
+        guard ready, !storageBusy, !reconciling, !importingImage, !dictation.active else { return }
+        showLibrary = true
+    }
+
     func newJot() {
-        guard !importingImage, !storageBusy, !reconciling, !dictation.active else { return }
+        guard ready, !importingImage, !storageBusy, !reconciling, !dictation.active else { return }
         enqueue { [self] in
             guard await writer.finishAndNew(through: session.revision) else { error = "Your jot could not be saved. Try again before starting another."; return }
             session = PhoneSession(storage: storage)

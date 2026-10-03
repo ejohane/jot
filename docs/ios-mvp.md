@@ -237,3 +237,17 @@ Evidence:
 - Live iPhone Mirroring inspection still shows the Touch ID lock.
 
 Outstanding: provisioned iCloud container/path validation, real Mac–phone/offline/conflict/transfer tests, manual phone capture/restoration/search/images/dictation and Mac local regression, plus remaining accessibility/hardware-keyboard/launch audits. No acceptance boxes are closed by these builds alone.
+
+## Iteration 17 — 2026-10-03
+
+Routed phone Cmd-P/Cmd-K into the native Jots library. The shared desktop palettes previously emitted actions/search requests that PhoneEditor did not handle; phone shortcuts now use its native library while Mac behavior remains unchanged. Library opening and New Jot are gated until notebook restoration is ready. The native library Done button accepts Escape. Toolbar input is disabled while restoration, transfer or reconciliation is in progress.
+
+Phone editor body text now follows the SwiftUI Dynamic Type category through UIKit’s preferred body font size and the editor CSS variable, including accessibility categories and WebKit reload readiness. Header text uses the system subheadline style.
+
+Evidence:
+
+- Web suite: 107 passed. New coverage verifies the phone shortcuts emit native library requests, do not open desktop panels, and preserve document text; existing desktop palette tests pass. Production Web build succeeds.
+- Simulator build succeeds.
+- Physical keyboard appearance, hardware shortcuts, Dynamic Type layout and VoiceOver remain unverified on the iPhone.
+
+Outstanding: editor/session lifecycle race audit, actual phone/manual acceptance, iCloud provisioning and live sync/transfer evidence. These tests do not close launch/keyboard acceptance.

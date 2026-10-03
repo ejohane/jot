@@ -25,13 +25,13 @@ struct JotRootView: View {
             if store.configured {
                 VStack(spacing: 0) {
                     HStack {
-                        Button("Jots", systemImage: "line.3.horizontal") { store.showLibrary = true }.disabled(!store.ready || store.importingImage || store.storageBusy || store.reconciling || store.dictation.active)
+                        Button("Jots", systemImage: "line.3.horizontal") { store.openLibrary() }.disabled(!store.ready || store.importingImage || store.storageBusy || store.reconciling || store.dictation.active)
                         Spacer()
                         Button("New Jot", systemImage: "square.and.pencil") { store.newJot() }
                             .keyboardShortcut("n", modifiers: .command)
                             .disabled(!store.ready || store.importingImage || store.storageBusy || store.reconciling || store.dictation.active)
                     }
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.subheadline.weight(.medium))
                     .padding(.horizontal, 22).padding(.vertical, 14)
                     PhoneEditor(store: store).allowsHitTesting(store.ready && !store.storageBusy && !store.reconciling)
                         .overlay {
@@ -65,6 +65,7 @@ struct JotRootView: View {
                         Button { store.webView?.endEditing(true) } label: { Image(systemName: "keyboard.chevron.compact.down").frame(width: 44, height: 44) }
                             .accessibilityLabel("Dismiss keyboard")
                     }.font(.system(size: 17)).padding(.horizontal, 16).padding(.vertical, 4)
+                        .disabled(!store.ready || store.storageBusy || store.reconciling)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 24) {
@@ -143,7 +144,7 @@ struct JotLibraryView: View {
             .navigationTitle("Jots")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("Settings", systemImage: "gearshape") { store.showSettings = true } }
-                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
             }
             .sheet(isPresented: $store.showSettings) { JotStorageSettings(store: store) }
             .searchable(text: $store.query, prompt: "Search your jots")
@@ -172,7 +173,7 @@ struct JotStorageSettings: View {
                 }
             }
             .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.disabled(store.storageBusy) } }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.keyboardShortcut(.cancelAction).disabled(store.storageBusy) } }
             .confirmationDialog("Transfer your notebook?", isPresented: Binding(get: { destination != nil }, set: { if !$0 { destination = nil } })) {
                 if let destination {
                     Button(destination == .iCloud ? "Transfer to iCloud" : "Transfer to This iPhone") { store.transfer(to: destination); self.destination = nil }

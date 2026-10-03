@@ -74,6 +74,10 @@ export function Editor() {
     if (!visible) requestAnimationFrame(() => { if (!panelOpenRef.current) viewRef.current?.focus(); });
   };
   const showPalette = (mode: "actions" | "notes") => {
+    if (document.documentElement.classList.contains("ios")) {
+      sendToNative({ version: 1, type: "showLibrary" });
+      return;
+    }
     if (panelOpenRef.current && panelModeRef.current === mode) { changePanel(false); return; }
     panelModeRef.current = mode;
     setPanelMode(mode);
