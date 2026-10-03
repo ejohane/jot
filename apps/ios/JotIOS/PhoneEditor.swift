@@ -26,6 +26,13 @@ struct PhoneEditor: UIViewRepresentable {
             guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
             switch type {
             case "editorReady": store.loadEditor()
+            case "importClipboardImage":
+                if let requestID = body["requestID"] as? String { store.importImage(requestID: requestID) }
+            case "importDroppedImage":
+                if let requestID = body["requestID"] as? String, let encoded = body["data"] as? String,
+                   let data = Data(base64Encoded: encoded) { store.importImage(requestID: requestID, data: data) }
+            case "previewImage":
+                if let path = body["path"] as? String { store.previewImage(path: path) }
             case "contentChanged": store.changed(body)
             case "editorStateChanged": store.stateChanged(body)
             case "finishAndNew": store.newJot()
@@ -35,7 +42,7 @@ struct PhoneEditor: UIViewRepresentable {
             }
         }
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { webView.reload() }
-        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
             decisionHandler(["jot", "about"].contains(navigationAction.request.url?.scheme) ? .allow : .cancel)
         }
     }

@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import WebKit
+import UIKit
 
 struct PhoneSession: Codable {
     var active: ActiveJot?
@@ -18,6 +19,10 @@ final class JotStore {
     var notes: [NoteSearchResult] = []
     var query = ""
     var showLibrary = false
+    var importingImage = false
+    var imagePreview: PhoneImagePreview?
+    private var pickedImageData: Data?
+    private var importedImagePath: String?
     var session = PhoneSession()
     var root: URL?
     weak var webView: WKWebView?
@@ -74,6 +79,10 @@ final class JotStore {
     func changed(_ body: [String: Any]) {
         guard ready, let text = body["text"] as? String, let revision = body["revision"] as? Int,
               revision > session.revision else { return }
+        if let importedImagePath, text.contains(importedImagePath) {
+            self.importedImagePath = nil
+            importingImage = false
+        }
         session.text = text
         session.revision = revision
         stateChanged(body)
@@ -93,6 +102,7 @@ final class JotStore {
     }
 
     func newJot() {
+        guard !importingImage else { return }
         enqueue { [self] in
             guard await writer.finishAndNew(through: session.revision) else { error = "Your jot could not be saved. Try again before starting another."; return }
             session = PhoneSession()
@@ -107,6 +117,7 @@ final class JotStore {
     }
 
     func open(_ result: NoteSearchResult) {
+        guard !importingImage else { return }
         enqueue { [self] in
             if result.id == session.active?.id { showLibrary = false; focus(); return }
             guard let entry = await index.entry(id: result.id) else { return }
@@ -118,6 +129,44 @@ final class JotStore {
                 loadEditor()
             } catch { self.error = error.localizedDescription }
         }
+    }
+
+    func insertPickedImage(_ data: Data) {
+        guard ready, !importingImage else { return }
+        pickedImageData = data
+        importingImage = true
+        send(["version": 1, "type": "beginImagePaste"])
+    }
+
+    func importImage(requestID: String, data: Data? = nil) {
+        let source = data ?? pickedImageData ?? UIPasteboard.general.image?.pngData()
+        pickedImageData = nil
+        importingImage = true
+        enqueue { [self] in
+            do {
+                guard let source, let image = UIImage(data: source), let png = image.pngData() else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+                let imported = try await writer.importAttachment(png, fileExtension: "png")
+                session.active = imported.jot
+                importedImagePath = imported.relativePath
+                send(["version": 1, "type": "noteAllocated", "noteID": imported.jot.id,
+                      "path": imported.jot.path, "revision": session.revision, "baseURL": baseURL(imported.jot)])
+                send(["version": 1, "type": "imageImported", "requestID": requestID,
+                      "path": imported.relativePath, "baseURL": baseURL(imported.jot)])
+                focus()
+            } catch {
+                importingImage = false
+                send(["version": 1, "type": "imageImportFailed", "requestID": requestID,
+                      "message": "This image couldn’t be added. Please choose or copy it again."])
+            }
+        }
+    }
+
+    func previewImage(path: String) {
+        guard let root, let url = LocalResourceSchemeHandler.attachmentURL(path: path, root: root),
+              let image = UIImage(contentsOfFile: url.path) else { return }
+        imagePreview = PhoneImagePreview(image: image)
     }
 
     func flush() { enqueue { [self] in _ = await writer?.flush(); await updateActive() } }
@@ -158,4 +207,9 @@ final class JotStore {
         default: break
         }
     }
+}
+
+struct PhoneImagePreview: Identifiable {
+    let id = UUID()
+    let image: UIImage
 }

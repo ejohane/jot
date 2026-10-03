@@ -31,3 +31,16 @@ Evidence:
 - Physical review is waiting at iPhone Mirroring’s Touch ID gate.
 
 Outstanding: iCloud and storage transfer, images, dictation, conflict recovery UI, dynamic type, hardware keyboard behavior, interactive capture/restoration evidence, Mac–phone sync and regression proof. The build on the phone is an early local-only iteration, not the completed MVP.
+
+## Iteration 2 — 2026-10-02
+
+Added Photos selection, clipboard image import, and a native attachment preview. Picked images use the existing portable PNG/relative-Markdown attachment format and editor undo transaction. New Jot and library navigation are held while the attachment insertion is in flight. Fixed the phone navigation delegate's Swift concurrency signature.
+
+Evidence:
+
+- Simulator build and physical-device build succeeded.
+- Shared attachment suite: 3 tests passed, covering image-only capture, failed import without allocation, retained files for undo, and resource path containment.
+- Web editor suite: 104 passed, including attachment insertion/undo behavior.
+- Physical iPhone Mirroring remains locked at Touch ID. Photos selection, clipboard paste, preview and relaunch are not manually verified.
+
+These test results cover the reused writer/editor behavior, not the new Photos picker or UIKit conversion. Their acceptance remains open.

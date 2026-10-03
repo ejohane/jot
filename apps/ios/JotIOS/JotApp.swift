@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 @main
 struct JotPhoneApp: App {
@@ -16,15 +17,17 @@ struct JotPhoneApp: App {
 
 struct JotRootView: View {
     @Bindable var store: JotStore
+    @State private var pickedPhoto: PhotosPickerItem?
     var body: some View {
         Group {
             if store.configured {
                 VStack(spacing: 0) {
                     HStack {
-                        Button("Jots", systemImage: "line.3.horizontal") { store.showLibrary = true }
+                        Button("Jots", systemImage: "line.3.horizontal") { store.showLibrary = true }.disabled(store.importingImage)
                         Spacer()
                         Button("New Jot", systemImage: "square.and.pencil") { store.newJot() }
                             .keyboardShortcut("n", modifiers: .command)
+                            .disabled(store.importingImage)
                     }
                     .font(.system(size: 15, weight: .medium))
                     .padding(.horizontal, 22).padding(.vertical, 14)
@@ -34,7 +37,11 @@ struct JotRootView: View {
                             .accessibilityLabel("Bold")
                         Button { store.send(["version": 1, "type": "toggleFormat", "format": "italic"]) } label: { Image(systemName: "italic") }
                             .accessibilityLabel("Italic")
+                        PhotosPicker(selection: $pickedPhoto, matching: .images) {
+                            Image(systemName: "photo")
+                        }.accessibilityLabel("Add image").disabled(store.importingImage)
                         Spacer()
+                        if store.importingImage { ProgressView().controlSize(.small) }
                         Button { store.webView?.endEditing(true) } label: { Image(systemName: "keyboard.chevron.compact.down") }
                             .accessibilityLabel("Dismiss keyboard")
                     }.font(.system(size: 17)).padding(.horizontal, 24).padding(.vertical, 12)
@@ -49,6 +56,28 @@ struct JotRootView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                     Spacer()
                 }.padding(32).frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .task(id: pickedPhoto) {
+            guard let pickedPhoto else { return }
+            do {
+                guard let data = try await pickedPhoto.loadTransferable(type: Data.self) else {
+                    store.error = "This photo couldn’t be opened. Please choose it again."
+                    return
+                }
+                store.insertPickedImage(data)
+            } catch { store.error = "This photo couldn’t be opened. Please choose it again." }
+            self.pickedPhoto = nil
+        }
+        .sheet(item: $store.imagePreview, onDismiss: { store.focus() }) { preview in
+            NavigationStack {
+                ScrollView([.horizontal, .vertical]) {
+                    Image(uiImage: preview.image).resizable().scaledToFit()
+                        .frame(maxWidth: UIScreen.main.bounds.width)
+                        .accessibilityLabel("Attached image")
+                }
+                .navigationTitle("Image").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { store.imagePreview = nil } } }
             }
         }
         .tint(Color.primary)
