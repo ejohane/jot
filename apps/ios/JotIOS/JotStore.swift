@@ -43,6 +43,7 @@ final class JotStore {
     private var pending: Task<Void, Never>?
     private var writer: JotWriter!
     private var writerGeneration = UUID()
+    private var editorSessionID = UUID().uuidString
     private let cloudNotebook = NotebookCloudInventory()
     private var cloudURLs: [URL] = []
     private var index = NoteSearchIndex(root: nil)
@@ -105,15 +106,8 @@ final class JotStore {
                 storageBusy = false
                 if ready { send(["version": 1, "type": "setEditingEnabled", "enabled": true]) }
             }
-            do {
-                guard let webView, let captured = try await webView.evaluateJavaScript("window.JotNative?.lockAndSnapshot()") as? [String: Any],
-                      let text = captured["text"] as? String, let revision = captured["revision"] as? Int,
-                      revision >= session.revision else { throw CocoaError(.coderReadCorrupt) }
-                session.text = text
-                session.revision = revision
-                stateChanged(captured)
-                await writer.receive(snapshot, flushImmediately: true)
-            } catch { self.error = "Your editor couldn’t be prepared for transfer. Please try again."; return }
+            do { try await lockAndCaptureEditor() }
+            catch { self.error = "Your editor couldn’t be prepared for transfer. Please try again."; return }
             guard await writer.flush(through: session.revision), let oldRoot = root else {
                 error = "Save your current jot before transferring the notebook."
                 return
@@ -156,7 +150,7 @@ final class JotStore {
         writerGeneration = token
         writer = JotWriter(rootURL: root) { [weak self] event in
             guard let self, self.writerGeneration == token else { return }
-            self.handle(event)
+            self.route(event)
         }
         configured = true
         UserDefaults.standard.set(storage.rawValue, forKey: "storage")
@@ -192,6 +186,19 @@ final class JotStore {
         configure(root: root, storage: storage)
     }
 
+    private func lockAndCaptureEditor() async throws {
+        guard let webView,
+              let captured = try await webView.evaluateJavaScript("window.JotNative?.lockAndSnapshot()") as? [String: Any],
+              captured["sessionID"] as? String == editorSessionID,
+              let text = captured["text"] as? String, let revision = captured["revision"] as? Int,
+              revision >= session.revision else { throw CocoaError(.coderReadCorrupt) }
+        session.text = text
+        session.revision = revision
+        stateChanged(captured)
+        await writer.receive(snapshot, flushImmediately: true)
+        await updateActive()
+    }
+
     private var snapshot: EditorSnapshot {
         EditorSnapshot(revision: session.revision, text: session.text, selection: session.selection, viewport: session.viewport)
     }
@@ -201,8 +208,12 @@ final class JotStore {
         pending = Task { await previous?.value; await operation() }
     }
 
+    func acceptsEditorMessage(_ body: [String: Any]) -> Bool {
+        body["sessionID"] as? String == editorSessionID
+    }
+
     func changed(_ body: [String: Any]) {
-        guard ready, let text = body["text"] as? String, let revision = body["revision"] as? Int,
+        guard ready, body["sessionID"] as? String == editorSessionID, let text = body["text"] as? String, let revision = body["revision"] as? Int,
               revision > session.revision else { return }
         if let importedImagePath, text.contains(importedImagePath) {
             self.importedImagePath = nil
@@ -214,13 +225,16 @@ final class JotStore {
         persist()
         let value = snapshot
         let targetWriter = writer!
+        let targetSessionID = editorSessionID
         enqueue { [self] in
+            guard editorSessionID == targetSessionID else { return }
             await targetWriter.receive(value, flushImmediately: true)
             if writer === targetWriter { await updateActive() }
         }
     }
 
     func stateChanged(_ body: [String: Any]) {
+        guard body["sessionID"] as? String == editorSessionID else { return }
         if let selection = body["selection"] as? [String: Int], let anchor = selection["anchor"], let head = selection["head"] {
             session.selection = EditorSelection(anchor: anchor, head: head)
         }
@@ -238,6 +252,10 @@ final class JotStore {
     func newJot() {
         guard ready, !importingImage, !storageBusy, !reconciling, !dictation.active else { return }
         enqueue { [self] in
+            reconciling = true
+            defer { reconciling = false; send(["version": 1, "type": "setEditingEnabled", "enabled": true]) }
+            do { try await lockAndCaptureEditor() }
+            catch { self.error = "Your editor couldn’t be prepared for a new jot. Please try again."; return }
             guard await writer.finishAndNew(through: session.revision) else { error = "Your jot could not be saved. Try again before starting another."; return }
             session = PhoneSession(storage: storage)
             persist()
@@ -326,7 +344,10 @@ final class JotStore {
         enqueue { [self] in
             if result.id == session.active?.id { showLibrary = false; focus(); return }
             guard let entry = await index.entry(id: result.id) else { return }
+            reconciling = true
+            defer { reconciling = false; send(["version": 1, "type": "setEditingEnabled", "enabled": true]) }
             do {
+                try await lockAndCaptureEditor()
                 if storage == .iCloud {
                     try await Task.detached { try await NotebookCloudFile.prepare(URL(fileURLWithPath: entry.path)) }.value
                 }
@@ -417,7 +438,8 @@ final class JotStore {
     func loadEditor() {
         guard ready else { return }
         resources.configureAttachmentRoot(root)
-        var value: [String: Any] = ["version": 1, "type": "loadSession", "text": session.text, "revision": session.revision,
+        editorSessionID = UUID().uuidString
+        var value: [String: Any] = ["version": 1, "type": "loadSession", "sessionID": editorSessionID, "text": session.text, "revision": session.revision,
             "selection": ["anchor": session.selection.anchor, "head": session.selection.head], "viewport": ["scrollTop": session.viewport.scrollTop]]
         if let active = session.active { value["noteID"] = active.id; value["baseURL"] = baseURL(active) }
         send(value)
@@ -439,17 +461,35 @@ final class JotStore {
             try JSONEncoder().encode(session).write(to: sessionURL, options: .atomic)
         } catch { self.error = "Jot couldn’t save its recovery copy: \(error.localizedDescription)" }
     }
-    private func handle(_ event: WriterEvent) {
-        switch event {
-        case let .noteAllocated(id, path, revision):
-            let jot = ActiveJot(id: id, path: path, acknowledgedRevision: revision)
-            send(["version": 1, "type": "noteAllocated", "noteID": id, "path": path, "revision": revision, "baseURL": baseURL(jot)])
-        case let .writeSucceeded(id, revision): send(["version": 1, "type": "writeSucceeded", "noteID": id, "revision": revision])
-        case .externalConflict: hasConflict = true; error = "This jot changed elsewhere. Your writing is kept in the recovery copy."
-        case let .writeFailed(_, _, failure): error = "Your writing couldn’t be saved (\(failure.code)). It remains in the recovery copy."
-        default: break
+    private func route(_ event: WriterEvent) {
+        let targetWriter = writer!
+        let targetSessionID = editorSessionID
+        Task {
+            let state = await targetWriter.acknowledgedState()
+            guard writer === targetWriter, editorSessionID == targetSessionID else { return }
+            switch event {
+            case let .noteAllocated(id, _, revision):
+                guard let jot = state.jot, jot.id == id else { return }
+                session.active = jot
+                if let data = state.data { session.acknowledgedData = data }
+                persist()
+                send(["version": 1, "type": "noteAllocated", "noteID": id, "path": jot.path,
+                      "revision": revision, "baseURL": baseURL(jot)])
+            case let .writeSucceeded(id, revision):
+                guard state.jot?.id == id else { return }
+                send(["version": 1, "type": "writeSucceeded", "noteID": id, "revision": revision])
+            case let .externalConflict(id, _):
+                guard state.blocked, state.jot?.id == id else { return }
+                hasConflict = true
+                error = "This jot changed elsewhere. Your writing is kept in the recovery copy."
+            case let .writeFailed(id, _, failure):
+                guard state.blocked, state.jot?.id == id else { return }
+                error = "Your writing couldn’t be saved (\(failure.code)). It remains in the recovery copy."
+            default: break
+            }
         }
     }
+
 }
 
 struct PhoneImagePreview: Identifiable {

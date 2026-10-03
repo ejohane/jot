@@ -3,7 +3,7 @@ export const bridgeVersion = 1 as const;
 export type Selection = { anchor: number; head: number };
 export type Viewport = { scrollTop: number };
 
-export type EditorToNative =
+export type EditorToNative = { sessionID?: string } & (
   | { version: 1; type: "editorReady" }
   | { version: 1; type: "showLibrary" }
   | { version: 1; type: "openBrowserURL"; url: string }
@@ -11,8 +11,8 @@ export type EditorToNative =
   | { version: 1; type: "importDroppedImage"; requestID: string; data: string }
   | { version: 1; type: "importDroppedFile"; requestID: string; dropID: string }
   | { version: 1; type: "previewImage"; path: string }
-  | { version: 1; type: "contentChanged"; noteID?: string; revision: number; text: string; selection: Selection; viewport: Viewport }
-  | { version: 1; type: "editorStateChanged"; selection: Selection; viewport: Viewport }
+  | { version: 1; type: "contentChanged"; sessionID?: string; noteID?: string; revision: number; text: string; selection: Selection; viewport: Viewport }
+  | { version: 1; type: "editorStateChanged"; sessionID?: string; selection: Selection; viewport: Viewport }
   | { version: 1; type: "preferredHeightChanged"; height: number }
   | { version: 1; type: "formattingToolbarBounds"; bounds: { x: number; y: number; width: number; height: number } | null }
   | { version: 1; type: "searchNotes"; query: string; requestID: number; refresh: boolean }
@@ -25,7 +25,7 @@ export type EditorToNative =
   | { version: 1; type: "toggleDictation" }
   | { version: 1; type: "finishDictation" }
   | { version: 1; type: "cancelDictation" }
-  | { version: 1; type: "recover"; action: "restoreRoot" | "saveCopy" | "reloadExternal" };
+  | { version: 1; type: "recover"; action: "restoreRoot" | "saveCopy" | "reloadExternal" });
 
 export type NoteSearchResult = { id: string; timestamp: number; title: string; excerpt: string; titleMatches: Array<{ from: number; to: number }>; excerptMatches: Array<{ from: number; to: number }> };
 
@@ -35,7 +35,7 @@ export type NativeToEditor =
   | { version: 1; type: "noteSearchResults"; requestID: number; results: NoteSearchResult[]; message?: string }
   | { version: 1; type: "toggleActionPanel" | "showNoteSearch" | "findInNote" | "escape" }
   | { version: 1; type: "actionState"; canNew: boolean; canReveal: boolean; canLatest: boolean; canBack: boolean; canForward: boolean }
-  | { version: 1; type: "loadSession"; baseURL?: string; text: string; noteID?: string; revision: number; selection: Selection; viewport: Viewport }
+  | { version: 1; type: "loadSession"; sessionID?: string; baseURL?: string; text: string; noteID?: string; revision: number; selection: Selection; viewport: Viewport }
   | { version: 1; type: "beginImagePaste" | "selectAll" }
   | { version: 1; type: "imageImported"; requestID: string; path: string; baseURL: string }
   | { version: 1; type: "imageImportFailed"; requestID: string; message: string }
@@ -58,16 +58,19 @@ declare global {
     webkit?: { messageHandlers?: { jot?: { postMessage(message: EditorToNative): void } } };
     JotNative?: {
       receive(message: NativeToEditor): void;
-      lockAndSnapshot(): { text: string; revision: number; selection: { anchor: number; head: number }; viewport: { scrollTop: number } };
+      lockAndSnapshot(): { sessionID?: string; text: string; revision: number; selection: { anchor: number; head: number }; viewport: { scrollTop: number } };
     };
   }
 }
+
+let activeSessionID: string | undefined;
+export function setBridgeSessionID(sessionID: string | undefined) { activeSessionID = sessionID; }
 
 export function sendToNative(message: EditorToNative): boolean {
   const handler = window.webkit?.messageHandlers?.jot;
   if (!handler) return false;
   try {
-    handler.postMessage(message);
+    handler.postMessage(activeSessionID ? { sessionID: activeSessionID, ...message } : message);
     return true;
   } catch {
     return false;

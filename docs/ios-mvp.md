@@ -251,3 +251,18 @@ Evidence:
 - Physical keyboard appearance, hardware shortcuts, Dynamic Type layout and VoiceOver remain unverified on the iPhone.
 
 Outstanding: editor/session lifecycle race audit, actual phone/manual acceptance, iCloud provisioning and live sync/transfer evidence. These tests do not close launch/keyboard acceptance.
+
+## Iteration 18 — 2026-10-03
+
+Added phone editor-session identities to loaded documents and native-bound bridge messages. PhoneEditor ignores messages from a replaced session; content/caret handling and queued saves also validate the identity at execution. Locked snapshots echo the identity. Deferred viewport/focus restoration checks the current load generation so an older load cannot reposition a newer document.
+
+New Jot and open-note transitions now lock/capture/persist the exact current editor text before flushing or switching. Writer callbacks route through a current acknowledged-state snapshot, matching the current writer/session/note and blocking state before changing the UI. This prevents delayed allocation/error events from affecting a replacement document.
+
+Evidence:
+
+- Web suite: 108 passed. New coverage verifies document callbacks, locked snapshots and New Jot actions carry the loaded phone session identity. Existing source/recovery/undo tests remain green. Production Web build succeeds.
+- Full Swift suite: 94 executed, 1 skipped, 0 failures after extending the acknowledged writer-state snapshot with blocking state.
+- Final Simulator build succeeds.
+- Native rejection of delayed callbacks and rapid New/open/typing transitions remain manually unverified; bridge tests alone do not prove their full WebKit ordering.
+
+Outstanding: phone editor readiness/photo-picker lifecycle audit and observed acceptance flows, plus the existing signing/Touch ID and live iCloud verification requirements.

@@ -5,7 +5,7 @@ import { Annotation, Compartment, EditorSelection, EditorState, Transaction } fr
 import { drawSelection, EditorView, keymap, tooltips } from "@codemirror/view";
 import { GFM } from "@lezer/markdown";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { sendToNative, type EditorToNative, type NoteSearchResult } from "./bridge";
+import { sendToNative, setBridgeSessionID, type EditorToNative, type NoteSearchResult } from "./bridge";
 import { clickableLinks } from "./links";
 import { editorTheme } from "./editorTheme";
 import { markdownPresentation } from "./presentation";
@@ -86,6 +86,8 @@ export function Editor() {
   };
   const host = useRef<HTMLDivElement>(null);
   const revisionRef = useRef(0);
+  const sessionIDRef = useRef<string | undefined>(undefined);
+  const sessionLoadGeneration = useRef(0);
   const noteIDRef = useRef<string | undefined>(undefined);
   const compositionDirty = useRef(false);
   const hasLoadedSession = useRef(false);
@@ -136,6 +138,7 @@ export function Editor() {
       const message: Extract<EditorToNative, { type: "contentChanged" }> = {
         version: 1,
         type: "contentChanged",
+        ...(sessionIDRef.current ? { sessionID: sessionIDRef.current } : {}),
         noteID: noteIDRef.current,
         revision: revisionRef.current,
         text: view.state.doc.toString(),
@@ -158,6 +161,7 @@ export function Editor() {
       sendToNative({
         version: 1,
         type: "editorStateChanged",
+        ...(sessionIDRef.current ? { sessionID: sessionIDRef.current } : {}),
         selection: { anchor: selection.anchor, head: selection.head },
         viewport: { scrollTop: view.scrollDOM.scrollTop },
       });
@@ -397,7 +401,7 @@ export function Editor() {
       lockAndSnapshot() {
         view.dispatch({ effects: editing.reconfigure([EditorState.readOnly.of(true), EditorView.editable.of(false)]) });
         const selection = view.state.selection.main;
-        return { text: view.state.doc.toString(), revision: revisionRef.current,
+        return { sessionID: sessionIDRef.current, text: view.state.doc.toString(), revision: revisionRef.current,
           selection: { anchor: selection.anchor, head: selection.head }, viewport: { scrollTop: view.scrollDOM.scrollTop } };
       },
       receive(message) {
@@ -471,6 +475,9 @@ export function Editor() {
             toggleInlineFormat(view, message.format);
             break;
           case "loadSession": {
+            sessionIDRef.current = message.sessionID;
+            setBridgeSessionID(message.sessionID);
+            const generation = ++sessionLoadGeneration.current;
             droppedImages = [];
             nativeFileDropsRemaining = 0;
             if (panelOpenRef.current) changePanel(false);
@@ -487,6 +494,7 @@ export function Editor() {
               const selection = view.state.selection.main;
               const retry: Extract<EditorToNative, { type: "contentChanged" }> = {
                 ...pending,
+                ...(message.sessionID ? { sessionID: message.sessionID } : {}),
                 noteID: message.noteID,
                 revision: revisionRef.current,
                 text: view.state.doc.toString(),
@@ -501,6 +509,7 @@ export function Editor() {
                 scheduleBridgeRetry();
               }
               requestAnimationFrame(() => {
+                if (sessionLoadGeneration.current !== generation) return;
                 if (!panelOpenRef.current) view.focus();
                 sendPreferredHeight(view);
               });
@@ -518,6 +527,7 @@ export function Editor() {
             });
             imageKeepsFrame = /!\[[^\n]*\]\([^\n]*attachments\//.test(message.text);
             requestAnimationFrame(() => {
+              if (sessionLoadGeneration.current !== generation) return;
               view.scrollDOM.scrollTop = message.viewport.scrollTop;
               if (!panelOpenRef.current) view.focus();
               sendPreferredHeight(view);
@@ -609,6 +619,7 @@ export function Editor() {
       composer?.removeEventListener("drop", drop, true);
       viewRef.current = null;
       view.destroy();
+      setBridgeSessionID(undefined);
       delete window.JotNative;
     };
   }, []);

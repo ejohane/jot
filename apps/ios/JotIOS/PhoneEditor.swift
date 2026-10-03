@@ -49,6 +49,7 @@ struct PhoneEditor: UIViewRepresentable {
         init(store: JotStore) { self.store = store }
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
+            guard type == "editorReady" || store.acceptsEditorMessage(body) else { return }
             switch type {
             case "editorReady":
                 if let view = store.webView { applyTextSize(to: view) }

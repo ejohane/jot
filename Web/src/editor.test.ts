@@ -1446,3 +1446,16 @@ it("routes phone palette shortcuts into the native library", async () => {
     expect(view.state.doc.toString()).toBe("Phone thought");
   } finally { document.documentElement.classList.remove("ios"); }
 });
+
+it("identifies phone document callbacks and locked snapshots by loaded session", async () => {
+  const { view, messages } = await makeConnectedEditor("Old thought");
+  await act(async () => window.JotNative?.receive({ version: 1, type: "loadSession", sessionID: "phone-new",
+    text: "New thought", revision: 0, selection: { anchor: 0, head: 0 }, viewport: { scrollTop: 0 } }));
+  await act(async () => view.dispatch({ changes: { from: view.state.doc.length, insert: " captured" } }));
+  const content = messages.filter(message => message.type === "contentChanged").at(-1);
+  expect(content).toMatchObject({ sessionID: "phone-new", text: "New thought captured" });
+  expect(window.JotNative?.lockAndSnapshot().sessionID).toBe("phone-new");
+  const modifier = /Mac/.test(navigator.platform) ? { metaKey: true } : { ctrlKey: true };
+  await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "n", ...modifier, bubbles: true, cancelable: true })));
+  expect(messages.filter(message => message.type === "finishAndNew").at(-1)).toMatchObject({ sessionID: "phone-new" });
+});

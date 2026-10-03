@@ -124,8 +124,8 @@ actor JotWriter {
         return recoveryText
     }
 
-    func acknowledgedState() -> (jot: ActiveJot?, data: Data?) {
-        (activeJot, hasBlockingError ? nil : lastWrittenData)
+    func acknowledgedState() -> (jot: ActiveJot?, data: Data?, blocked: Bool) {
+        (activeJot, hasBlockingError ? nil : lastWrittenData, hasBlockingError)
     }
 
     func acknowledgedData() -> Data? { hasBlockingError ? nil : lastWrittenData }
