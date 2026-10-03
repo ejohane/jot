@@ -27,6 +27,7 @@ struct PersistedSession: Codable, Equatable, Sendable {
     var panelPositionWasUserChosen: Bool?
     var rootBookmark: Data?
     var storage: NotebookStorage? = nil
+    var acknowledgedData: Data? = nil
     var shortcut: ShortcutChoice
     var launchAtLogin: Bool
     var recoveryText: String?

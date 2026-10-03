@@ -8,6 +8,18 @@ final class JournalRecoveryTests: XCTestCase {
     private let url = URL(fileURLWithPath: "/Jots/2026/10/02/note.md")
     private var jot: ActiveJot { ActiveJot(id: "note", path: url.path, acknowledgedRevision: 3) }
 
+    func testRecoveryBeforeAllocationAcknowledgementKeepsText() async throws {
+        let files = InMemoryFileSystem()
+        let writer = JotWriter(rootURL: root, fileSystem: files) { _ in }
+        let restored = try await writer.restoreJournal(nil, text: "Captured before allocation", revision: 1, baseline: nil)
+        XCTAssertEqual(restored, "Captured before allocation")
+        await writer.receive(EditorSnapshot(revision: 1, text: restored, selection: .start, viewport: .top), flushImmediately: true)
+        let state = await writer.acknowledgedState()
+        XCTAssertEqual(state.data, Data(restored.utf8))
+        let active = try XCTUnwrap(state.jot)
+        XCTAssertEqual(try files.data(at: URL(fileURLWithPath: active.path)), Data(restored.utf8))
+    }
+
     func testNewerExternalEditSurvivesJournalRestoreAndCopy() async throws {
         let files = InMemoryFileSystem()
         files.replaceExternally(at: url, with: "Mac changed this")

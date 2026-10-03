@@ -248,15 +248,20 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         }
         Task {
             do {
-                let text = try await writer.restore(
-                    session.activeJot,
-                    recoveryText: session.recoveryText,
-                    recoveryRevision: session.recoveryRevision
-                )
-                latestRevision = session.activeJot?.acknowledgedRevision ?? 0
-                hasBlockingWriteError = false
-                session.recoveryText = session.activeJot == nil ? nil : text
-                session.recoveryRevision = session.activeJot?.acknowledgedRevision
+                let revision = max(session.recoveryRevision ?? 0, session.activeJot?.acknowledgedRevision ?? 0)
+                let text = try await writer.restoreJournal(session.activeJot,
+                    text: session.recoveryText ?? "", revision: revision, baseline: session.acknowledgedData)
+                await writer.receive(EditorSnapshot(revision: revision, text: text,
+                    selection: session.selection, viewport: session.viewport), flushImmediately: true)
+                _ = await writer.flush(through: revision)
+                let acknowledged = await writer.acknowledgedState()
+                session.activeJot = acknowledged.jot
+                if let data = acknowledged.data { session.acknowledgedData = data }
+                latestRevision = max(revision, acknowledged.jot?.acknowledgedRevision ?? 0)
+                hasBlockingWriteError = await writer.hasBlockingError
+                session.recoveryText = session.activeJot == nil && text.isEmpty ? nil : text
+                session.recoveryRevision = latestRevision
+                await persistSessionNow()
                 sendLoadSession(text: text)
                 chooseRootIfNeeded()
                 if shortcutRegistrationFailed {
@@ -287,6 +292,8 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         if Self.containsImageAttachment(snapshot.text) { panelController.preservesFrameForImages = true }
         session.recoveryRevision = snapshot.revision
         Task {
+            guard documentGeneration == generation else { return }
+            await persistSessionNow()
             guard documentGeneration == generation else { return }
             await writer.receive(snapshot)
         }
@@ -383,6 +390,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             session.selection = .start
             session.viewport = .top
             session.recoveryText = nil
+            session.acknowledgedData = nil
             session.recoveryRevision = nil
             latestRevision = 0
             hasBlockingWriteError = false
@@ -433,6 +441,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 session.selection = position.selection
                 session.viewport = position.viewport
                 session.recoveryText = result.text
+                session.acknowledgedData = Data(result.text.utf8)
                 session.recoveryRevision = 0
                 latestRevision = 0
                 hasBlockingWriteError = false
@@ -469,6 +478,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             session.selection = position.selection
             session.viewport = position.viewport
             session.recoveryText = nil
+            session.acknowledgedData = nil
             session.recoveryRevision = nil
             latestRevision = 0
             hasBlockingWriteError = false
@@ -555,6 +565,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                     session.selection = .start
                     session.viewport = .top
                     session.recoveryText = result.text
+                    session.acknowledgedData = Data(result.text.utf8)
                     session.recoveryRevision = result.jot.acknowledgedRevision
                     hasBlockingWriteError = false
                     await persistSessionNow()
@@ -716,6 +727,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                     let candidate = JotWriter(rootURL: choice.url) { [weak self] event in self?.handle(event) }
                     let restored = try await candidate.restore(nextSession.activeJot)
                     nextSession.recoveryText = restored
+                    nextSession.acknowledgedData = Data(restored.utf8)
                     nextSession.recoveryRevision = nextSession.activeJot?.acknowledgedRevision
                     replacementWriter = candidate
                 }
@@ -940,7 +952,14 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 session.activeJot = jot
             }
             panelController.send(["version": 1, "type": "writeSucceeded", "noteID": id, "revision": revision])
-            persistSessionSoon()
+            let generation = documentGeneration
+            Task {
+                let acknowledged = await writer.acknowledgedState()
+                guard documentGeneration == generation, session.activeJot?.id == acknowledged.jot?.id else { return }
+                session.activeJot = acknowledged.jot
+                if let data = acknowledged.data { session.acknowledgedData = data }
+                await persistSessionNow()
+            }
         case let .writeFailed(id, revision, error):
             hasBlockingWriteError = true
             let message: String

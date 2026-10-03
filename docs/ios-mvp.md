@@ -154,3 +154,15 @@ Evidence:
 - Live iPhone Mirroring inspection still shows the Touch ID gate, so reconciliation has not been manually observed on the physical phone.
 
 Outstanding: NSFileVersion conflict preservation, Mac reconciliation/recovery audit, attachment downloads and live cloud/manual acceptance. The injected-file tests do not prove cross-device delivery or the native WebKit handoff.
+
+## Iteration 11 — 2026-10-03
+
+Applied baseline-aware startup recovery to Mac. PersistedSession now records acknowledged canonical bytes, with optional decoding for older sessions. Startup restores newer journal text against that baseline, preserves differing external text for Save Copy, and retries safe recovered writes. A recovery captured before note allocation is retained and allocated once root access exists. The Mac journals content before sending a snapshot to its writer. Successful writes update the acknowledged note/data pair from one actor operation; opening/reloading/transferring clears or updates the baseline appropriately.
+
+Evidence:
+
+- Full Swift suite: 83 executed, 1 skipped, 0 failures. New coverage verifies capture recovery before allocation acknowledgement; the existing recovery tests prove external text preservation and safe copy behavior.
+- Production Mac app packages and signs successfully with the standard packaging script.
+- No Mac startup/force-quit UI interaction was manually proven in this iteration. Packaging is not that evidence.
+
+Outstanding: live iCloud conflict-version handling, Mac external reconciliation/download integration, attachment downloads and physical/manual acceptance checks.

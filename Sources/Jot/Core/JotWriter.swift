@@ -107,7 +107,8 @@ actor JotWriter {
     func restoreJournal(_ jot: ActiveJot?, text recoveryText: String, revision: Int,
                         baseline: Data?) throws -> String {
         let canonical = try restore(jot, recoveryText: recoveryText, recoveryRevision: revision)
-        guard var jot, revision > jot.acknowledgedRevision else { return canonical }
+        guard var jot else { return recoveryText }
+        guard revision > jot.acknowledgedRevision else { return canonical }
         latestSnapshot = EditorSnapshot(revision: revision, text: recoveryText, selection: .start, viewport: .top)
         if lastWrittenData == Data(recoveryText.utf8) {
             // The write reached disk before the journal recorded its acknowledgement.
@@ -121,6 +122,10 @@ actor JotWriter {
             }
         }
         return recoveryText
+    }
+
+    func acknowledgedState() -> (jot: ActiveJot?, data: Data?) {
+        (activeJot, hasBlockingError ? nil : lastWrittenData)
     }
 
     func acknowledgedData() -> Data? { hasBlockingError ? nil : lastWrittenData }
