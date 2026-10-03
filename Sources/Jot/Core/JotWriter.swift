@@ -102,6 +102,29 @@ actor JotWriter {
         return text
     }
 
+    /// Restore the durable phone journal against the bytes it last acknowledged.
+    /// Reading a newer canonical file must not make it the baseline for an older local edit.
+    func restoreJournal(_ jot: ActiveJot?, text recoveryText: String, revision: Int,
+                        baseline: Data?) throws -> String {
+        let canonical = try restore(jot, recoveryText: recoveryText, recoveryRevision: revision)
+        guard var jot, revision > jot.acknowledgedRevision else { return canonical }
+        latestSnapshot = EditorSnapshot(revision: revision, text: recoveryText, selection: .start, viewport: .top)
+        if lastWrittenData == Data(recoveryText.utf8) {
+            // The write reached disk before the journal recorded its acknowledgement.
+            jot.acknowledgedRevision = revision
+            activeJot = jot
+        } else {
+            let canonicalData = lastWrittenData
+            lastWrittenData = baseline
+            if baseline == nil || baseline != canonicalData {
+                conflict(jot: jot, revision: revision, error: .externalConflict)
+            }
+        }
+        return recoveryText
+    }
+
+    func acknowledgedData() -> Data? { hasBlockingError ? nil : lastWrittenData }
+
     func receive(_ snapshot: EditorSnapshot, flushImmediately: Bool = false) {
         guard snapshot.revision > (latestSnapshot?.revision ?? activeJot?.acknowledgedRevision ?? -1) else {
             return

@@ -114,3 +114,15 @@ Evidence:
 - Live iPhone Mirroring inspection still shows the Touch ID lock screen. No physical interaction was possible.
 
 Outstanding: cloud-only notes are not yet discoverable by the full-text index until downloaded; active-note external reconciliation, iCloud conflict-version recovery, Mac download integration and attachment downloads still need implementation and live validation. The helper alone does not establish sync acceptance.
+
+## Iteration 8 — 2026-10-02
+
+Fixed phone journal restoration against newer external edits. The phone session now stores the canonical bytes last acknowledged by its writer. Unacknowledged recovery text restores against that baseline, rather than adopting newly read cloud bytes as permission to overwrite them. A differing or unknown baseline preserves the external file and supports saving recovered text separately. A disk write that completed before journal acknowledgement is recognized without creating a duplicate.
+
+Evidence:
+
+- Four new recovery tests pass, including external-version preservation plus a recovery copy, unchanged-baseline save, legacy journals with no baseline, and disk-write/journal-ack interruption.
+- Full Swift suite: 77 executed, 1 skipped, 0 failures. Atomic write performance gates pass.
+- Simulator build, install and launch succeed. Runtime inspection shows first-launch storage selection. The simulated On This iPhone tap left the same UI visible, so capture and relaunch remain unverified.
+
+Outstanding: live cloud reconciliation and conflict versions, cloud-only library discovery, attachment/Mac download integration, and the physical-device/manual acceptance checklist. This recovery change applies to the phone journal; Mac startup recovery still needs a separate audit.

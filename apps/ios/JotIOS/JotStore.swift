@@ -6,6 +6,7 @@ import UIKit
 struct PhoneSession: Codable {
     var active: ActiveJot?
     var storage: NotebookStorage?
+    var acknowledgedData: Data?
     var text = ""
     var revision = 0
     var selection = EditorSelection.start
@@ -123,7 +124,7 @@ final class JotStore {
                 if storage == .iCloud, let active = session.active {
                     try await Task.detached { try await NotebookCloudFile.prepare(URL(fileURLWithPath: active.path)) }.value
                 }
-                let text = try await writer.restore(session.active, recoveryText: session.text, recoveryRevision: session.revision)
+                let text = try await writer.restoreJournal(session.active, text: session.text, revision: session.revision, baseline: session.acknowledgedData)
                 if session.active == nil, !session.text.isEmpty {
                     await writer.receive(snapshot, flushImmediately: true)
                     await updateActive()
@@ -133,6 +134,7 @@ final class JotStore {
                         await writer.receive(snapshot, flushImmediately: true)
                     } else { session.text = text }
                 }
+                await updateActive()
                 ready = true
                 loadEditor()
             } catch { self.error = error.localizedDescription }
@@ -203,7 +205,7 @@ final class JotStore {
                     try await Task.detached { try await NotebookCloudFile.prepare(URL(fileURLWithPath: entry.path)) }.value
                 }
                 let opened = try await writer.openExisting(id: result.id, path: entry.path, through: session.revision)
-                session = PhoneSession(active: opened.jot, storage: storage, text: opened.text)
+                session = PhoneSession(active: opened.jot, storage: storage, acknowledgedData: await writer.acknowledgedData(), text: opened.text)
                 persist()
                 showLibrary = false
                 loadEditor()
@@ -256,6 +258,7 @@ final class JotStore {
                 return
             }
             session.active = copy
+            await updateActive()
             hasConflict = false
             error = nil
             persist()
@@ -289,7 +292,11 @@ final class JotStore {
         let relative = String(directory.dropFirst(root.path.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         return "jot://attachment/" + relative + "/"
     }
-    private func updateActive() async { session.active = await writer?.currentJot(); persist() }
+    private func updateActive() async {
+        session.active = await writer?.currentJot()
+        if let data = await writer?.acknowledgedData() { session.acknowledgedData = data }
+        persist()
+    }
     private func persist() {
         do {
             try FileManager.default.createDirectory(at: sessionURL.deletingLastPathComponent(), withIntermediateDirectories: true)
