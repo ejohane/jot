@@ -285,3 +285,9 @@ Evidence:
 Installed and launched the current Simulator build. XcodeBuildMCP tap reported success but left onboarding unchanged. CUA Window menu selection reached the actual iPhone 17 Pro window; its On This iPhone button successfully transitioned into the editor. Observed controls disabled during opening and enabled afterward.
 
 The resulting screenshot shows a blank editor without visible keyboard/caret. CUA typing produced no visible text; a coordinate click failed with windowNotFoundAtPosition. This is not capture proof. Investigate editor rendering/focus and distinguish application behavior from input automation limitations before closing any launch/capture acceptance item. Physical delivery and live iCloud evidence remain outstanding.
+
+## Iteration 21 — 2026-10-03
+
+Added a Debug-only editor diagnostic (no note text is logged) to inspect WebKit readiness, writing-surface dimensions, editability and focus after the session load settles. Simulator build, install and launch succeeded.
+
+Observed runtime report from process 46054: editor exists, size 402×655 in a 402×679 viewport, contentEditable true, focused true. The immediately sampled focus had been false before the scheduled restoration; delayed sampling avoids interpreting that transient state as a launch failure. This rules out a missing/zero-size editor for this run, but does not prove visible typing, keyboard appearance, autosave, or physical-phone acceptance. Those remain open.

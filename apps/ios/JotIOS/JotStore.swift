@@ -197,6 +197,21 @@ final class JotStore {
         editorLoadFailed = false
         loadEditor()
         send(["version": 1, "type": "setEditingEnabled", "enabled": canEdit])
+        #if DEBUG
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+        self?.webView?.evaluateJavaScript("""
+            (() => { const content = document.querySelector('.cm-content');
+            const editor = document.querySelector('.cm-editor');
+            const rect = editor?.getBoundingClientRect();
+            return JSON.stringify({ready: !!window.JotNative, editor: !!editor,
+              width: rect?.width, height: rect?.height,
+              editable: content?.contentEditable, focused: document.activeElement === content,
+              viewport: {width: innerWidth, height: innerHeight}}); })()
+            """) { result, error in
+                NSLog("Jot editor diagnostic: %@", error?.localizedDescription ?? String(describing: result))
+            }
+        }
+        #endif
     }
 
     func editorDidFail() {
