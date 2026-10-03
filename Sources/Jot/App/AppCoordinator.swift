@@ -23,6 +23,10 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     private var sentTags: [String] = []
     private var session: PersistedSession
     private var rootURL: URL?
+    private var notebookPresenter: NotebookPresenter?
+    private var notebookRefreshTask: Task<Void, Never>?
+    private var notebookRefreshPending = false
+    private var notebookWatcherGeneration = UUID()
     private var writer: JotWriter!
     private var panelController: ComposerPanelController!
     private var shortcut: GlobalShortcut!
@@ -49,6 +53,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             savedFrame: session.panelPositionWasUserChosen == true ? session.panelFrame : nil
         )
         panelController.configureAttachmentRoot(rootURL)
+        configureNotebookPresenter()
         panelController.bridge.delegate = self
         panelController.panelDelegate = self
         voiceDictation.onStateChange = { [weak self] state, message in
@@ -110,7 +115,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
     func show() {
         panelController.showAndFocus()
-        Task { await refreshRail() }
+        Task { await reconcileNotebookNote(); await refreshRail() }
     }
 
     func prepareToTerminate(completion: @escaping (Bool) -> Void) {
@@ -258,6 +263,9 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         }
         Task {
             do {
+                if session.storage == .iCloud, let active = session.activeJot {
+                    try await Task.detached { try await NotebookCloudFile.prepare(URL(fileURLWithPath: active.path)) }.value
+                }
                 let revision = max(session.recoveryRevision ?? 0, session.activeJot?.acknowledgedRevision ?? 0)
                 let text = try await writer.restoreJournal(session.activeJot,
                     text: session.recoveryText ?? "", revision: revision, baseline: session.acknowledgedData)
@@ -293,6 +301,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     func editorContentChanged(_ snapshot: EditorSnapshot, noteID: String?) {
+        guard snapshot.revision >= latestRevision else { return }
         if let noteID, noteID != session.activeJot?.id { return }
         let generation = documentGeneration
         latestRevision = max(latestRevision, snapshot.revision)
@@ -542,6 +551,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     func editorRequestedRecovery(_ action: String) {
+        guard !isOpeningNote, !isImportingImage else { return }
         switch action {
         case "restoreRoot":
             chooseRoot()
@@ -590,7 +600,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         }
     }
 
-    func editorRequestedDictationToggle() { voiceDictation.toggle() }
+    func editorRequestedDictationToggle() { guard !isOpeningNote, !isImportingImage else { return }; voiceDictation.toggle() }
     func editorRequestedDictationFinish() { voiceDictation.finish() }
     func editorRequestedDictationCancel() { voiceDictation.cancel() }
 
@@ -747,6 +757,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 try await sessionStore.save(nextSession, generation: sessionGeneration)
                 _ = rootAccess.setRoot(choice.url)
                 rootURL = choice.url
+                configureNotebookPresenter()
                 session = nextSession
                 if let replacementWriter { writer = replacementWriter }
                 else { await writer.configureRoot(choice.url) }
@@ -1034,6 +1045,75 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         guard let tags, force || tags != sentTags else { return }
         sentTags = tags
         panelController.send(["version": 1, "type": "tagVocabulary", "tags": tags])
+    }
+
+    private func reconcileNotebookNote() async {
+        guard !isOpeningNote, !isImportingImage, voiceDictation.state == .idle || voiceDictation.state == .error else { return }
+        let generation = documentGeneration
+        do {
+            if session.storage == .iCloud, let active = session.activeJot {
+                try await Task.detached { try await NotebookCloudFile.prepare(URL(fileURLWithPath: active.path)) }.value
+            }
+            guard try await writer.hasExternalChange(), !isOpeningNote, !isImportingImage,
+                  generation == documentGeneration, voiceDictation.state == .idle || voiceDictation.state == .error else { return }
+            isOpeningNote = true
+            sendActionState()
+            defer {
+                isOpeningNote = false
+                panelController.send(["version": 1, "type": "setEditingEnabled", "enabled": true])
+                sendActionState()
+            }
+            let captured = try await panelController.lockAndSnapshot()
+            guard captured.revision >= latestRevision else { return }
+            session.recoveryText = captured.text
+            session.recoveryRevision = captured.revision
+            session.selection = captured.selection
+            session.viewport = captured.viewport
+            latestRevision = captured.revision
+            await persistSessionNow()
+            await writer.receive(captured, flushImmediately: true)
+            guard let changed = try await writer.reconcileExternal() else { return }
+            session.activeJot = changed.jot
+            session.recoveryText = changed.text
+            session.recoveryRevision = changed.jot.acknowledgedRevision
+            session.acknowledgedData = Data(changed.text.utf8)
+            latestRevision = changed.jot.acknowledgedRevision
+            hasBlockingWriteError = false
+            await persistSessionNow()
+            sendLoadSession(text: changed.text)
+        } catch {
+            // A missing or not-yet-ready editor must not alter recovery or canonical text.
+        }
+    }
+
+    private func configureNotebookPresenter() {
+        notebookWatcherGeneration = UUID()
+        notebookPresenter?.stop()
+        notebookPresenter = nil
+        notebookRefreshTask?.cancel()
+        notebookRefreshTask = nil
+        notebookRefreshPending = false
+        guard let rootURL else { return }
+        notebookPresenter = NotebookPresenter(root: rootURL) { [weak self] in self?.requestNotebookRefresh() }
+    }
+
+    private func requestNotebookRefresh() {
+        notebookRefreshPending = true
+        guard notebookRefreshTask == nil, let rootURL else { return }
+        let token = notebookWatcherGeneration
+        notebookRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if self.notebookWatcherGeneration == token { self.notebookRefreshTask = nil } }
+            while self.notebookRefreshPending {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled, self.rootURL == rootURL, self.notebookWatcherGeneration == token else { return }
+                if self.isOpeningNote || self.isImportingImage || (self.voiceDictation.state != .idle && self.voiceDictation.state != .error) { continue }
+                self.notebookRefreshPending = false
+                await self.reconcileNotebookNote()
+                await self.refreshRail()
+                await self.refreshTags(force: true)
+            }
+        }
     }
 
     private var cloudConflictScanRunning = false

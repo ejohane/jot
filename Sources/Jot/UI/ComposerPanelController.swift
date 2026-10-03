@@ -272,6 +272,16 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         }
     }
 
+    func lockAndSnapshot() async throws -> EditorSnapshot {
+        guard let value = try await webView.evaluateJavaScript("window.JotNative?.lockAndSnapshot()") as? [String: Any],
+              let text = value["text"] as? String, let revision = value["revision"] as? Int,
+              let selection = value["selection"] as? [String: Int], let anchor = selection["anchor"], let head = selection["head"],
+              let viewport = value["viewport"] as? [String: Double], let top = viewport["scrollTop"] else {
+            throw CocoaError(.coderReadCorrupt)
+        }
+        return EditorSnapshot(revision: revision, text: text, selection: EditorSelection(anchor: anchor, head: head), viewport: EditorViewport(scrollTop: top))
+    }
+
     func send(_ payload: [String: Any]) { bridge.send(payload) }
 
     func configureAttachmentRoot(_ root: URL?) { resourceHandler.configureAttachmentRoot(root) }

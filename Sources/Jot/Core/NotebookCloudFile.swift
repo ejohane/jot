@@ -2,7 +2,7 @@ import Foundation
 
 /// A cached cloud copy remains usable offline. Never treat an undownloaded item as a deleted jot.
 struct NotebookCloudFile {
-    enum Availability: Equatable, Sendable { case local, cached, remote }
+    enum Availability: Equatable, Sendable { case local, current, cached, remote }
     enum DownloadError: LocalizedError {
         case unavailable
         var errorDescription: String? { "This jot hasn’t downloaded from iCloud yet. Connect to the internet and try again. Your current writing is kept safe." }
@@ -15,7 +15,8 @@ struct NotebookCloudFile {
             let values = try fresh.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey,
                                                             .ubiquitousItemDownloadingErrorKey])
             guard values.isUbiquitousItem == true else { return .local }
-            if values.ubiquitousItemDownloadingStatus == .current || values.ubiquitousItemDownloadingStatus == .downloaded {
+            if values.ubiquitousItemDownloadingStatus == .current { return .current }
+            if values.ubiquitousItemDownloadingStatus == .downloaded {
                 return .cached
             }
             if let error = values.ubiquitousItemDownloadingError { throw error }
@@ -30,7 +31,7 @@ struct NotebookCloudFile {
                         pause: @Sendable () async throws -> Void = { try await Task.sleep(for: .milliseconds(250)) }) async throws {
         try Task.checkCancellation()
         switch try availability(url) {
-        case .local: return
+        case .local, .current: return
         case .cached:
             // A failed refresh must not prevent editing the downloaded copy offline.
             try? request(url)

@@ -195,3 +195,18 @@ Evidence:
 - Actual iCloud image transport, timeout/retry on the phone, and native previews remain manually unverified.
 
 Outstanding: Mac reactive sync/download integration, cloud transfer readiness, physical iCloud provisioning, and manual acceptance checks for capture/relaunch/search/images/dictation/sync/Mac regression.
+
+## Iteration 14 — 2026-10-03
+
+Added a Mac notebook NSFilePresenter for coordinated/iCloud file notifications. Notifications coalesce before refreshing the library/tags and reconciling the open jot. Refresh waits while note switching, image insertion or dictation is active, retaining pending changes. Changing the notebook cancels the old refresh and replaces its presenter.
+
+Mac reconciliation captures and locks the shared editor, persists its exact snapshot, then uses the shared writer’s clean-adoption/conflict-preservation path. Unchanged files do not lock editing. Late content messages with older revisions cannot replace reconciled recovery text. Mac startup/reconciliation prepares cloud files before treating them as missing. Current cloud copies bypass repeated download requests, avoiding refresh loops.
+
+Evidence:
+
+- Full Swift suite: 90 executed, 1 skipped, 0 failures.
+- A new real-filesystem integration test registers NSFilePresenter and performs a coordinated external Markdown write; the presenter receives a notification and the file has the expected bytes. This proves local coordination notification delivery, not iCloud delivery or rendered Mac UI.
+- New download coverage verifies current cloud files do not issue redundant refresh requests.
+- Production Mac packaging/signing and Simulator build succeed.
+
+Outstanding: Mac cloud-only note discovery/open handling, transfer download readiness, actual iCloud provisioning/transport and all unproven manual phone/Mac acceptance flows.

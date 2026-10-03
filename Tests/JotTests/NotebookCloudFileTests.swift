@@ -9,6 +9,12 @@ final class NotebookCloudFileTests: XCTestCase {
             pause: { XCTFail("Local notes must not wait for a download") })
     }
 
+    func testCurrentCloudCopyNeedsNoRepeatedRefreshRequest() async throws {
+        try await NotebookCloudFile.prepare(URL(fileURLWithPath: "/cloud/note.md"), availability: { _ in .current },
+            request: { _ in XCTFail("A current cloud copy must not create a refresh notification loop") },
+            pause: { XCTFail("Current copies must open immediately") })
+    }
+
     func testCachedCopyCanOpenOffline() async throws {
         try await NotebookCloudFile.prepare(URL(fileURLWithPath: "/cloud/note.md"), availability: { _ in .cached },
             request: { _ in throw URLError(.notConnectedToInternet) },
