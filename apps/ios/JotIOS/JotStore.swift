@@ -5,6 +5,7 @@ import UIKit
 
 struct PhoneSession: Codable {
     var active: ActiveJot?
+    var storage: NotebookStorage?
     var text = ""
     var revision = 0
     var selection = EditorSelection.start
@@ -13,6 +14,9 @@ struct PhoneSession: Codable {
 
 @MainActor @Observable
 final class JotStore {
+    var storage: NotebookStorage = .local
+    var storageBusy = false
+    var showSettings = false
     var configured = false
     var ready = false
     var error: String?
@@ -38,16 +42,74 @@ final class JotStore {
         if let data = try? Data(contentsOf: sessionURL), let saved = try? JSONDecoder().decode(PhoneSession.self, from: data) {
             session = saved
         }
-        if UserDefaults.standard.string(forKey: "storage") == "local" {
-            configureLocal()
+        if let storage = session.storage ?? UserDefaults.standard.string(forKey: "storage").flatMap(NotebookStorage.init(rawValue:)) {
+            if storage == .local { configureLocal() } else { configureCloud() }
         }
     }
 
+    private var localRoot: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Jots")
+    }
+
     func configureLocal() {
-        root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Jots")
+        guard session.storage != .iCloud else {
+            error = "Reconnect to your iCloud notebook before transferring it to this iPhone. Your saved writing is kept safe."
+            return
+        }
+        configure(root: localRoot, storage: .local)
+    }
+
+    func configureCloud() {
+        guard !storageBusy else { return }
+        storageBusy = true
+        Task {
+            let root = await Task.detached { NotebookStorage.cloudRoot() }.value
+            storageBusy = false
+            guard let root else { error = "iCloud Drive isn’t available. Check that you’re signed in and iCloud Drive is enabled, then try again."; return }
+            configure(root: root, storage: .iCloud)
+        }
+    }
+
+    func transfer(to mode: NotebookStorage) {
+        guard mode != storage, !storageBusy, !importingImage, ready else { return }
+        storageBusy = true
+        webView?.endEditing(true)
+        enqueue { [self] in
+            defer { storageBusy = false }
+            guard await writer.flush(through: session.revision), let oldRoot = root else {
+                error = "Save your current jot before transferring the notebook."
+                return
+            }
+            await updateActive()
+            let destination: URL? = mode == .local ? localRoot : await Task.detached { NotebookStorage.cloudRoot() }.value
+            guard let destination else { error = "iCloud Drive isn’t available. Check your iCloud settings and try again."; return }
+            do {
+                try await Task.detached { try NotebookTransfer.copy(from: oldRoot, to: destination) }.value
+                if let active = session.active {
+                    let sourcePath = URL(fileURLWithPath: active.path).resolvingSymlinksInPath().path
+                    let prefix = oldRoot.resolvingSymlinksInPath().path + "/"
+                    guard sourcePath.hasPrefix(prefix) else { throw PersistenceError.rootUnavailable }
+                    let relative = String(sourcePath.dropFirst(prefix.count))
+                    session.active = ActiveJot(id: active.id, path: destination.appendingPathComponent(relative).path,
+                                              acknowledgedRevision: active.acknowledgedRevision)
+                }
+                session.storage = mode
+                persist()
+                configure(root: destination, storage: mode)
+                showSettings = false
+            } catch { self.error = "Your notebook couldn’t be transferred. The source is kept safe. \(error.localizedDescription)" }
+        }
+    }
+
+    private func configure(root: URL, storage: NotebookStorage) {
+        self.root = root
+        self.storage = storage
+        session.storage = storage
+        persist()
+        ready = false
         writer = JotWriter(rootURL: root) { [weak self] event in self?.handle(event) }
         configured = true
-        UserDefaults.standard.set("local", forKey: "storage")
+        UserDefaults.standard.set(storage.rawValue, forKey: "storage")
         enqueue { [self] in
             await index.configure(root: root)
             do {
@@ -102,10 +164,10 @@ final class JotStore {
     }
 
     func newJot() {
-        guard !importingImage else { return }
+        guard !importingImage, !storageBusy else { return }
         enqueue { [self] in
             guard await writer.finishAndNew(through: session.revision) else { error = "Your jot could not be saved. Try again before starting another."; return }
-            session = PhoneSession()
+            session = PhoneSession(storage: storage)
             persist()
             loadEditor()
         }
@@ -117,13 +179,13 @@ final class JotStore {
     }
 
     func open(_ result: NoteSearchResult) {
-        guard !importingImage else { return }
+        guard !importingImage, !storageBusy else { return }
         enqueue { [self] in
             if result.id == session.active?.id { showLibrary = false; focus(); return }
             guard let entry = await index.entry(id: result.id) else { return }
             do {
                 let opened = try await writer.openExisting(id: result.id, path: entry.path, through: session.revision)
-                session = PhoneSession(active: opened.jot, text: opened.text)
+                session = PhoneSession(active: opened.jot, storage: storage, text: opened.text)
                 persist()
                 showLibrary = false
                 loadEditor()

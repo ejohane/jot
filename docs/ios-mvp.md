@@ -44,3 +44,18 @@ Evidence:
 - Physical iPhone Mirroring remains locked at Touch ID. Photos selection, clipboard paste, preview and relaunch are not manually verified.
 
 These test results cover the reused writer/editor behavior, not the new Photos picker or UIKit conversion. Their acceptance remains open.
+
+## Iteration 3 — 2026-10-02
+
+Added the local/iCloud storage choice, iCloud document container declarations, storage Settings, and an explicit transfer confirmation. The shared transfer preserves Markdown/image bytes and relative paths, retains the source as a backup, preflights destination collisions, and rechecks collisions under file coordination. Storage mode is saved atomically with the phone recovery session. An unavailable saved iCloud notebook cannot silently become a local notebook.
+
+Evidence:
+
+- Shared Swift suite: 65 executed, 1 skipped, 0 failures, including four transfer tests.
+- Transfer tests cover note/attachment bytes, retained source, repeat transfer, conflicting destination, nested roots, source symlinks and destination directory links.
+- Simulator build succeeds with iCloud entitlements.
+- Physical iCloud build cannot be provisioned: Xcode reports no Accounts, and the installed wildcard profile has no iCloud/container entitlements. No iCloud build was installed on the phone.
+- `secretsctl` reports no signing profile mapped to Jot; existing credential profiles contain app test identities, not Apple signing credentials.
+- Requested Xcode Apple Developer account setup and physical review unlock from the user.
+
+Outstanding: actual iCloud container availability, Mac integration, coordinated notebook edits/conflict preservation, cloud download/reconciliation, phone storage-transfer UI and live Mac–phone/offline sync evidence. Simulator compilation and local-directory transfer tests do not prove iCloud sync.

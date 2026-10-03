@@ -23,15 +23,15 @@ struct JotRootView: View {
             if store.configured {
                 VStack(spacing: 0) {
                     HStack {
-                        Button("Jots", systemImage: "line.3.horizontal") { store.showLibrary = true }.disabled(store.importingImage)
+                        Button("Jots", systemImage: "line.3.horizontal") { store.showLibrary = true }.disabled(store.importingImage || store.storageBusy)
                         Spacer()
                         Button("New Jot", systemImage: "square.and.pencil") { store.newJot() }
                             .keyboardShortcut("n", modifiers: .command)
-                            .disabled(store.importingImage)
+                            .disabled(store.importingImage || store.storageBusy)
                     }
                     .font(.system(size: 15, weight: .medium))
                     .padding(.horizontal, 22).padding(.vertical, 14)
-                    PhoneEditor(store: store)
+                    PhoneEditor(store: store).allowsHitTesting(store.ready && !store.storageBusy)
                     HStack(spacing: 28) {
                         Button { store.send(["version": 1, "type": "toggleFormat", "format": "bold"]) } label: { Image(systemName: "bold") }
                             .accessibilityLabel("Bold")
@@ -39,7 +39,7 @@ struct JotRootView: View {
                             .accessibilityLabel("Italic")
                         PhotosPicker(selection: $pickedPhoto, matching: .images) {
                             Image(systemName: "photo")
-                        }.accessibilityLabel("Add image").disabled(store.importingImage)
+                        }.accessibilityLabel("Add image").disabled(store.importingImage || store.storageBusy)
                         Spacer()
                         if store.importingImage { ProgressView().controlSize(.small) }
                         Button { store.webView?.endEditing(true) } label: { Image(systemName: "keyboard.chevron.compact.down") }
@@ -50,9 +50,13 @@ struct JotRootView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     Spacer()
                     Text("A place for\nyour thoughts.").font(.system(size: 36, weight: .semibold)).tracking(-1)
-                    Text("Choose where your jots live.").foregroundStyle(.secondary)
+                    Text(store.session.storage == .iCloud ? "Open your iCloud notebook to continue." : "Choose where your jots live.").foregroundStyle(.secondary)
                     Button("On This iPhone") { store.configureLocal() }.buttonStyle(.borderedProminent)
-                    Text("Your jots stay on this device.")
+                        .disabled(store.storageBusy || store.session.storage == .iCloud)
+                    Button(store.session.storage == .iCloud ? "Try iCloud Again" : "iCloud") { store.configureCloud() }.buttonStyle(.bordered)
+                        .disabled(store.storageBusy)
+                    if store.storageBusy { ProgressView("Opening your notebook…") }
+                    Text("Keep jots on this device, or share them with your Mac through iCloud.")
                         .font(.footnote).foregroundStyle(.secondary)
                     Spacer()
                 }.padding(32).frame(maxWidth: .infinity, alignment: .leading)
@@ -82,6 +86,7 @@ struct JotRootView: View {
         }
         .tint(Color.primary)
         .background(Color(uiColor: .systemBackground))
+        .sheet(isPresented: $store.showSettings) { JotStorageSettings(store: store) }
         .fullScreenCover(isPresented: $store.showLibrary, onDismiss: { store.focus() }) { JotLibraryView(store: store) }
         .alert("Your writing is protected", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
             Button("OK") { store.error = nil }
@@ -106,9 +111,44 @@ struct JotLibraryView: View {
             .listStyle(.plain)
             .overlay { if store.notes.isEmpty { ContentUnavailableView(store.query.isEmpty ? "Your jots will appear here" : "No matching jots", systemImage: "text.alignleft") } }
             .navigationTitle("Jots")
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Settings", systemImage: "gearshape") { store.showSettings = true } }
+                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+            }
+            .sheet(isPresented: $store.showSettings) { JotStorageSettings(store: store) }
             .searchable(text: $store.query, prompt: "Search your jots")
             .task(id: store.query) { await store.refreshNotes() }
         }.tint(.primary)
+    }
+}
+
+struct JotStorageSettings: View {
+    @Bindable var store: JotStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var destination: NotebookStorage?
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Your notebook") {
+                    LabeledContent("Storage", value: store.storage == .local ? "On This iPhone" : "iCloud")
+                    Button(store.storage == .local ? "Transfer to iCloud" : "Transfer to This iPhone") {
+                        destination = store.storage == .local ? .iCloud : .local
+                    }.disabled(store.storageBusy || store.importingImage)
+                    if store.storageBusy { ProgressView("Transferring your jots…") }
+                }
+                Section {
+                    Text("Your jots and images are copied together. The original notebook is retained as a backup. After switching, new changes save in the selected location.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.disabled(store.storageBusy) } }
+            .confirmationDialog("Transfer your notebook?", isPresented: Binding(get: { destination != nil }, set: { if !$0 { destination = nil } })) {
+                if let destination {
+                    Button(destination == .iCloud ? "Transfer to iCloud" : "Transfer to This iPhone") { store.transfer(to: destination); self.destination = nil }
+                }
+                Button("Cancel", role: .cancel) { destination = nil }
+            } message: { Text("All jots and images will be copied. The original notebook will be kept as a backup.") }
+        }.interactiveDismissDisabled(store.storageBusy).tint(.primary)
     }
 }
