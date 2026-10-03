@@ -60,6 +60,22 @@ actor NoteRailIndex {
         return result.sorted { $0.timestamp == $1.timestamp ? $0.id > $1.id : $0.timestamp > $1.timestamp }
     }
 
+    static func cloudEntry(url: URL, root: URL) -> NoteRailEntry? {
+        guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else { return nil }
+        let root = root.resolvingSymlinksInPath().standardizedFileURL
+        let url = url.resolvingSymlinksInPath().standardizedFileURL
+        guard url.path.hasPrefix(root.path + "/"), url.pathExtension.lowercased() == "md" else { return nil }
+        let relative = String(url.path.dropFirst(root.path.count + 1))
+        guard !relative.split(separator: "/").contains(where: { $0.hasPrefix(".") }) else { return nil }
+        let parts = url.deletingPathExtension().lastPathComponent.components(separatedBy: "--")
+        let isJot = parts.count == 2 && !parts[1].isEmpty
+        let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey, .creationDateKey])
+        guard values?.isSymbolicLink != true, values?.isDirectory != true else { return nil }
+        let id = isJot ? parts[1] : "file:" + relative
+        return NoteRailEntry(id: id, path: url.path,
+            timestamp: (isJot ? date(from: url, clock: parts[0]) : nil) ?? values?.creationDate ?? .distantPast, excerpt: "")
+    }
+
     private static func date(from url: URL, clock: String) -> Date? {
         let day = url.deletingLastPathComponent()
         let month = day.deletingLastPathComponent()

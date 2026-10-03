@@ -126,3 +126,16 @@ Evidence:
 - Simulator build, install and launch succeed. Runtime inspection shows first-launch storage selection. The simulated On This iPhone tap left the same UI visible, so capture and relaunch remain unverified.
 
 Outstanding: live cloud reconciliation and conflict versions, cloud-only library discovery, attachment/Mac download integration, and the physical-device/manual acceptance checklist. This recovery change applies to the phone journal; Mac startup recovery still needs a separate audit.
+
+## Iteration 9 — 2026-10-02
+
+Added phone iCloud inventory using a persistent NSMetadataQuery scoped to the app’s ubiquitous Documents and filtered to the selected notebook. Discovered Markdown paths join the shared library index even before contents are local. Unavailable notes show a cloud/download row and can be opened through the bounded download check. Markdown downloads are requested once per inventory configuration; metadata updates refresh an open library. Pull-to-refresh retries downloads. A quiet pending count states that search updates as note text downloads. Attachment downloads remain lazy and still need implementation.
+
+Evidence:
+
+- Full Swift suite: 79 executed, 1 skipped, 0 failures.
+- New tests prove remote-only inventory rows have openable paths, unknown text does not produce false search matches, downloaded text replaces the pending row and becomes searchable, and paths outside the notebook/hidden files/non-Markdown are excluded.
+- Final Simulator build succeeds after correcting Foundation notification names.
+- Tests supply inventory URLs; the actual metadata-query transport and iCloud arrival notifications remain unverified without provisioned access. No live sync acceptance is claimed.
+
+Outstanding: active-note reconciliation, NSFileVersion conflict preservation, attachment download behavior, Mac cloud integration/recovery audit, and manual phone/Mac acceptance.

@@ -122,6 +122,7 @@ struct JotLibraryView: View {
             List(store.notes, id: \.id) { note in
                 Button { store.open(note) } label: {
                     VStack(alignment: .leading, spacing: 7) {
+                        if !note.isDownloaded { Image(systemName: "icloud.and.arrow.down").foregroundStyle(.secondary) }
                         Text(note.title.isEmpty ? "Untitled jot" : note.title).font(.body.weight(.medium)).lineLimit(2)
                         Text(note.excerpt).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
                         Text(note.timestamp, format: .dateTime.month(.abbreviated).day().hour().minute()).font(.caption).foregroundStyle(.secondary)
@@ -129,6 +130,14 @@ struct JotLibraryView: View {
                 }.foregroundStyle(.primary)
             }
             .listStyle(.plain)
+            .refreshable { store.retryCloudDownloads(); await store.refreshNotes() }
+            .safeAreaInset(edge: .bottom) {
+                if store.pendingCloudNotes > 0 {
+                    Text("Waiting for \(store.pendingCloudNotes) iCloud jots. Search updates as they download.")
+                        .font(.footnote).foregroundStyle(.secondary).padding(16)
+                        .frame(maxWidth: .infinity).background(Color(uiColor: .systemBackground))
+                }
+            }
             .overlay { if store.notes.isEmpty { ContentUnavailableView(store.query.isEmpty ? "Your jots will appear here" : "No matching jots", systemImage: "text.alignleft") } }
             .navigationTitle("Jots")
             .toolbar {

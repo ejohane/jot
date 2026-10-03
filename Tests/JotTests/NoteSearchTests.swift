@@ -19,6 +19,37 @@ final class NoteSearchTests: XCTestCase {
         return url
     }
 
+    func testCloudInventorySurvivesMissingContentThenBecomesSearchable() async throws {
+        let root = try root()
+        let remote = root.appendingPathComponent("2026/09/26/06-00-00-000--remote.md")
+        let index = NoteSearchIndex(root: root)
+        let initial = await index.search(query: "", refresh: true, discoveredURLs: [remote])
+        XCTAssertEqual(initial?.map(\.id), ["remote"])
+        XCTAssertEqual(initial?.first?.isDownloaded, false)
+        let pending = await index.pendingDownloadCount()
+        XCTAssertEqual(pending, 1)
+        let missingContent = await index.search(query: "needle", discoveredURLs: [remote])
+        XCTAssertEqual(missingContent, [])
+        let entry = await index.entry(id: "remote")
+        XCTAssertEqual(entry?.path, remote.path)
+        try note(root, id: "remote", source: "Arrived from Mac\nA needle in this jot")
+        let downloaded = await index.search(query: "needle", refresh: true, discoveredURLs: [remote])
+        XCTAssertEqual(downloaded?.count, 1)
+        XCTAssertEqual(downloaded?.first?.isDownloaded, true)
+        XCTAssertEqual(downloaded?.first?.title, "Arrived from Mac")
+        let pendingAfterDownload = await index.pendingDownloadCount()
+        XCTAssertEqual(pendingAfterDownload, 0)
+    }
+
+    func testCloudInventoryRejectsOtherNotebooksAndHiddenFiles() async throws {
+        let root = try root()
+        let index = NoteSearchIndex(root: root)
+        let results = await index.search(query: "", refresh: true, discoveredURLs: [
+            root.deletingLastPathComponent().appendingPathComponent("elsewhere.md"),
+            root.appendingPathComponent(".hidden/note.md"), root.appendingPathComponent("image.png")])
+        XCTAssertEqual(results, [])
+    }
+
     func testRecentNotesAndFullContentRanking() async throws {
         let root = try root()
         try note(root, id: "title", day: "23", source: "# Ocean plans\nA checklist")

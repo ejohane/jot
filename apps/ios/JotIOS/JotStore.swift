@@ -26,6 +26,7 @@ final class JotStore {
     let dictation = PhoneDictation()
     var notes: [NoteSearchResult] = []
     var query = ""
+    var pendingCloudNotes = 0
     var showLibrary = false
     var importingImage = false
     var imagePreview: PhoneImagePreview?
@@ -37,6 +38,8 @@ final class JotStore {
     let resources = LocalResourceSchemeHandler()
     private var pending: Task<Void, Never>?
     private var writer: JotWriter!
+    private let cloudNotebook = PhoneCloudNotebook()
+    private var cloudURLs: [URL] = []
     private var index = NoteSearchIndex(root: nil)
     private let sessionURL: URL
 
@@ -45,6 +48,11 @@ final class JotStore {
         sessionURL = support.appendingPathComponent("phone-session.json")
         if let data = try? Data(contentsOf: sessionURL), let saved = try? JSONDecoder().decode(PhoneSession.self, from: data) {
             session = saved
+        }
+        cloudNotebook.onChange = { [weak self] urls in
+            guard let self else { return }
+            self.cloudURLs = urls
+            if self.showLibrary { Task { await self.refreshNotes() } }
         }
         dictation.onMessage = { [weak self] message in self?.send(message) }
         dictation.onError = { [weak self] message in self?.error = message }
@@ -110,6 +118,8 @@ final class JotStore {
     private func configure(root: URL, storage: NotebookStorage) {
         self.root = root
         self.storage = storage
+        cloudURLs = []
+        cloudNotebook.configure(root: storage == .iCloud ? root : nil)
         session.storage = storage
         persist()
         ready = false
@@ -192,7 +202,15 @@ final class JotStore {
 
     func refreshNotes() async {
         await pending?.value
-        notes = await index.search(query: query, refresh: true, currentID: session.active?.id, currentText: session.text) ?? []
+        notes = await index.search(query: query, refresh: true, currentID: session.active?.id, currentText: session.text, discoveredURLs: cloudURLs) ?? []
+        pendingCloudNotes = await index.pendingDownloadCount()
+    }
+
+    func retryCloudDownloads() {
+        let urls = cloudURLs
+        Task.detached(priority: .utility) {
+            for url in urls { try? FileManager.default.startDownloadingUbiquitousItem(at: url) }
+        }
     }
 
     func open(_ result: NoteSearchResult) {
