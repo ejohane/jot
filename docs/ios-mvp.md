@@ -279,3 +279,9 @@ Evidence:
 - Simulator build succeeds; diff whitespace check passes.
 - Physical build could not find the paired iPhone destination. A separate generic-device signing check still fails (see local log `/tmp/jot-ready-signing.log`). No current physical install or launch is claimed.
 - WebKit readiness, photo-picker cancellation/reload, and the original phone/sync acceptance flows remain manually unverified.
+
+## Iteration 20 — 2026-10-03
+
+Installed and launched the current Simulator build. XcodeBuildMCP tap reported success but left onboarding unchanged. CUA Window menu selection reached the actual iPhone 17 Pro window; its On This iPhone button successfully transitioned into the editor. Observed controls disabled during opening and enabled afterward.
+
+The resulting screenshot shows a blank editor without visible keyboard/caret. CUA typing produced no visible text; a coordinate click failed with windowNotFoundAtPosition. This is not capture proof. Investigate editor rendering/focus and distinguish application behavior from input automation limitations before closing any launch/capture acceptance item. Physical delivery and live iCloud evidence remain outstanding.
