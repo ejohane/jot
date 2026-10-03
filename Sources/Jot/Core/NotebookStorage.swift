@@ -28,6 +28,21 @@ enum NotebookTransferError: LocalizedError {
 /// A non-destructive transfer. Preflight all collisions before copying; never overwrite a different file.
 /// Keep the source as a backup so interruption cannot remove the only copy of any jot.
 struct NotebookTransfer {
+    static func copyPrepared(from source: URL, to destination: URL, cloudFiles: [URL],
+                             prepare: @Sendable (URL) async throws -> Void = { try await NotebookCloudFile.prepare($0, requireCurrent: true) }) async throws {
+        try await prepareCloudFiles(cloudFiles, prepare: prepare)
+        try copy(from: source, to: destination)
+    }
+
+    static func prepareCloudFiles(_ files: [URL],
+                                  prepare: @Sendable (URL) async throws -> Void = { try await NotebookCloudFile.prepare($0, requireCurrent: true) }) async throws {
+        // Complete all known downloads before any destination write begins.
+        for file in files {
+            try Task.checkCancellation()
+            try await prepare(file)
+        }
+    }
+
     static func copy(from source: URL, to destination: URL) throws {
         let source = source.resolvingSymlinksInPath().standardizedFileURL
         let destination = destination.resolvingSymlinksInPath().standardizedFileURL

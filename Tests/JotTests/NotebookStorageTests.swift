@@ -2,6 +2,35 @@ import XCTest
 @testable import Jot
 
 final class NotebookStorageTests: XCTestCase {
+    func testUnavailableCloudFileAbortsBeforeAnyDestinationWrite() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source")
+        let destination = root.appendingPathComponent("destination")
+        let note = source.appendingPathComponent("note.md")
+        let remote = source.appendingPathComponent("attachments/remote.png")
+        try LocalJotFileSystem().writeAtomically(Data("local source".utf8), to: note)
+        do {
+            try await NotebookTransfer.copyPrepared(from: source, to: destination, cloudFiles: [remote],
+                prepare: { _ in throw NotebookCloudFile.DownloadError.unavailable })
+            XCTFail("An incomplete cloud snapshot must not transfer")
+        } catch is NotebookCloudFile.DownloadError { }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+        XCTAssertEqual(try Data(contentsOf: note), Data("local source".utf8))
+    }
+
+    func testDownloadedCloudFileIsIncludedInTransfer() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source")
+        let destination = root.appendingPathComponent("destination")
+        let image = source.appendingPathComponent("attachments/remote.png")
+        try await NotebookTransfer.copyPrepared(from: source, to: destination, cloudFiles: [image],
+            prepare: { url in try LocalJotFileSystem().writeAtomically(Data([7, 8, 9]), to: url) })
+        XCTAssertEqual(try Data(contentsOf: destination.appendingPathComponent("attachments/remote.png")), Data([7, 8, 9]))
+        XCTAssertEqual(try Data(contentsOf: image), Data([7, 8, 9]))
+    }
+
     func testTransferPreservesMarkdownAttachmentsAndSourceAndIsRepeatable() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

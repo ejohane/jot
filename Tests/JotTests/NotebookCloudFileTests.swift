@@ -9,6 +9,15 @@ final class NotebookCloudFileTests: XCTestCase {
             pause: { XCTFail("Local notes must not wait for a download") })
     }
 
+    func testTransferRequiresCurrentBytesInsteadOfStaleCachedCopy() async {
+        do {
+            try await NotebookCloudFile.prepare(URL(fileURLWithPath: "/cloud/note.md"), availability: { _ in .cached },
+                request: { _ in }, requireCurrent: true, attempts: 2, pause: {})
+            XCTFail("A transfer must not accept stale cached bytes")
+        } catch is NotebookCloudFile.DownloadError { }
+        catch { XCTFail("Unexpected error: \(error)") }
+    }
+
     func testCurrentCloudCopyNeedsNoRepeatedRefreshRequest() async throws {
         try await NotebookCloudFile.prepare(URL(fileURLWithPath: "/cloud/note.md"), availability: { _ in .current },
             request: { _ in XCTFail("A current cloud copy must not create a refresh notification loop") },

@@ -8,7 +8,7 @@ struct NotebookCloudFile {
         var errorDescription: String? { "This jot hasn’t downloaded from iCloud yet. Connect to the internet and try again. Your current writing is kept safe." }
     }
 
-    static func prepare(_ url: URL) async throws {
+    static func prepare(_ url: URL, requireCurrent: Bool = false) async throws {
         try await prepare(url, availability: { url in
             // URL resource values can cache metadata; use a fresh URL for every poll.
             let fresh = URL(fileURLWithPath: url.path)
@@ -21,12 +21,13 @@ struct NotebookCloudFile {
             }
             if let error = values.ubiquitousItemDownloadingError { throw error }
             return .remote
-        }, request: { try FileManager.default.startDownloadingUbiquitousItem(at: $0) })
+        }, request: { try FileManager.default.startDownloadingUbiquitousItem(at: $0) }, requireCurrent: requireCurrent)
     }
 
     static func prepare(_ url: URL,
                         availability: @Sendable (URL) throws -> Availability,
                         request: @Sendable (URL) throws -> Void,
+                        requireCurrent: Bool = false,
                         attempts: Int = 60,
                         pause: @Sendable () async throws -> Void = { try await Task.sleep(for: .milliseconds(250)) }) async throws {
         try Task.checkCancellation()
@@ -34,14 +35,15 @@ struct NotebookCloudFile {
         case .local, .current: return
         case .cached:
             // A failed refresh must not prevent editing the downloaded copy offline.
-            try? request(url)
-            return
+            if requireCurrent { try request(url) }
+            else { try? request(url); return }
         case .remote: try request(url)
         }
         for _ in 0..<attempts {
             try await pause()
             try Task.checkCancellation()
-            if try availability(url) != .remote { return }
+            let state = try availability(url)
+            if state != .remote && (!requireCurrent || state != .cached) { return }
         }
         throw DownloadError.unavailable
     }

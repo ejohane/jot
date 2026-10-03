@@ -42,7 +42,8 @@ final class JotStore {
     let resources = LocalResourceSchemeHandler()
     private var pending: Task<Void, Never>?
     private var writer: JotWriter!
-    private let cloudNotebook = PhoneCloudNotebook()
+    private var writerGeneration = UUID()
+    private let cloudNotebook = NotebookCloudInventory()
     private var cloudURLs: [URL] = []
     private var index = NoteSearchIndex(root: nil)
     private let sessionURL: URL
@@ -55,7 +56,7 @@ final class JotStore {
         }
         cloudNotebook.onChange = { [weak self] urls in
             guard let self else { return }
-            self.cloudURLs = urls
+            self.cloudURLs = urls.filter { $0.pathExtension.lowercased() == "md" }
             self.preserveCloudConflicts()
             self.reconcileCloudNote()
             if self.showLibrary { Task { await self.refreshNotes() } }
@@ -100,7 +101,19 @@ final class JotStore {
         storageBusy = true
         webView?.endEditing(true)
         enqueue { [self] in
-            defer { storageBusy = false }
+            defer {
+                storageBusy = false
+                if ready { send(["version": 1, "type": "setEditingEnabled", "enabled": true]) }
+            }
+            do {
+                guard let webView, let captured = try await webView.evaluateJavaScript("window.JotNative?.lockAndSnapshot()") as? [String: Any],
+                      let text = captured["text"] as? String, let revision = captured["revision"] as? Int,
+                      revision >= session.revision else { throw CocoaError(.coderReadCorrupt) }
+                session.text = text
+                session.revision = revision
+                stateChanged(captured)
+                await writer.receive(snapshot, flushImmediately: true)
+            } catch { self.error = "Your editor couldn’t be prepared for transfer. Please try again."; return }
             guard await writer.flush(through: session.revision), let oldRoot = root else {
                 error = "Save your current jot before transferring the notebook."
                 return
@@ -109,7 +122,11 @@ final class JotStore {
             let destination: URL? = mode == .local ? localRoot : await Task.detached { NotebookStorage.cloudRoot() }.value
             guard let destination else { error = "iCloud Drive isn’t available. Check your iCloud settings and try again."; return }
             do {
-                try await Task.detached { try NotebookTransfer.copy(from: oldRoot, to: destination) }.value
+                let sourceFiles = storage == .iCloud ? try await NotebookCloudInventory.snapshot(root: oldRoot) : []
+                let destinationFiles = mode == .iCloud ? try await NotebookCloudInventory.snapshot(root: destination) : []
+                try await Task.detached {
+                    try await NotebookTransfer.copyPrepared(from: oldRoot, to: destination, cloudFiles: sourceFiles + destinationFiles)
+                }.value
                 if let active = session.active {
                     let sourcePath = URL(fileURLWithPath: active.path).resolvingSymlinksInPath().path
                     let prefix = oldRoot.resolvingSymlinksInPath().path + "/"
@@ -135,7 +152,12 @@ final class JotStore {
         persist()
         ready = false
         openingNotebook = true
-        writer = JotWriter(rootURL: root) { [weak self] event in self?.handle(event) }
+        let token = UUID()
+        writerGeneration = token
+        writer = JotWriter(rootURL: root) { [weak self] event in
+            guard let self, self.writerGeneration == token else { return }
+            self.handle(event)
+        }
         configured = true
         UserDefaults.standard.set(storage.rawValue, forKey: "storage")
         enqueue { [self] in
@@ -158,6 +180,7 @@ final class JotStore {
                 await updateActive()
                 ready = true
                 loadEditor()
+                send(["version": 1, "type": "setEditingEnabled", "enabled": true])
                 preserveCloudConflicts()
                 reconcileCloudNote()
             } catch { self.error = error.localizedDescription }
@@ -190,7 +213,11 @@ final class JotStore {
         stateChanged(body)
         persist()
         let value = snapshot
-        enqueue { [self] in await writer.receive(value, flushImmediately: true); await updateActive() }
+        let targetWriter = writer!
+        enqueue { [self] in
+            await targetWriter.receive(value, flushImmediately: true)
+            if writer === targetWriter { await updateActive() }
+        }
     }
 
     func stateChanged(_ body: [String: Any]) {

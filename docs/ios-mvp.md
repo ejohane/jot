@@ -210,3 +210,17 @@ Evidence:
 - Production Mac packaging/signing and Simulator build succeed.
 
 Outstanding: Mac cloud-only note discovery/open handling, transfer download readiness, actual iCloud provisioning/transport and all unproven manual phone/Mac acceptance flows.
+
+## Iteration 15 — 2026-10-03
+
+Moved phone cloud inventory into a shared NotebookCloudInventory. It inventories all visible files in the selected notebook, while the phone library still filters Markdown and requests only Markdown downloads automatically. A bounded initial-gathering snapshot supports transfers on both platforms. Transfers gather cloud source/destination paths, require those paths to be current, and complete preparation before beginning destination writes. Cached stale copies remain usable for ordinary editing but cannot satisfy transfer readiness. Sources remain retained backups.
+
+Phone transfer now captures and locks the editor before flushing, including hardware/native formatting input. Queued saves retain their original writer, and old writer events cannot update a newly configured notebook. Editing resumes after destination restoration, or immediately after a failed transfer.
+
+Evidence:
+
+- Full Swift suite: 93 executed, 1 skipped, 0 failures. New tests verify unavailable cloud content aborts before creating the destination, downloaded attachment bytes enter the transfer and remain at the source, and stale cached copies cannot satisfy strict readiness.
+- Final Simulator build and standard Mac packaging/signing succeed.
+- Metadata inventory transport, strict download readiness and native phone transfer handoff remain unverified against provisioned iCloud/on-device UI. The snapshot covers inventory known at gathering time; retained source backups protect later remote arrivals.
+
+Outstanding: Mac cloud-only library discovery/open handling, current signing/account setup and physical/manual acceptance checks.

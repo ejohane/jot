@@ -731,7 +731,11 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 }
                 let current = await writer.currentJot()
                 if let oldRoot {
-                    try await Task.detached { try NotebookTransfer.copy(from: oldRoot, to: choice.url) }.value
+                    let sourceFiles = session.storage == .iCloud ? try await NotebookCloudInventory.snapshot(root: oldRoot) : []
+                    let destinationFiles = storage == .iCloud ? try await NotebookCloudInventory.snapshot(root: choice.url) : []
+                    try await Task.detached {
+                        try await NotebookTransfer.copyPrepared(from: oldRoot, to: choice.url, cloudFiles: sourceFiles + destinationFiles)
+                    }.value
                 }
                 var nextSession = session
                 if let current, let oldRoot {
