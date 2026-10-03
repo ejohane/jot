@@ -24,6 +24,9 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     private var session: PersistedSession
     private var rootURL: URL?
     private var notebookPresenter: NotebookPresenter?
+    private let cloudInventory = NotebookCloudInventory()
+    private var cloudNoteURLs: [URL] = []
+    private var latestNoteSearch: (query: String, requestID: Int)?
     private var notebookRefreshTask: Task<Void, Never>?
     private var notebookRefreshPending = false
     private var notebookWatcherGeneration = UUID()
@@ -332,6 +335,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     func editorRequestedNoteSearch(query: String, requestID: Int, refresh: Bool) {
+        latestNoteSearch = (query, requestID)
         let currentID = session.activeJot?.id
         let currentText = session.recoveryText
         noteSearchTask?.cancel()
@@ -341,9 +345,10 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             return
         }
         noteSearchTask = Task {
-            guard let results = await noteSearchIndex.search(query: query, refresh: refresh, currentID: currentID, currentText: currentText), !Task.isCancelled else { return }
+            guard let results = await noteSearchIndex.search(query: query, refresh: refresh, currentID: currentID, currentText: currentText, discoveredURLs: cloudNoteURLs), !Task.isCancelled else { return }
             panelController.send([
                 "version": 1, "type": "noteSearchResults", "requestID": requestID,
+                "message": await noteSearchIndex.pendingDownloadCount() > 0 ? "Some iCloud jots are awaiting download. Search updates as their text arrives." : "",
                 "results": results.map { result in [
                     "id": result.id, "timestamp": Int(result.timestamp.timeIntervalSince1970 * 1_000),
                     "title": result.title, "excerpt": result.excerpt,
@@ -355,6 +360,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     func editorActionPanelChanged(visible: Bool) {
+        if !visible { latestNoteSearch = nil }
         panelController.applyActionPanelVisibility(visible)
         if visible { sendActionState() }
     }
@@ -445,6 +451,9 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             let searchEntry = await noteSearchIndex.entry(id: id)
             guard let entry = railEntry ?? searchEntry else { return }
             do {
+                if session.storage == .iCloud {
+                    try await Task.detached { try await NotebookCloudFile.prepare(URL(fileURLWithPath: entry.path)) }.value
+                }
                 let result = try await writer.openExisting(id: id, path: entry.path, through: revision)
                 let source = currentLocation
                 let destination = NoteLocation.note(id)
@@ -468,9 +477,10 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 sendLoadSession(text: result.text)
             } catch {
                 if !(await writer.hasBlockingError) {
-                    let message = (error as? PersistenceError) == .activeFileMissing
-                        ? "This jot is no longer available."
-                        : "Could not switch notes. Save the current jot and try again."
+                    let message: String
+                    if error is NotebookCloudFile.DownloadError { message = error.localizedDescription }
+                    else if (error as? PersistenceError) == .activeFileMissing { message = "This jot is no longer available." }
+                    else { message = "Could not switch notes. Save the current jot and try again." }
                     sendError(message: message, actions: [])
                 }
                 await refreshRail()
@@ -761,8 +771,8 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 try await sessionStore.save(nextSession, generation: sessionGeneration)
                 _ = rootAccess.setRoot(choice.url)
                 rootURL = choice.url
-                configureNotebookPresenter()
                 session = nextSession
+                configureNotebookPresenter()
                 if let replacementWriter { writer = replacementWriter }
                 else { await writer.configureRoot(choice.url) }
                 let flushed = await writer.flush(through: latestRevision)
@@ -1097,6 +1107,13 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         notebookRefreshTask?.cancel()
         notebookRefreshTask = nil
         notebookRefreshPending = false
+        cloudNoteURLs = []
+        cloudInventory.onChange = { [weak self] urls in
+            guard let self else { return }
+            self.cloudNoteURLs = urls.filter { $0.pathExtension.lowercased() == "md" }
+            self.requestNotebookRefresh()
+        }
+        cloudInventory.configure(root: session.storage == .iCloud ? rootURL : nil)
         guard let rootURL else { return }
         notebookPresenter = NotebookPresenter(root: rootURL) { [weak self] in self?.requestNotebookRefresh() }
     }
@@ -1116,6 +1133,9 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 await self.reconcileNotebookNote()
                 await self.refreshRail()
                 await self.refreshTags(force: true)
+                if let search = self.latestNoteSearch {
+                    self.editorRequestedNoteSearch(query: search.query, requestID: search.requestID, refresh: true)
+                }
             }
         }
     }
@@ -1137,7 +1157,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             }
             cloudConflictScanRunning = false
         }
-        guard let entries = await noteRailIndex.refresh() else { return }
+        guard let entries = await noteRailIndex.refresh(discoveredURLs: cloudNoteURLs) else { return }
         railNoteIDs = Set(entries.map(\.id))
         latestRailID = entries.first?.id
         sendActionState()

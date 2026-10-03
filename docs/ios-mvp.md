@@ -224,3 +224,16 @@ Evidence:
 - Metadata inventory transport, strict download readiness and native phone transfer handoff remain unverified against provisioned iCloud/on-device UI. The snapshot covers inventory known at gathering time; retained source backups protect later remote arrivals.
 
 Outstanding: Mac cloud-only library discovery/open handling, current signing/account setup and physical/manual acceptance checks.
+
+## Iteration 16 — 2026-10-03
+
+Connected shared cloud inventory to Mac navigation and full-text search. Cloud-only Jot paths become navigable rail entries, and known downloaded paths replace placeholders without duplicates. Open waits for cloud preparation before reading the selected file. Inventory/file notifications refresh an open search; a pending-content status explains that full-text matches update after download. Root transfer configures inventory after committing the new storage mode. Rail previews avoid opening undownloaded content.
+
+Evidence:
+
+- Full Swift suite: 94 executed, 1 skipped, 0 failures. New coverage proves an absent cloud Jot has a navigation path and that downloaded content replaces its placeholder exactly once. Shared search coverage already verifies unknown text cannot produce matches and downloaded text becomes searchable.
+- Web suite: 106 passed. Production Mac packaging/signing and Simulator build succeed.
+- Retried the actual paired-device build: it fails with Xcode No Accounts and a wildcard profile lacking Jot’s iCloud/container entitlements. This iteration was not installed on the iPhone.
+- Live iPhone Mirroring inspection still shows the Touch ID lock.
+
+Outstanding: provisioned iCloud container/path validation, real Mac–phone/offline/conflict/transfer tests, manual phone capture/restoration/search/images/dictation and Mac local regression, plus remaining accessibility/hardware-keyboard/launch audits. No acceptance boxes are closed by these builds alone.
