@@ -65,18 +65,12 @@ struct NotebookTransfer {
         for item in plan {
             let data = try read(item.source)
             try manager.createDirectory(at: item.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-            var coordinationError: NSError?
-            var writeError: (any Error)?
-            NSFileCoordinator().coordinate(writingItemAt: item.destination, options: [], error: &coordinationError) { url in
-                do {
-                    // Recheck under coordination: iCloud or another writer may have changed it since preflight.
-                    if manager.fileExists(atPath: url.path) {
-                        guard try Data(contentsOf: url) == data else { throw NotebookTransferError.conflictingFile(item.relative) }
-                    } else { try LocalJotFileSystem().writeAtomically(data, to: url) }
-                } catch { writeError = error }
+            if manager.fileExists(atPath: item.destination.path) {
+                guard try read(item.destination) == data else { throw NotebookTransferError.conflictingFile(item.relative) }
+            } else {
+                do { try LocalJotFileSystem().writeIfUnchanged(data, to: item.destination, expected: nil) }
+                catch PersistenceError.externalConflict { throw NotebookTransferError.conflictingFile(item.relative) }
             }
-            if let coordinationError { throw coordinationError }
-            if let writeError { throw writeError }
         }
     }
 

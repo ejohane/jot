@@ -202,7 +202,10 @@ actor JotWriter {
         let previousWrittenData = lastWrittenData
         let previousFileWasMissing = activeFileWasMissing
         let allocation = allocator.allocate(root: rootURL, at: now())
-        activeJot = ActiveJot(id: allocation.id, path: allocation.fileURL.path, acknowledgedRevision: -1)
+        // Keep the same base directory so the copy's relative attachment links remain portable.
+        let copyURL = previousJot.map { URL(fileURLWithPath: $0.path).deletingLastPathComponent()
+            .appendingPathComponent(allocation.fileURL.lastPathComponent) } ?? allocation.fileURL
+        activeJot = ActiveJot(id: allocation.id, path: copyURL.path, acknowledgedRevision: -1)
         lastWrittenData = nil
         activeFileWasMissing = false
         hasBlockingError = false
@@ -299,22 +302,8 @@ actor JotWriter {
                 conflict(jot: jot, revision: snapshot.revision, error: .activeFileMissing)
                 return
             }
-            if let lastWrittenData {
-                guard fileSystem.fileExists(at: fileURL) else {
-                    conflict(jot: jot, revision: snapshot.revision, error: .activeFileMissing)
-                    return
-                }
-                guard try fileSystem.data(at: fileURL) == lastWrittenData else {
-                    conflict(jot: jot, revision: snapshot.revision, error: .externalConflict)
-                    return
-                }
-            } else if fileSystem.fileExists(at: fileURL) {
-                conflict(jot: jot, revision: snapshot.revision, error: .externalConflict)
-                return
-            }
-
             let data = Data(snapshot.text.utf8)
-            try fileSystem.writeAtomically(data, to: fileURL)
+            try fileSystem.writeIfUnchanged(data, to: fileURL, expected: lastWrittenData)
             lastWrittenData = data
             jot.acknowledgedRevision = snapshot.revision
             activeJot = jot
@@ -322,6 +311,8 @@ actor JotWriter {
             Task { @MainActor [eventHandler] in
                 eventHandler(.writeSucceeded(id: jot.id, revision: snapshot.revision))
             }
+        } catch let failure as PersistenceError where failure == .externalConflict || failure == .activeFileMissing {
+            conflict(jot: jot, revision: snapshot.revision, error: failure)
         } catch {
             fail(snapshot, error: .writeFailed(error.localizedDescription))
         }

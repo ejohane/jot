@@ -88,8 +88,9 @@ struct JotRootView: View {
         .background(Color(uiColor: .systemBackground))
         .sheet(isPresented: $store.showSettings) { JotStorageSettings(store: store) }
         .fullScreenCover(isPresented: $store.showLibrary, onDismiss: { store.focus() }) { JotLibraryView(store: store) }
-        .alert("Your writing is protected", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
-            Button("OK") { store.error = nil }
+        .alert("Jot", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
+            if store.hasConflict { Button("Keep Both Versions") { store.preserveBothVersions() } }
+            Button(store.hasConflict ? "Keep Editing" : "OK", role: .cancel) { store.error = nil }
         } message: { Text(store.error ?? "") }
     }
 }

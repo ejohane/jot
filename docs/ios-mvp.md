@@ -59,3 +59,17 @@ Evidence:
 - Requested Xcode Apple Developer account setup and physical review unlock from the user.
 
 Outstanding: actual iCloud container availability, Mac integration, coordinated notebook edits/conflict preservation, cloud download/reconciliation, phone storage-transfer UI and live Mac–phone/offline sync evidence. Simulator compilation and local-directory transfer tests do not prove iCloud sync.
+
+## Iteration 4 — 2026-10-02
+
+Moved the expected-file comparison and replacement into one coordinated write for the production filesystem, shared by Mac and phone. Concurrent cooperating writers cannot both replace the same baseline. Removed transfer's nested coordination lock exposed by the regression suite. Added a phone Keep Both Versions action that saves local writing separately while retaining the external version. Conflict copies keep the original base directory so existing relative attachment links remain usable across date boundaries.
+
+Evidence:
+
+- Shared Swift suite: 68 executed, 1 skipped, 0 failures.
+- New tests exercise two concurrent real-filesystem writers sharing one baseline, missing/existing-file protection, and an old-date conflict copy with a relative image link.
+- Existing external-conflict, failed-copy, missing-file and attachment tests pass.
+- Atomic-write performance gate passes; observed allocation p95 ~1.79 ms and replacement p95 ~1.63 ms for 1,000 local writes.
+- Simulator build succeeds.
+
+Keep Both Versions is implemented but not manually exercised. This does not verify iCloud conflict-version delivery, offline sync, or the physical phone flow. Mac storage UI and cloud reconciliation remain outstanding.

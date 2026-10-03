@@ -20,6 +20,7 @@ final class JotStore {
     var configured = false
     var ready = false
     var error: String?
+    var hasConflict = false
     var notes: [NoteSearchResult] = []
     var query = ""
     var showLibrary = false
@@ -231,6 +232,20 @@ final class JotStore {
         imagePreview = PhoneImagePreview(image: image)
     }
 
+    func preserveBothVersions() {
+        enqueue { [self] in
+            guard let copy = await writer.saveCurrentVersionAsCopy() else {
+                error = "Your version couldn’t be saved as a separate jot. Your recovery copy is still protected. Please try again."
+                return
+            }
+            session.active = copy
+            hasConflict = false
+            error = nil
+            persist()
+            loadEditor()
+        }
+    }
+
     func flush() { enqueue { [self] in _ = await writer?.flush(); await updateActive() } }
     func focus() { webView?.evaluateJavaScript("document.querySelector('.cm-content')?.focus()") }
     func send(_ payload: [String: Any]) {
@@ -264,7 +279,7 @@ final class JotStore {
             let jot = ActiveJot(id: id, path: path, acknowledgedRevision: revision)
             send(["version": 1, "type": "noteAllocated", "noteID": id, "path": path, "revision": revision, "baseURL": baseURL(jot)])
         case let .writeSucceeded(id, revision): send(["version": 1, "type": "writeSucceeded", "noteID": id, "revision": revision])
-        case .externalConflict: error = "This jot changed elsewhere. Your writing is kept in the recovery copy."
+        case .externalConflict: hasConflict = true; error = "This jot changed elsewhere. Your writing is kept in the recovery copy."
         case let .writeFailed(_, _, failure): error = "Your writing couldn’t be saved (\(failure.code)). It remains in the recovery copy."
         default: break
         }
