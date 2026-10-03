@@ -297,3 +297,9 @@ Observed runtime report from process 46054: editor exists, size 402×655 in a 40
 Observed native Jots library opening from the editor through CUA. Its empty-state message and search field are visible. Capture input remains unproven: paste timed out waiting for clipboard consumption; typing before and after Simulator Send Keyboard Input to Device produced no visible text. Coordinate Done did not dismiss the library. These unchanged states limit the UI automation evidence; they do not establish an editor defect or successful capture.
 
 Read the Simulator app's actual data container: Documents contains no Markdown files and the recovery journal remains local storage, revision 0, empty text. Therefore the attempted input was not saved. No autosave/search/relaunch acceptance item is closed by this pass.
+
+## Physical signing and installation — 2026-10-03
+
+After the user signed in to Xcode, the current branch built successfully for the physical iPhone and devicectl confirmed installation of com.erikjohansson.Jot.ios. Inspected the signed app entitlements: team TRA7965NM5, CloudDocuments, and iCloud.com.erikjohansson.Jot container identifiers are present.
+
+Launch failed because iOS reported the device locked (FBSOpenApplicationErrorDomain 7). CUA inspected iPhone Mirroring and observed its Touch ID/Mac login lock. Build and installation are proven; launch and all physical interaction/sync acceptance remain unproven pending unlock. The combined build/install/launch checkbox remains open.
