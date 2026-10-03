@@ -21,19 +21,59 @@ struct JotRootView: View {
     @Bindable var store: JotStore
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var photoLoadToken: UUID?
+    private var navigationDisabled: Bool {
+        !store.canEdit || store.importingImage || store.storageBusy || store.reconciling || store.dictation.active
+    }
+    @ToolbarContentBuilder
+    private var editorToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button("Jots", systemImage: "list.bullet") { store.openLibrary() }
+                .disabled(navigationDisabled)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button("New Jot", systemImage: "square.and.pencil") { store.newJot() }
+                .labelStyle(.iconOnly)
+                .keyboardShortcut("n", modifiers: .command)
+                .disabled(navigationDisabled)
+        }
+        ToolbarItemGroup(placement: .bottomBar) {
+
+            Button { store.send(["version": 1, "type": "toggleFormat", "format": "bold"]) } label: { Image(systemName: "bold") }
+                .accessibilityLabel("Bold")
+                .disabled(!store.canEdit || store.storageBusy || store.reconciling)
+            Button { store.send(["version": 1, "type": "toggleFormat", "format": "italic"]) } label: { Image(systemName: "italic") }
+                .accessibilityLabel("Italic")
+                .disabled(!store.canEdit || store.storageBusy || store.reconciling)
+            PhotosPicker(selection: Binding(get: { pickedPhoto }, set: { value in
+                if let token = photoLoadToken { store.cancelPhotoLoad(token) }
+                photoLoadToken = value == nil ? nil : store.beginPhotoLoad()
+                pickedPhoto = photoLoadToken == nil ? nil : value
+            }), matching: .images) {
+                Image(systemName: "photo")
+            }.accessibilityLabel("Add image").disabled(!store.canEdit || store.importingImage || store.storageBusy || store.reconciling || store.dictation.active)
+            if store.dictation.active {
+                Button { store.dictation.finish() } label: { Image(systemName: "checkmark") }
+                    .accessibilityLabel("Keep dictation").disabled(!store.canEdit || store.storageBusy || store.reconciling || store.dictation.state != .recording)
+                Button { store.dictation.cancel() } label: { Image(systemName: "xmark") }
+                    .accessibilityLabel("Cancel dictation")
+                .disabled(!store.canEdit || store.storageBusy || store.reconciling)
+            } else {
+                Button { store.toggleDictation() } label: { Image(systemName: "mic") }
+                    .accessibilityLabel("Start dictation").disabled(!store.canEdit || store.importingImage || store.storageBusy || store.reconciling)
+            }
+            Spacer()
+            if store.dictation.state == .preparing || store.dictation.state == .finishing { ProgressView().controlSize(.small) }
+            if store.importingImage { ProgressView().controlSize(.small) }
+            Button { store.webView?.endEditing(true) } label: { Image(systemName: "keyboard.chevron.compact.down") }
+                .accessibilityLabel("Dismiss keyboard")
+                .disabled(!store.canEdit || store.storageBusy || store.reconciling)
+        }
+    }
+
     var body: some View {
         Group {
             if store.configured {
-                VStack(spacing: 0) {
-                    HStack {
-                        Button("Jots", systemImage: "line.3.horizontal") { store.openLibrary() }.disabled(!store.canEdit || store.importingImage || store.storageBusy || store.reconciling || store.dictation.active)
-                        Spacer()
-                        Button("New Jot", systemImage: "square.and.pencil") { store.newJot() }
-                            .keyboardShortcut("n", modifiers: .command)
-                            .disabled(!store.canEdit || store.importingImage || store.storageBusy || store.reconciling || store.dictation.active)
-                    }
-                    .font(.subheadline.weight(.medium))
-                    .padding(.horizontal, 22).padding(.vertical, 14)
+                NavigationStack {
                     PhoneEditor(store: store).allowsHitTesting(store.canEdit && !store.storageBusy && !store.reconciling)
                         .overlay {
                             if !store.canEdit {
@@ -43,34 +83,10 @@ struct JotRootView: View {
                                 }.padding(24).background(Color(uiColor: .systemBackground))
                             }
                         }
-                    HStack(spacing: 4) {
-                        Button { store.send(["version": 1, "type": "toggleFormat", "format": "bold"]) } label: { Image(systemName: "bold").frame(width: 44, height: 44) }
-                            .accessibilityLabel("Bold")
-                        Button { store.send(["version": 1, "type": "toggleFormat", "format": "italic"]) } label: { Image(systemName: "italic").frame(width: 44, height: 44) }
-                            .accessibilityLabel("Italic")
-                        PhotosPicker(selection: Binding(get: { pickedPhoto }, set: { value in
-                            if let token = photoLoadToken { store.cancelPhotoLoad(token) }
-                            photoLoadToken = value == nil ? nil : store.beginPhotoLoad()
-                            pickedPhoto = photoLoadToken == nil ? nil : value
-                        }), matching: .images) {
-                            Image(systemName: "photo").frame(width: 44, height: 44)
-                        }.accessibilityLabel("Add image").disabled(!store.canEdit || store.importingImage || store.storageBusy || store.reconciling || store.dictation.active)
-                        if store.dictation.active {
-                            Button { store.dictation.finish() } label: { Image(systemName: "checkmark").frame(width: 44, height: 44) }
-                                .accessibilityLabel("Keep dictation").disabled(store.dictation.state != .recording)
-                            Button { store.dictation.cancel() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
-                                .accessibilityLabel("Cancel dictation")
-                        } else {
-                            Button { store.toggleDictation() } label: { Image(systemName: "mic").frame(width: 44, height: 44) }
-                                .accessibilityLabel("Start dictation").disabled(store.importingImage || store.storageBusy)
-                        }
-                        Spacer()
-                        if store.dictation.state == .preparing || store.dictation.state == .finishing { ProgressView().controlSize(.small) }
-                        if store.importingImage { ProgressView().controlSize(.small) }
-                        Button { store.webView?.endEditing(true) } label: { Image(systemName: "keyboard.chevron.compact.down").frame(width: 44, height: 44) }
-                            .accessibilityLabel("Dismiss keyboard")
-                    }.font(.system(size: 17)).padding(.horizontal, 16).padding(.vertical, 4)
-                        .disabled(!store.canEdit || store.storageBusy || store.reconciling)
+                        .navigationTitle("Jot")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar { editorToolbar }
+                        .toolbarBackground(.visible, for: .bottomBar)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 24) {
@@ -115,7 +131,6 @@ struct JotRootView: View {
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { store.imagePreview = nil } } }
             }
         }
-        .tint(Color.primary)
         .background(Color(uiColor: .systemBackground))
         .sheet(isPresented: $store.showSettings) { JotStorageSettings(store: store) }
         .fullScreenCover(isPresented: $store.showLibrary, onDismiss: { store.focus() }) { JotLibraryView(store: store) }

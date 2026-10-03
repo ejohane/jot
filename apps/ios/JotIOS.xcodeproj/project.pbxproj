@@ -19,6 +19,7 @@
 		743858E817785DBBD5DCF549 /* JotPathAllocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91F858A491EAFDEC9508D18F /* JotPathAllocator.swift */; };
 		76B9748A68E58D32FBE0B9DB /* ULID.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66544264B904A5FEEF7E5881 /* ULID.swift */; };
 		7DFE215F11E6EE887EF5CB78 /* NotebookCloudInventory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E2F8C5E776E6175B0F57B54 /* NotebookCloudInventory.swift */; };
+		7E500BC446D389FDB3D9100C /* AppContainerNotePath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70BC150176EC42F2A3C6E204 /* AppContainerNotePath.swift */; };
 		7F00A0C50FB2554C15CAA05C /* JotWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA233786EA7A57D7051F45BB /* JotWriter.swift */; };
 		7F0C113246135CE3DB25C08A /* NoteSearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A6DCBD6681DA294DB237331 /* NoteSearchIndex.swift */; };
 		9B53C08BFEE0FF0C46F56952 /* TagIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD4EA89BE2B54A2EB8ADAE03 /* TagIndex.swift */; };
@@ -42,6 +43,7 @@
 		4E2F8C5E776E6175B0F57B54 /* NotebookCloudInventory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotebookCloudInventory.swift; sourceTree = "<group>"; };
 		66544264B904A5FEEF7E5881 /* ULID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ULID.swift; sourceTree = "<group>"; };
 		708873236499D04E946BFCFB /* PhoneEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneEditor.swift; sourceTree = "<group>"; };
+		70BC150176EC42F2A3C6E204 /* AppContainerNotePath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainerNotePath.swift; sourceTree = "<group>"; };
 		7152B88C332BFECD62196C29 /* NotebookStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotebookStorage.swift; sourceTree = "<group>"; };
 		729063AE400D5214F0838183 /* JotModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JotModels.swift; sourceTree = "<group>"; };
 		7EAF7BD2A85D8D5BFC53B4ED /* PhoneDictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneDictation.swift; sourceTree = "<group>"; };
@@ -94,6 +96,7 @@
 		E7E60931630255B71B455D02 /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				70BC150176EC42F2A3C6E204 /* AppContainerNotePath.swift */,
 				BE6DFEF0570A055C98D5A22B /* AtomicFileSystem.swift */,
 				490A800820E242AED47A58C5 /* InlineTags.swift */,
 				729063AE400D5214F0838183 /* JotModels.swift */,
@@ -195,6 +198,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7E500BC446D389FDB3D9100C /* AppContainerNotePath.swift in Sources */,
 				2F4406D3BA2D6D43C13EC3C2 /* AtomicFileSystem.swift in Sources */,
 				328ADD316A524BB5989AB037 /* InlineTags.swift in Sources */,
 				2876C82820A5EDEE6C07EB35 /* JotApp.swift in Sources */,

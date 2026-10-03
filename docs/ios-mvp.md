@@ -311,3 +311,9 @@ The user's physical screenshot showed PersistenceError 3. Verified Swift bridgin
 Local session configuration now relocates an app-container note path to the current Documents/Jots before restoration. The note ID and acknowledged revision are preserved by relocation. Arbitrary paths are rejected. PersistenceError now supplies readable localized descriptions.
 
 Final Swift suite: 97 executed, 1 skipped, 0 failures. Final signed physical build, installation and devicectl launch succeeded. Subsequent journal inspection points into the current container and contains a different, newly allocated jot (31 acknowledged revisions); therefore it cannot be used as a before/after text-preservation comparison. No note text is recorded here. iPhone Mirroring remains locked, so visible restoration/capture acceptance remains open.
+
+## Native iOS chrome — 2026-10-03
+
+Replaced the custom editor header and bottom HStack with NavigationStack, native top-bar Jots/compose actions and a system bottom toolbar. Removed the forced primary tint so platform toolbar treatment applies. Formatting, photos, dictation and keyboard dismissal retain their actions and busy-state guards.
+
+Simulator build succeeded; observed native circular top actions, centered Jot title and grouped bottom formatting controls with separate keyboard dismissal. Signed physical build, installation and devicectl launch succeeded. Keyboard-visible toolbar placement and physical interactions remain to be observed; this layout screenshot alone does not close those checks.
