@@ -36,12 +36,15 @@ struct JotRootView: View {
                 .keyboardShortcut("n", modifiers: .command)
                 .disabled(navigationDisabled)
         }
-        ToolbarItemGroup(placement: .bottomBar) {
+    }
 
-            Button { store.send(["version": 1, "type": "toggleFormat", "format": "bold"]) } label: { Image(systemName: "bold") }
+    private var keyboardControls: some View {
+        HStack(spacing: 4) {
+
+            Button { store.send(["version": 1, "type": "toggleFormat", "format": "bold"]) } label: { Image(systemName: "bold").frame(width: 44, height: 44) }
                 .accessibilityLabel("Bold")
                 .disabled(!store.canEdit || store.storageBusy || store.reconciling)
-            Button { store.send(["version": 1, "type": "toggleFormat", "format": "italic"]) } label: { Image(systemName: "italic") }
+            Button { store.send(["version": 1, "type": "toggleFormat", "format": "italic"]) } label: { Image(systemName: "italic").frame(width: 44, height: 44) }
                 .accessibilityLabel("Italic")
                 .disabled(!store.canEdit || store.storageBusy || store.reconciling)
             PhotosPicker(selection: Binding(get: { pickedPhoto }, set: { value in
@@ -49,25 +52,31 @@ struct JotRootView: View {
                 photoLoadToken = value == nil ? nil : store.beginPhotoLoad()
                 pickedPhoto = photoLoadToken == nil ? nil : value
             }), matching: .images) {
-                Image(systemName: "photo")
+                Image(systemName: "photo").frame(width: 44, height: 44)
             }.accessibilityLabel("Add image").disabled(!store.canEdit || store.importingImage || store.storageBusy || store.reconciling || store.dictation.active)
             if store.dictation.active {
-                Button { store.dictation.finish() } label: { Image(systemName: "checkmark") }
+                Button { store.dictation.finish() } label: { Image(systemName: "checkmark").frame(width: 44, height: 44) }
                     .accessibilityLabel("Keep dictation").disabled(!store.canEdit || store.storageBusy || store.reconciling || store.dictation.state != .recording)
-                Button { store.dictation.cancel() } label: { Image(systemName: "xmark") }
+                Button { store.dictation.cancel() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
                     .accessibilityLabel("Cancel dictation")
                 .disabled(!store.canEdit || store.storageBusy || store.reconciling)
             } else {
-                Button { store.toggleDictation() } label: { Image(systemName: "mic") }
+                Button { store.toggleDictation() } label: { Image(systemName: "mic").frame(width: 44, height: 44) }
                     .accessibilityLabel("Start dictation").disabled(!store.canEdit || store.importingImage || store.storageBusy || store.reconciling)
             }
             Spacer()
             if store.dictation.state == .preparing || store.dictation.state == .finishing { ProgressView().controlSize(.small) }
             if store.importingImage { ProgressView().controlSize(.small) }
-            Button { store.webView?.endEditing(true) } label: { Image(systemName: "keyboard.chevron.compact.down") }
+            Button { store.webView?.endEditing(true) } label: { Image(systemName: "keyboard.chevron.compact.down").frame(width: 44, height: 44) }
                 .accessibilityLabel("Dismiss keyboard")
                 .disabled(!store.canEdit || store.storageBusy || store.reconciling)
         }
+        .buttonStyle(.borderless)
+        .font(.body)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
     }
 
     var body: some View {
@@ -86,7 +95,7 @@ struct JotRootView: View {
                         .navigationTitle("Jot")
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar { editorToolbar }
-                        .toolbarBackground(.visible, for: .bottomBar)
+                        .safeAreaInset(edge: .bottom, spacing: 0) { keyboardControls }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 24) {

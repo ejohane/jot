@@ -317,3 +317,9 @@ Final Swift suite: 97 executed, 1 skipped, 0 failures. Final signed physical bui
 Replaced the custom editor header and bottom HStack with NavigationStack, native top-bar Jots/compose actions and a system bottom toolbar. Removed the forced primary tint so platform toolbar treatment applies. Formatting, photos, dictation and keyboard dismissal retain their actions and busy-state guards.
 
 Simulator build succeeded; observed native circular top actions, centered Jot title and grouped bottom formatting controls with separate keyboard dismissal. Signed physical build, installation and devicectl launch succeeded. Keyboard-visible toolbar placement and physical interactions remain to be observed; this layout screenshot alone does not close those checks.
+
+## Keyboard-visible controls — 2026-10-03
+
+User reported system bottom-toolbar controls disappeared when the keyboard opened. Replaced that placement with a bottom safeAreaInset that participates in SwiftUI keyboard avoidance. Formatting/photo/dictation/dismiss controls use native buttons with 44-point hit targets and system bar material; top navigation remains native. This is a keyboard-following safe-area bar, not a WKWebView private accessory override.
+
+Signed device build, installation and launch succeeded. iPhone Mirroring remains locked; actual keyboard-visible placement awaits visual confirmation. No keyboard acceptance checkbox is closed from build success alone.
