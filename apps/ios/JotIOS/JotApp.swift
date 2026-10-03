@@ -20,24 +20,25 @@ struct JotPhoneApp: App {
 struct JotRootView: View {
     @Bindable var store: JotStore
     @State private var pickedPhoto: PhotosPickerItem?
+    @State private var photoLoadToken: UUID?
     var body: some View {
         Group {
             if store.configured {
                 VStack(spacing: 0) {
                     HStack {
-                        Button("Jots", systemImage: "line.3.horizontal") { store.openLibrary() }.disabled(!store.ready || store.importingImage || store.storageBusy || store.reconciling || store.dictation.active)
+                        Button("Jots", systemImage: "line.3.horizontal") { store.openLibrary() }.disabled(!store.canEdit || store.importingImage || store.storageBusy || store.reconciling || store.dictation.active)
                         Spacer()
                         Button("New Jot", systemImage: "square.and.pencil") { store.newJot() }
                             .keyboardShortcut("n", modifiers: .command)
-                            .disabled(!store.ready || store.importingImage || store.storageBusy || store.reconciling || store.dictation.active)
+                            .disabled(!store.canEdit || store.importingImage || store.storageBusy || store.reconciling || store.dictation.active)
                     }
                     .font(.subheadline.weight(.medium))
                     .padding(.horizontal, 22).padding(.vertical, 14)
-                    PhoneEditor(store: store).allowsHitTesting(store.ready && !store.storageBusy && !store.reconciling)
+                    PhoneEditor(store: store).allowsHitTesting(store.canEdit && !store.storageBusy && !store.reconciling)
                         .overlay {
-                            if !store.ready {
+                            if !store.canEdit {
                                 VStack(spacing: 16) {
-                                    if store.openingNotebook { ProgressView("Opening your notebook…") }
+                                    if store.openingNotebook || (!store.editorLoaded && !store.editorLoadFailed) { ProgressView("Opening your notebook…") }
                                     else { Button("Try Opening Again") { store.retryOpeningNotebook() } }
                                 }.padding(24).background(Color(uiColor: .systemBackground))
                             }
@@ -47,9 +48,13 @@ struct JotRootView: View {
                             .accessibilityLabel("Bold")
                         Button { store.send(["version": 1, "type": "toggleFormat", "format": "italic"]) } label: { Image(systemName: "italic").frame(width: 44, height: 44) }
                             .accessibilityLabel("Italic")
-                        PhotosPicker(selection: $pickedPhoto, matching: .images) {
+                        PhotosPicker(selection: Binding(get: { pickedPhoto }, set: { value in
+                            if let token = photoLoadToken { store.cancelPhotoLoad(token) }
+                            photoLoadToken = value == nil ? nil : store.beginPhotoLoad()
+                            pickedPhoto = photoLoadToken == nil ? nil : value
+                        }), matching: .images) {
                             Image(systemName: "photo").frame(width: 44, height: 44)
-                        }.accessibilityLabel("Add image").disabled(!store.ready || store.importingImage || store.storageBusy || store.reconciling || store.dictation.active)
+                        }.accessibilityLabel("Add image").disabled(!store.canEdit || store.importingImage || store.storageBusy || store.reconciling || store.dictation.active)
                         if store.dictation.active {
                             Button { store.dictation.finish() } label: { Image(systemName: "checkmark").frame(width: 44, height: 44) }
                                 .accessibilityLabel("Keep dictation").disabled(store.dictation.state != .recording)
@@ -65,7 +70,7 @@ struct JotRootView: View {
                         Button { store.webView?.endEditing(true) } label: { Image(systemName: "keyboard.chevron.compact.down").frame(width: 44, height: 44) }
                             .accessibilityLabel("Dismiss keyboard")
                     }.font(.system(size: 17)).padding(.horizontal, 16).padding(.vertical, 4)
-                        .disabled(!store.ready || store.storageBusy || store.reconciling)
+                        .disabled(!store.canEdit || store.storageBusy || store.reconciling)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 24) {
@@ -84,15 +89,20 @@ struct JotRootView: View {
             }
         }
         .task(id: pickedPhoto) {
-            guard let pickedPhoto else { return }
+            guard let pickedPhoto, let token = photoLoadToken else { return }
+            defer {
+                store.cancelPhotoLoad(token)
+                if photoLoadToken == token { self.pickedPhoto = nil; photoLoadToken = nil }
+            }
             do {
                 guard let data = try await pickedPhoto.loadTransferable(type: Data.self) else {
-                    store.error = "This photo couldn’t be opened. Please choose it again."
+                    if !Task.isCancelled, store.isCurrentPhotoLoad(token) { store.error = "This photo couldn’t be opened. Please choose it again." }
                     return
                 }
-                store.insertPickedImage(data)
-            } catch { store.error = "This photo couldn’t be opened. Please choose it again." }
-            self.pickedPhoto = nil
+                try Task.checkCancellation()
+                store.finishPhotoLoad(data, token: token)
+            } catch is CancellationError { }
+            catch { if !Task.isCancelled, store.isCurrentPhotoLoad(token) { store.error = "This photo couldn’t be opened. Please choose it again." } }
         }
         .sheet(item: $store.imagePreview, onDismiss: { store.focus() }) { preview in
             NavigationStack {

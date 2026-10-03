@@ -53,7 +53,7 @@ struct PhoneEditor: UIViewRepresentable {
             switch type {
             case "editorReady":
                 if let view = store.webView { applyTextSize(to: view) }
-                store.loadEditor()
+                store.editorDidBecomeReady()
             case "showLibrary": store.openLibrary()
             case "importClipboardImage":
                 if let requestID = body["requestID"] as? String { store.importImage(requestID: requestID) }
@@ -73,7 +73,9 @@ struct PhoneEditor: UIViewRepresentable {
             default: break
             }
         }
-        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { store.dictation.interrupted(); webView.reload() }
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { store.editorWillReload(); webView.reload() }
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) { store.editorDidFail() }
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) { store.editorDidFail() }
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
             decisionHandler(["jot", "about"].contains(navigationAction.request.url?.scheme) ? .allow : .cancel)
         }

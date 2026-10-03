@@ -266,3 +266,16 @@ Evidence:
 - Native rejection of delayed callbacks and rapid New/open/typing transitions remain manually unverified; bridge tests alone do not prove their full WebKit ordering.
 
 Outstanding: phone editor readiness/photo-picker lifecycle audit and observed acceptance flows, plus the existing signing/Touch ID and live iCloud verification requirements.
+
+## Iteration 19 — 2026-10-03
+
+Phone controls now wait for both notebook recovery and the WebKit editor readiness handshake. Renderer reload/failure disables editing until recovery completes. Photo selection reserves its source editor session before asynchronous loading; cancellation and stale results cannot insert into a replacement jot or replace its error state.
+
+Interrupted imports discard only an uncommitted, empty allocation whose Markdown file does not exist. Staged image bytes remain available, and saved writing is preserved.
+
+Evidence:
+
+- Full Swift suite: 96 executed, 1 skipped, 0 failures. New tests exercise interrupted empty image capture and preservation of saved writing.
+- Simulator build succeeds; diff whitespace check passes.
+- Physical build could not find the paired iPhone destination. A separate generic-device signing check still fails (see local log `/tmp/jot-ready-signing.log`). No current physical install or launch is claimed.
+- WebKit readiness, photo-picker cancellation/reload, and the original phone/sync acceptance flows remain manually unverified.

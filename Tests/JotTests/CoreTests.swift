@@ -1091,6 +1091,30 @@ final class AttachmentTests: XCTestCase {
         XCTAssertEqual(try files.data(at: file), data)
     }
 
+    func testInterruptedImageImportDiscardsOnlyUncommittedEmptyCapture() async throws {
+        let files = InMemoryFileSystem()
+        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: files) { _ in }
+        let bytes = Data([1, 2, 3])
+        let imported = try await writer.importAttachment(bytes, fileExtension: "png")
+        let attachment = URL(fileURLWithPath: imported.jot.path).deletingLastPathComponent().appendingPathComponent(imported.relativePath)
+        await writer.discardUncommittedAttachmentCapture()
+        let active = await writer.currentJot()
+        XCTAssertNil(active)
+        XCTAssertFalse(files.fileExists(at: URL(fileURLWithPath: imported.jot.path)))
+        XCTAssertEqual(try files.data(at: attachment), bytes)
+    }
+
+    func testInterruptedImageImportDoesNotDiscardSavedWriting() async throws {
+        let files = InMemoryFileSystem()
+        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: files) { _ in }
+        let imported = try await writer.importAttachment(Data([1]), fileExtension: "png")
+        await writer.receive(EditorSnapshot(revision: 1, text: "Keep this", selection: .start, viewport: .top), flushImmediately: true)
+        await writer.discardUncommittedAttachmentCapture()
+        let active = await writer.currentJot()
+        XCTAssertEqual(active?.path, imported.jot.path)
+        XCTAssertEqual(try files.data(at: URL(fileURLWithPath: imported.jot.path)), Data("Keep this".utf8))
+    }
+
     func testFailedImportDoesNotAllocateNote() async {
         let files = InMemoryFileSystem()
         files.writeError = CocoaError(.fileWriteNoPermission)

@@ -124,6 +124,20 @@ actor JotWriter {
         return recoveryText
     }
 
+    func discardUncommittedAttachmentCapture() {
+        guard let jot = activeJot, jot.acknowledgedRevision < 0,
+              latestSnapshot?.text.isEmpty != false,
+              !fileSystem.fileExists(at: URL(fileURLWithPath: jot.path)) else { return }
+        idleTask?.cancel()
+        sustainedTask?.cancel()
+        activeJot = nil
+        latestSnapshot = nil
+        lastWrittenData = nil
+        activeFileWasMissing = false
+        hasBlockingError = false
+        // Retain staged attachment bytes; never delete the only imported copy during recovery.
+    }
+
     func acknowledgedState() -> (jot: ActiveJot?, data: Data?, blocked: Bool) {
         (activeJot, hasBlockingError ? nil : lastWrittenData, hasBlockingError)
     }

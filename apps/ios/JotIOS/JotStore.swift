@@ -20,6 +20,11 @@ final class JotStore {
     var showSettings = false
     var configured = false
     var ready = false
+    var editorLoaded = false
+    var editorLoadFailed = false
+    var canEdit: Bool { ready && editorLoaded }
+    private var photoLoadToken: UUID?
+    private var photoSourceSessionID: String?
     var openingNotebook = false
     var reconciling = false
     private var reconciliationQueued = false
@@ -98,7 +103,7 @@ final class JotStore {
     }
 
     func transfer(to mode: NotebookStorage) {
-        guard mode != storage, !storageBusy, !reconciling, !importingImage, !dictation.active, ready else { return }
+        guard mode != storage, !storageBusy, !reconciling, !importingImage, !dictation.active, canEdit else { return }
         storageBusy = true
         webView?.endEditing(true)
         enqueue { [self] in
@@ -182,8 +187,74 @@ final class JotStore {
     }
 
     func retryOpeningNotebook() {
+        if ready && !editorLoaded { editorLoadFailed = false; webView?.reload(); return }
         guard !openingNotebook, !ready, let root else { return }
         configure(root: root, storage: storage)
+    }
+
+    func editorDidBecomeReady() {
+        editorLoaded = true
+        editorLoadFailed = false
+        loadEditor()
+        send(["version": 1, "type": "setEditingEnabled", "enabled": canEdit])
+    }
+
+    func editorDidFail() {
+        editorLoaded = false
+        editorLoadFailed = true
+        error = "The editor couldn’t open. Please try again."
+    }
+
+    func editorWillReload() {
+        editorLoaded = false
+        editorLoadFailed = false
+        dictation.interrupted()
+        if importingImage {
+            ready = false
+            photoLoadToken = nil
+            photoSourceSessionID = nil
+            enqueue { [self] in
+                await writer.discardUncommittedAttachmentCapture()
+                await updateActive()
+                pickedImageData = nil
+                importedImagePath = nil
+                importingImage = false
+                ready = true
+                if editorLoaded { loadEditor(); send(["version": 1, "type": "setEditingEnabled", "enabled": true]) }
+                error = "The editor restarted while adding your image. Please choose it again."
+            }
+        }
+    }
+
+    func beginPhotoLoad() -> UUID? {
+        guard canEdit, !storageBusy, !reconciling, !importingImage, !dictation.active else { return nil }
+        let token = UUID()
+        photoLoadToken = token
+        photoSourceSessionID = editorSessionID
+        importingImage = true
+        return token
+    }
+
+    func isCurrentPhotoLoad(_ token: UUID) -> Bool {
+        photoLoadToken == token && photoSourceSessionID == editorSessionID && canEdit
+    }
+
+    func cancelPhotoLoad(_ token: UUID) {
+        guard photoLoadToken == token else { return }
+        photoLoadToken = nil
+        photoSourceSessionID = nil
+        importingImage = false
+    }
+
+    func finishPhotoLoad(_ data: Data, token: UUID) {
+        guard photoLoadToken == token, photoSourceSessionID == editorSessionID, canEdit else {
+            cancelPhotoLoad(token)
+            return
+        }
+        photoLoadToken = nil
+        photoSourceSessionID = nil
+        pickedImageData = data
+        send(["version": 1, "type": "beginImagePaste"])
     }
 
     private func lockAndCaptureEditor() async throws {
@@ -245,12 +316,12 @@ final class JotStore {
     }
 
     func openLibrary() {
-        guard ready, !storageBusy, !reconciling, !importingImage, !dictation.active else { return }
+        guard canEdit, !storageBusy, !reconciling, !importingImage, !dictation.active else { return }
         showLibrary = true
     }
 
     func newJot() {
-        guard ready, !importingImage, !storageBusy, !reconciling, !dictation.active else { return }
+        guard canEdit, !importingImage, !storageBusy, !reconciling, !dictation.active else { return }
         enqueue { [self] in
             reconciling = true
             defer { reconciling = false; send(["version": 1, "type": "setEditingEnabled", "enabled": true]) }
@@ -360,13 +431,6 @@ final class JotStore {
         }
     }
 
-    func insertPickedImage(_ data: Data) {
-        guard ready, !storageBusy, !reconciling, !importingImage, !dictation.active else { return }
-        pickedImageData = data
-        importingImage = true
-        send(["version": 1, "type": "beginImagePaste"])
-    }
-
     func importImage(requestID: String, data: Data? = nil) {
         let source = data ?? pickedImageData ?? UIPasteboard.general.image?.pngData()
         pickedImageData = nil
@@ -424,7 +488,7 @@ final class JotStore {
     }
 
     func toggleDictation() {
-        guard ready, !storageBusy, !reconciling, !importingImage else { return }
+        guard canEdit, !storageBusy, !reconciling, !importingImage else { return }
         if dictation.state == .recording { dictation.finish() }
         else if !dictation.active { dictation.start() }
     }
