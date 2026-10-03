@@ -1026,7 +1026,23 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         panelController.send(["version": 1, "type": "tagVocabulary", "tags": tags])
     }
 
+    private var cloudConflictScanRunning = false
+
     private func refreshRail() async {
+        if session.storage == .iCloud, let root = rootURL, !cloudConflictScanRunning {
+            cloudConflictScanRunning = true
+            do {
+                let copies = try await Task.detached(priority: .utility) { try NotebookConflictArchive.preserve(in: root) }.value
+                if rootURL == root, !copies.isEmpty {
+                    sendError(message: "iCloud delivered different versions of a jot. Each version is kept as a separate note.", actions: [])
+                }
+            } catch {
+                if rootURL == root {
+                    sendError(message: "An iCloud conflict couldn’t be copied yet. Its original versions remain protected.", actions: [])
+                }
+            }
+            cloudConflictScanRunning = false
+        }
         guard let entries = await noteRailIndex.refresh() else { return }
         railNoteIDs = Set(entries.map(\.id))
         latestRailID = entries.first?.id

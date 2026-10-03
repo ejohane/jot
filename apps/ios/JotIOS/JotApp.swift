@@ -11,7 +11,7 @@ struct JotPhoneApp: App {
                 .onChange(of: phase) { _, value in
                     if value == .background { store.dictation.interrupted(); store.flush() }
                     else if value == .inactive { store.flush() }
-                    else if value == .active { store.reconcileCloudNote() }
+                    else if value == .active { store.preserveCloudConflicts(); store.reconcileCloudNote() }
                 }
         }
     }

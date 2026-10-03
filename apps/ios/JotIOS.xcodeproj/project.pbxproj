@@ -23,6 +23,7 @@
 		9B53C08BFEE0FF0C46F56952 /* TagIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD4EA89BE2B54A2EB8ADAE03 /* TagIndex.swift */; };
 		9C21E1E5C068C73D36D5B777 /* NoteRailIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = EED603993843F7BF53D5B82A /* NoteRailIndex.swift */; };
 		B1CE350BA36295D8E32E461A /* NoteNavigationHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = E366AAE5E061CB4AF0B46820 /* NoteNavigationHistory.swift */; };
+		BEA49D3507E171BCA4AB82E6 /* NotebookConflictArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBF17E95D5A2120197C43EBF /* NotebookConflictArchive.swift */; };
 		DF038F73300ABBB288FD55BC /* dist in Resources */ = {isa = PBXBuildFile; fileRef = B9943DCF1318316CB8472944 /* dist */; };
 		E09D0F1E4472D9690921280C /* JotModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 729063AE400D5214F0838183 /* JotModels.swift */; };
 		E63E6A6714844F9C1D2D6832 /* NotebookCloudFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31FDF5DCE5DCAB5961EA428A /* NotebookCloudFile.swift */; };
@@ -46,6 +47,7 @@
 		B9943DCF1318316CB8472944 /* dist */ = {isa = PBXFileReference; lastKnownFileType = folder; name = dist; path = ../../Web/dist; sourceTree = SOURCE_ROOT; };
 		BE6DFEF0570A055C98D5A22B /* AtomicFileSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AtomicFileSystem.swift; sourceTree = "<group>"; };
 		C05FB4CC3E69F7B0A0B106C7 /* JotApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JotApp.swift; sourceTree = "<group>"; };
+		CBF17E95D5A2120197C43EBF /* NotebookConflictArchive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotebookConflictArchive.swift; sourceTree = "<group>"; };
 		D4DC5B9BAE9D0E5A7A3E4CDD /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
 		DA233786EA7A57D7051F45BB /* JotWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JotWriter.swift; sourceTree = "<group>"; };
 		E366AAE5E061CB4AF0B46820 /* NoteNavigationHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteNavigationHistory.swift; sourceTree = "<group>"; };
@@ -95,6 +97,7 @@
 				91F858A491EAFDEC9508D18F /* JotPathAllocator.swift */,
 				DA233786EA7A57D7051F45BB /* JotWriter.swift */,
 				31FDF5DCE5DCAB5961EA428A /* NotebookCloudFile.swift */,
+				CBF17E95D5A2120197C43EBF /* NotebookConflictArchive.swift */,
 				7152B88C332BFECD62196C29 /* NotebookStorage.swift */,
 				E366AAE5E061CB4AF0B46820 /* NoteNavigationHistory.swift */,
 				EED603993843F7BF53D5B82A /* NoteRailIndex.swift */,
@@ -198,6 +201,7 @@
 				9C21E1E5C068C73D36D5B777 /* NoteRailIndex.swift in Sources */,
 				7F0C113246135CE3DB25C08A /* NoteSearchIndex.swift in Sources */,
 				E63E6A6714844F9C1D2D6832 /* NotebookCloudFile.swift in Sources */,
+				BEA49D3507E171BCA4AB82E6 /* NotebookConflictArchive.swift in Sources */,
 				6E77C008E7B46CC8A18C83F9 /* NotebookStorage.swift in Sources */,
 				099034E52E540EE5FB2C9861 /* PhoneCloudNotebook.swift in Sources */,
 				6D8CAF9793740090F1718F41 /* PhoneDictation.swift in Sources */,

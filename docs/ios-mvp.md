@@ -166,3 +166,17 @@ Evidence:
 - No Mac startup/force-quit UI interaction was manually proven in this iteration. Packaging is not that evidence.
 
 Outstanding: live iCloud conflict-version handling, Mac external reconciliation/download integration, attachment downloads and physical/manual acceptance checks.
+
+## Iteration 12 — 2026-10-03
+
+Added shared NSFileVersion conflict preservation. Each unresolved Markdown version is read under file coordination, written to a deterministic sibling Markdown path and verified byte-for-byte before setting that version resolved. The canonical jot remains untouched. Sibling copies preserve relative attachment references, and content-derived filenames let interrupted retries and cooperating devices reuse the same copy. Failed reads/writes retain unresolved versions. Historical versions are not deleted by this implementation.
+
+Phone inventory updates, foregrounding and refresh trigger preservation, with another scan queued if metadata changes while a scan runs. Mac iCloud notebook refreshes run the same archive path. Users receive a notice when separate versions are retained.
+
+Evidence:
+
+- Full Swift suite: 86 executed, 1 skipped, 0 failures. Three new tests cover retained original bytes, relative image directory, retry idempotence, distinct-version paths and failure before resolution acknowledgement.
+- Final Simulator build succeeds. Standard Mac packaging/signing succeeds.
+- Tests inject version readers/resolution callbacks; actual iCloud NSFileVersion delivery and resolution remain unverified. No live conflict was created or resolved on the user’s notebook.
+
+Outstanding: Mac reactive cloud reconciliation/download integration, attachment downloads, actual iCloud provisioning/transport and manual phone/Mac acceptance.

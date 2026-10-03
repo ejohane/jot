@@ -23,6 +23,8 @@ final class JotStore {
     var openingNotebook = false
     var reconciling = false
     private var reconciliationQueued = false
+    private var conflictScanQueued = false
+    private var conflictScanAgain = false
     var error: String?
     var hasConflict = false
     let dictation = PhoneDictation()
@@ -54,6 +56,7 @@ final class JotStore {
         cloudNotebook.onChange = { [weak self] urls in
             guard let self else { return }
             self.cloudURLs = urls
+            self.preserveCloudConflicts()
             self.reconcileCloudNote()
             if self.showLibrary { Task { await self.refreshNotes() } }
         }
@@ -155,6 +158,7 @@ final class JotStore {
                 await updateActive()
                 ready = true
                 loadEditor()
+                preserveCloudConflicts()
                 reconcileCloudNote()
             } catch { self.error = error.localizedDescription }
         }
@@ -215,6 +219,29 @@ final class JotStore {
         pendingCloudNotes = await index.pendingDownloadCount()
     }
 
+    func preserveCloudConflicts() {
+        guard storage == .iCloud, ready, let root else { return }
+        if conflictScanQueued { conflictScanAgain = true; return }
+        conflictScanQueued = true
+        let urls = cloudURLs
+        enqueue { [self] in
+            defer {
+                conflictScanQueued = false
+                if conflictScanAgain { conflictScanAgain = false; preserveCloudConflicts() }
+            }
+            guard storage == .iCloud, self.root == root else { return }
+            do {
+                let copies = try await Task.detached(priority: .utility) {
+                    try urls.flatMap { try NotebookConflictArchive.preserve(at: $0) }
+                }.value
+                if !copies.isEmpty {
+                    error = "iCloud delivered different versions of a jot. Each version has been kept as a separate jot in your library."
+                    if showLibrary { Task { await refreshNotes() } }
+                }
+            } catch { self.error = "An iCloud conflict couldn’t be copied yet. Its original versions remain protected. Please try again." }
+        }
+    }
+
     func reconcileCloudNote() {
         guard storage == .iCloud, ready, !reconciliationQueued, !storageBusy, !importingImage, !dictation.active else { return }
         reconciliationQueued = true
@@ -255,6 +282,7 @@ final class JotStore {
     }
 
     func retryCloudDownloads() {
+        preserveCloudConflicts()
         let urls = cloudURLs
         Task.detached(priority: .utility) {
             for url in urls { try? FileManager.default.startDownloadingUbiquitousItem(at: url) }
