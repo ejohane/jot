@@ -71,12 +71,15 @@ struct JotRootView: View {
                 .accessibilityLabel("Dismiss keyboard")
                 .disabled(!store.canEdit || store.storageBusy || store.reconciling)
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
         .font(.body)
-        .padding(.horizontal, 12)
+        .tint(.primary)
+        .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity)
-        .background(.bar)
+        .modifier(KeyboardBarSurface())
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 
     var body: some View {
@@ -215,5 +218,16 @@ struct JotStorageSettings: View {
                 Button("Cancel", role: .cancel) { destination = nil }
             } message: { Text("All jots and images will be copied. The original notebook will be kept as a backup.") }
         }.interactiveDismissDisabled(store.storageBusy).tint(.primary)
+    }
+}
+
+private struct KeyboardBarSurface: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular.interactive(), in: .capsule)
+        } else {
+            content.background(.regularMaterial, in: Capsule())
+        }
     }
 }

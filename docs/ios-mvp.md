@@ -323,3 +323,9 @@ Simulator build succeeded; observed native circular top actions, centered Jot ti
 User reported system bottom-toolbar controls disappeared when the keyboard opened. Replaced that placement with a bottom safeAreaInset that participates in SwiftUI keyboard avoidance. Formatting/photo/dictation/dismiss controls use native buttons with 44-point hit targets and system bar material; top navigation remains native. This is a keyboard-following safe-area bar, not a WKWebView private accessory override.
 
 Signed device build, installation and launch succeeded. iPhone Mirroring remains locked; actual keyboard-visible placement awaits visual confirmation. No keyboard acceptance checkbox is closed from build success alone.
+
+## Unified keyboard-bar styling — 2026-10-03
+
+User rejected the flat system-bar restyling and requested the previous native visual language in one unified area above the keyboard. The keyboard-following controls now share a rounded native Liquid Glass capsule on iOS 26, with a regular-material capsule fallback for earlier supported systems. Primary monochrome icons, native top navigation, action guards and placement are retained; the full-width flat background is removed.
+
+Signed device build, installation and launch succeeded. Physical keyboard-open appearance remains unobserved by the agent; do not infer visual acceptance from delivery.
