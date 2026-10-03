@@ -593,6 +593,8 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 activeJot: session.activeJot,
                 hasBlockingWriteError: hasBlockingWriteError
             ) && !isOpeningNote
+        case #selector(chooseRoot), #selector(chooseICloud):
+            return !isOpeningNote && !isImportingImage && (voiceDictation.state == .idle || voiceDictation.state == .error)
         case #selector(revealCurrentJot):
             return session.activeJot != nil
         case #selector(navigateBackFromMenu):
@@ -657,32 +659,95 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         NSWorkspace.shared.open(rootURL)
     }
 
-    @objc private func chooseRoot() {
-        guard let choice = rootAccess.chooseRoot() else { return }
-        rootURL = choice.url
-        panelController.configureAttachmentRoot(choice.url)
-        Task { await tagIndex.configure(root: choice.url); await refreshTags(force: true) }
-        railNoteIDs = []
-        latestRailID = nil
-        navigation.reset()
-        hasBlankCapture = session.activeJot == nil
-        Task { await noteRailIndex.configure(root: choice.url); await noteSearchIndex.configure(root: choice.url); await refreshRail() }
-        session.rootBookmark = choice.bookmark
+    @objc private func chooseRoot() { chooseNotebook(storage: .local) }
+    @objc private func chooseICloud() { chooseNotebook(storage: .iCloud) }
+
+    private func chooseNotebook(storage: NotebookStorage) {
+        guard !isOpeningNote, !isImportingImage,
+              (voiceDictation.state == .idle || voiceDictation.state == .error) else { return }
+        guard let choice = rootAccess.chooseRoot(storage: storage) else { return }
+        let oldRoot = rootURL
+        if let oldRoot, oldRoot.standardizedFileURL != choice.url.standardizedFileURL {
+            let alert = NSAlert()
+            alert.messageText = "Transfer your notebook?"
+            alert.informativeText = "All jots and images will be copied to the selected folder. The original notebook is kept as a backup. New changes will save in the selected folder."
+            alert.addButton(withTitle: "Transfer Notebook")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        if oldRoot == nil, let active = session.activeJot,
+           !active.path.hasPrefix(choice.url.path + "/") {
+            let alert = NSAlert()
+            alert.messageText = "Restore your notebook first"
+            alert.informativeText = "Choose the original Jots folder to restore access before transferring it. Your recovery writing is kept safe."
+            alert.runModal()
+            return
+        }
+        isOpeningNote = true
+        panelController.send(["version": 1, "type": "setEditingEnabled", "enabled": false])
+        sendActionState()
         Task {
-            await writer.configureRoot(choice.url)
-            let flushed = await writer.flush(through: latestRevision)
-            if flushed, let jot = await writer.currentJot() {
-                hasBlockingWriteError = false
-                panelController.send([
-                    "version": 1,
-                    "type": "writeSucceeded",
-                    "noteID": jot.id,
-                    "revision": latestRevision,
-                ])
-            } else if !flushed {
-                hasBlockingWriteError = true
+            let accessing = choice.url.startAccessingSecurityScopedResource()
+            defer {
+                if accessing { choice.url.stopAccessingSecurityScopedResource() }
+                isOpeningNote = false
+                panelController.send(["version": 1, "type": "setEditingEnabled", "enabled": true])
+                sendActionState()
             }
-            await persistSessionNow()
+            do {
+                if oldRoot != nil {
+                    guard await writer.flush(through: latestRevision) else { throw PersistenceError.writeFailed("Save the current jot before transferring the notebook.") }
+                }
+                let current = await writer.currentJot()
+                if let oldRoot {
+                    try await Task.detached { try NotebookTransfer.copy(from: oldRoot, to: choice.url) }.value
+                }
+                var nextSession = session
+                if let current, let oldRoot {
+                    let prefix = oldRoot.resolvingSymlinksInPath().path + "/"
+                    let path = URL(fileURLWithPath: current.path).resolvingSymlinksInPath().path
+                    guard path.hasPrefix(prefix) else { throw PersistenceError.rootUnavailable }
+                    nextSession.activeJot = ActiveJot(id: current.id,
+                        path: choice.url.appendingPathComponent(String(path.dropFirst(prefix.count))).path,
+                        acknowledgedRevision: current.acknowledgedRevision)
+                }
+                var replacementWriter: JotWriter?
+                if oldRoot != nil {
+                    let candidate = JotWriter(rootURL: choice.url) { [weak self] event in self?.handle(event) }
+                    let restored = try await candidate.restore(nextSession.activeJot)
+                    nextSession.recoveryText = restored
+                    nextSession.recoveryRevision = nextSession.activeJot?.acknowledgedRevision
+                    replacementWriter = candidate
+                }
+                nextSession.rootBookmark = choice.bookmark
+                nextSession.storage = storage
+                sessionGeneration += 1
+                try await sessionStore.save(nextSession, generation: sessionGeneration)
+                _ = rootAccess.setRoot(choice.url)
+                rootURL = choice.url
+                session = nextSession
+                if let replacementWriter { writer = replacementWriter }
+                else { await writer.configureRoot(choice.url) }
+                let flushed = await writer.flush(through: latestRevision)
+                hasBlockingWriteError = !flushed
+                panelController.configureAttachmentRoot(choice.url)
+                railNoteIDs = []
+                latestRailID = nil
+                navigation.reset()
+                hasBlankCapture = session.activeJot == nil
+                await noteRailIndex.configure(root: choice.url)
+                await noteSearchIndex.configure(root: choice.url)
+                await tagIndex.configure(root: choice.url)
+                await refreshRail()
+                await refreshTags(force: true)
+                await persistSessionNow()
+                sendLoadSession(text: session.recoveryText ?? "")
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "The notebook could not be transferred"
+                alert.informativeText = "The source notebook is retained. \(error.localizedDescription)"
+                alert.runModal()
+            }
         }
     }
 
@@ -747,6 +812,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         menu.addItem(item("Reveal Current Jot in Finder", action: #selector(revealCurrentJot), key: ""))
         menu.addItem(item("Open Jots Folder", action: #selector(openJotsFolder), key: ""))
         menu.addItem(item("Change Jots Folder…", action: #selector(chooseRoot), key: ""))
+        menu.addItem(item("Use iCloud Notebook…", action: #selector(chooseICloud), key: ""))
         let shortcutMenu = NSMenu()
         for choice in ShortcutChoice.allCases {
             let menuItem = item(choice.displayName, action: #selector(changeShortcut(_:)), key: "")
@@ -779,6 +845,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         let changeFolder = item("Change Jots Folder…", action: #selector(chooseRoot), key: "j")
         changeFolder.keyEquivalentModifierMask = [.command, .option]
         applicationMenu.addItem(changeFolder)
+        applicationMenu.addItem(item("Use iCloud Notebook…", action: #selector(chooseICloud), key: ""))
         applicationMenu.addItem(.separator())
         applicationMenu.addItem(item("Quit Jot", action: #selector(quit), key: "q"))
         applicationItem.submenu = applicationMenu

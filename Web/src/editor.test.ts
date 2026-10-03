@@ -1395,3 +1395,20 @@ it.each(["n", "Enter"])("finishes the current revision with Command-%s", async k
   ]);
   expect(view.state.doc.toString()).toBe("Saved note");
 });
+
+
+it("locks native formatting during a notebook transfer and enables it afterward", async () => {
+  const { view, messages } = await makeConnectedEditor("a thought");
+  await act(async () => window.JotNative?.receive({ version: 1, type: "setEditingEnabled", enabled: false }));
+  expect(view.state.readOnly).toBe(true);
+  expect(view.contentDOM.getAttribute("contenteditable")).toBe("false");
+  await act(async () => window.JotNative?.receive({ version: 1, type: "toggleFormat", format: "bold" }));
+  expect(view.state.doc.toString()).toBe("a thought");
+  await act(async () => window.JotNative?.receive({ version: 1, type: "beginImagePaste" }));
+  expect(messages.some((message) => message.type === "importClipboardImage")).toBe(false);
+  await act(async () => window.JotNative?.receive({ version: 1, type: "setEditingEnabled", enabled: true }));
+  expect(view.state.readOnly).toBe(false);
+  expect(view.contentDOM.getAttribute("contenteditable")).toBe("true");
+  await act(async () => window.JotNative?.receive({ version: 1, type: "toggleFormat", format: "bold" }));
+  expect(view.state.doc.toString()).not.toBe("a thought");
+});

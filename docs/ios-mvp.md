@@ -73,3 +73,19 @@ Evidence:
 - Simulator build succeeds.
 
 Keep Both Versions is implemented but not manually exercised. This does not verify iCloud conflict-version delivery, offline sync, or the physical phone flow. Mac storage UI and cloud reconciliation remain outstanding.
+
+## Iteration 5 — 2026-10-02
+
+Added the Mac Use iCloud Notebook action and explicit transfer confirmation. The folder picker prepares access without replacing the current folder. Transfer copies first, validates a replacement writer, saves the updated root/active-note session, then changes the live writer and indexes. The original notebook remains intact. Editing, native formatting and image import are locked during the switch; transfer is unavailable while dictation is preparing or active. A missing original root must be restored before transfer.
+
+The Mac iCloud picker requires Jot's shared Jots folder, rather than accepting any iCloud folder that the phone would not use. Its container path check still needs confirmation against the real provisioned container on this Mac.
+
+Evidence:
+
+- Swift suite: 68 executed, 1 skipped, 0 failures.
+- Web editor suite: 105 passed, including transfer locking for editable state, native formatting and clipboard image import.
+- Production Mac app packages and signs successfully using the normal packaging script.
+- Launched a disposable, separately identified Jot Review app with a session under `/tmp/jot-mvp-mac.KnnDXB`. Native inspection observed its initial Choose a Jots Folder panel. Subsequent automation did not reliably advance the picker; writing and transfer were not manually proven.
+- No real user notebook was selected or migrated during this review.
+
+Outstanding: manual Mac local capture/transfer regression proof, actual shared iCloud path validation, cloud download/reconciliation and conflict-version handling, phone dictation and remaining physical-device checks. iCloud signing and phone review still require the requested account/Touch ID setup.

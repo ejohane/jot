@@ -236,9 +236,11 @@ export function Editor() {
       }
     };
 
+    const editing = new Compartment();
     const state = EditorState.create({
       doc: "",
       extensions: [
+        editing.of([EditorState.readOnly.of(false), EditorView.editable.of(true)]),
         jotMarkdown,
         markdownPresentation,
         clickableLinks,
@@ -391,6 +393,9 @@ export function Editor() {
       receive(message) {
         if (message.version !== 1) return;
         switch (message.type) {
+          case "setEditingEnabled":
+            view.dispatch({ effects: editing.reconfigure([EditorState.readOnly.of(!message.enabled), EditorView.editable.of(message.enabled)]) });
+            break;
           case "showNoteSearch":
             showPalette("notes");
             break;
@@ -420,9 +425,11 @@ export function Editor() {
             selectAll(view);
             break;
           case "beginImagePaste":
+            if (view.state.readOnly) break;
             requestImagePaste(view);
             break;
           case "beginImageFileDrop":
+            if (view.state.readOnly) break;
             if (view.state.field(pendingImageImport)) {
               setError({ message: "Wait for the current image to finish importing, then drop again." });
               break;
@@ -450,6 +457,7 @@ export function Editor() {
             }
             break;
           case "toggleFormat":
+            if (view.state.readOnly) break;
             toggleInlineFormat(view, message.format);
             break;
           case "loadSession": {
