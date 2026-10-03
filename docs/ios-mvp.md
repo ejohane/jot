@@ -291,3 +291,9 @@ The resulting screenshot shows a blank editor without visible keyboard/caret. CU
 Added a Debug-only editor diagnostic (no note text is logged) to inspect WebKit readiness, writing-surface dimensions, editability and focus after the session load settles. Simulator build, install and launch succeeded.
 
 Observed runtime report from process 46054: editor exists, size 402×655 in a 402×679 viewport, contentEditable true, focused true. The immediately sampled focus had been false before the scheduled restoration; delayed sampling avoids interpreting that transient state as a launch failure. This rules out a missing/zero-size editor for this run, but does not prove visible typing, keyboard appearance, autosave, or physical-phone acceptance. Those remain open.
+
+## Iteration 22 — 2026-10-03
+
+Observed native Jots library opening from the editor through CUA. Its empty-state message and search field are visible. Capture input remains unproven: paste timed out waiting for clipboard consumption; typing before and after Simulator Send Keyboard Input to Device produced no visible text. Coordinate Done did not dismiss the library. These unchanged states limit the UI automation evidence; they do not establish an editor defect or successful capture.
+
+Read the Simulator app's actual data container: Documents contains no Markdown files and the recovery journal remains local storage, revision 0, empty text. Therefore the attempted input was not saved. No autosave/search/relaunch acceptance item is closed by this pass.
