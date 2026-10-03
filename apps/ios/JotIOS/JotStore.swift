@@ -340,9 +340,19 @@ final class JotStore {
     }
 
     func previewImage(path: String) {
-        guard let root, let url = LocalResourceSchemeHandler.attachmentURL(path: path, root: root),
-              let image = UIImage(contentsOfFile: url.path) else { return }
-        imagePreview = PhoneImagePreview(image: image)
+        guard let root, let url = LocalResourceSchemeHandler.attachmentURL(path: path, root: root) else { return }
+        let noteID = session.active?.id
+        Task {
+            do {
+                let data = try await Task.detached { try await NotebookAttachment.load(url) }.value
+                guard self.root == root, session.active?.id == noteID else { return }
+                guard let image = UIImage(data: data) else { throw CocoaError(.fileReadCorruptFile) }
+                imagePreview = PhoneImagePreview(image: image)
+            } catch {
+                guard self.root == root, session.active?.id == noteID else { return }
+                self.error = "This image couldn’t be opened. Check its attachment file or iCloud connection and try again."
+            }
+        }
     }
 
     func preserveBothVersions() {

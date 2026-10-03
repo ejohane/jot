@@ -222,7 +222,17 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
     func editorRequestedImagePreview(path: String) {
         guard let rootURL, let file = LocalResourceSchemeHandler.attachmentURL(path: path, root: rootURL) else { return }
-        panelController.previewImage(at: file)
+        let generation = documentGeneration
+        Task {
+            do {
+                _ = try await Task.detached { try await NotebookAttachment.load(file) }.value
+                guard generation == documentGeneration, self.rootURL == rootURL else { return }
+                panelController.previewImage(at: file)
+            } catch {
+                guard generation == documentGeneration, self.rootURL == rootURL else { return }
+                sendError(message: "This image couldn’t be opened. Check its attachment file or iCloud connection and try again.", actions: [])
+            }
+        }
     }
 
     func editorDidBecomeReady() {

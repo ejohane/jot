@@ -180,3 +180,18 @@ Evidence:
 - Tests inject version readers/resolution callbacks; actual iCloud NSFileVersion delivery and resolution remain unverified. No live conflict was created or resolved on the user’s notebook.
 
 Outstanding: Mac reactive cloud reconciliation/download integration, attachment downloads, actual iCloud provisioning/transport and manual phone/Mac acceptance.
+
+## Iteration 13 — 2026-10-03
+
+Shared attachment scheme requests now use bounded cloud preparation and coordinated reads off the UI thread. The handler tracks each request on the main actor, cancels its worker on WebKit stop or notebook-root changes, and checks request liveness before delivering callbacks. This avoids callbacks to stopped WKURLSchemeTask objects. Local attachments use the same path without requiring iCloud.
+
+The shared editor replaces an unavailable image with a Retry action, retaining the Markdown reference. Retry starts a fresh resource request; a loaded image resumes Preview behavior. Phone and Mac native previews also prepare the attachment before opening it and suppress a late preview after switching notes/notebooks.
+
+Evidence:
+
+- Full Swift suite: 88 executed, 1 skipped, 0 failures. New tests use real local attachment files and a recording WKURLSchemeTask to verify exact MIME/bytes/completion and zero callbacks after stopping a request.
+- Web suite: 106 passed, including unavailable-image retry and return to preview behavior; production Web build succeeds.
+- Simulator build and Mac packaging/signing succeed.
+- Actual iCloud image transport, timeout/retry on the phone, and native previews remain manually unverified.
+
+Outstanding: Mac reactive sync/download integration, cloud transfer readiness, physical iCloud provisioning, and manual acceptance checks for capture/relaunch/search/images/dictation/sync/Mac regression.

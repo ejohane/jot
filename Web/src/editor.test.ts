@@ -1198,6 +1198,7 @@ describe("image attachments", () => {
     expect(messages.some((m) => m.type === "preferredHeightChanged")).toBe(false);
     expect(view.state.doc.toString()).toContain("New Before\n\n![Image]");
     const button = parent.querySelector<HTMLButtonElement>(".cm-attachment-image")!;
+    button.querySelector("img")!.dispatchEvent(new Event("load"));
     await act(async () => button.click());
     expect(messages).toContainEqual({ version: 1, type: "previewImage", path: "2026/09/27/attachments/n/screenshot.png" });
   });
@@ -1229,6 +1230,14 @@ describe("image attachments", () => {
     const image = parent.querySelector<HTMLImageElement>(".cm-attachment-image img")!;
     image.dispatchEvent(new Event("error"));
     expect(parent.textContent).toContain("Image unavailable");
+    const retry = parent.querySelector<HTMLButtonElement>(".cm-attachment-image")!;
+    expect(retry.disabled).toBe(false);
+    retry.click();
+    expect(image.isConnected).toBe(true);
+    expect(image.src).toContain("retry=1");
+    expect(parent.textContent).toContain("Loading image");
+    image.dispatchEvent(new Event("load"));
+    expect(retry.getAttribute("aria-label")).toBe("Preview Image");
   });
 });
 
