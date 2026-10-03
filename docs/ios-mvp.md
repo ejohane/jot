@@ -89,3 +89,16 @@ Evidence:
 - No real user notebook was selected or migrated during this review.
 
 Outstanding: manual Mac local capture/transfer regression proof, actual shared iCloud path validation, cloud download/reconciliation and conflict-version handling, phone dictation and remaining physical-device checks. iCloud signing and phone review still require the requested account/Touch ID setup.
+
+## Iteration 6 — 2026-10-02
+
+Added native phone dictation with microphone and speech permission requests, on-device recognition, an editor preview, and explicit Keep/Cancel controls. Keep inserts the transcript through the shared editor transaction; Cancel leaves saved text unchanged. Backgrounding, audio interruption and editor-process termination cancel the preview. Navigation and storage switching are held while dictation is active. Keyboard-row controls have 44-point targets.
+
+Evidence:
+
+- Simulator build succeeds with the new Speech/AVFoundation integration and privacy descriptions.
+- Existing Web editor suite: 105 passed, including dictation preview, commit, cancel and undo behavior. These tests do not exercise native speech recognition.
+- No microphone permission, transcription or interruption flow was manually observed on a phone.
+- Physical delivery of this iteration still requires the previously requested iCloud signing setup.
+
+Acceptance remains open for real dictation, live iCloud reconciliation/conflict delivery, and all outstanding physical-device and Mac interaction checks.

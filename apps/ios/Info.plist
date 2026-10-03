@@ -22,6 +22,10 @@
 	<string>1</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Jot uses your microphone for on-device dictation.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Jot turns your speech into text on this device.</string>
 	<key>NSUbiquitousContainers</key>
 	<dict>
 		<key>iCloud.com.erikjohansson.Jot</key>

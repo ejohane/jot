@@ -13,6 +13,7 @@
 		328ADD316A524BB5989AB037 /* InlineTags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 490A800820E242AED47A58C5 /* InlineTags.swift */; };
 		42E3CFE32EFABA8E610BD263 /* LocalResourceSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFF44449D7BA8B92435AFB6B /* LocalResourceSchemeHandler.swift */; };
 		532AC49BC41A52D8F588CEEE /* JotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 314C89545B2CD0908590922B /* JotStore.swift */; };
+		6D8CAF9793740090F1718F41 /* PhoneDictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EAF7BD2A85D8D5BFC53B4ED /* PhoneDictation.swift */; };
 		6E77C008E7B46CC8A18C83F9 /* NotebookStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7152B88C332BFECD62196C29 /* NotebookStorage.swift */; };
 		743858E817785DBBD5DCF549 /* JotPathAllocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91F858A491EAFDEC9508D18F /* JotPathAllocator.swift */; };
 		76B9748A68E58D32FBE0B9DB /* ULID.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66544264B904A5FEEF7E5881 /* ULID.swift */; };
@@ -35,6 +36,7 @@
 		708873236499D04E946BFCFB /* PhoneEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneEditor.swift; sourceTree = "<group>"; };
 		7152B88C332BFECD62196C29 /* NotebookStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotebookStorage.swift; sourceTree = "<group>"; };
 		729063AE400D5214F0838183 /* JotModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JotModels.swift; sourceTree = "<group>"; };
+		7EAF7BD2A85D8D5BFC53B4ED /* PhoneDictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneDictation.swift; sourceTree = "<group>"; };
 		91F858A491EAFDEC9508D18F /* JotPathAllocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JotPathAllocator.swift; sourceTree = "<group>"; };
 		AD4EA89BE2B54A2EB8ADAE03 /* TagIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagIndex.swift; sourceTree = "<group>"; };
 		B9943DCF1318316CB8472944 /* dist */ = {isa = PBXFileReference; lastKnownFileType = folder; name = dist; path = ../../Web/dist; sourceTree = SOURCE_ROOT; };
@@ -53,6 +55,7 @@
 			children = (
 				C05FB4CC3E69F7B0A0B106C7 /* JotApp.swift */,
 				314C89545B2CD0908590922B /* JotStore.swift */,
+				7EAF7BD2A85D8D5BFC53B4ED /* PhoneDictation.swift */,
 				708873236499D04E946BFCFB /* PhoneEditor.swift */,
 			);
 			path = JotIOS;
@@ -189,6 +192,7 @@
 				9C21E1E5C068C73D36D5B777 /* NoteRailIndex.swift in Sources */,
 				7F0C113246135CE3DB25C08A /* NoteSearchIndex.swift in Sources */,
 				6E77C008E7B46CC8A18C83F9 /* NotebookStorage.swift in Sources */,
+				6D8CAF9793740090F1718F41 /* PhoneDictation.swift in Sources */,
 				F988AFFF19F21E5441CFD135 /* PhoneEditor.swift in Sources */,
 				2565E15FE1C4D3C07279A86E /* SessionStore.swift in Sources */,
 				9B53C08BFEE0FF0C46F56952 /* TagIndex.swift in Sources */,

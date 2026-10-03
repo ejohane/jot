@@ -33,6 +33,8 @@ targets:
             NSUbiquitousContainerIsDocumentScopePublic: true
             NSUbiquitousContainerName: Jot
             NSUbiquitousContainerSupportedFolderLevels: Any
+        NSMicrophoneUsageDescription: Jot uses your microphone for on-device dictation.
+        NSSpeechRecognitionUsageDescription: Jot turns your speech into text on this device.
         CFBundleDisplayName: Jot
         UILaunchScreen: {}
         UIApplicationSceneManifest:

@@ -9,7 +9,8 @@ struct JotPhoneApp: App {
         WindowGroup {
             JotRootView(store: store)
                 .onChange(of: phase) { _, value in
-                    if value != .active { store.flush() }
+                    if value == .background { store.dictation.interrupted(); store.flush() }
+                    else if value == .inactive { store.flush() }
                 }
         }
     }
@@ -23,28 +24,38 @@ struct JotRootView: View {
             if store.configured {
                 VStack(spacing: 0) {
                     HStack {
-                        Button("Jots", systemImage: "line.3.horizontal") { store.showLibrary = true }.disabled(store.importingImage || store.storageBusy)
+                        Button("Jots", systemImage: "line.3.horizontal") { store.showLibrary = true }.disabled(store.importingImage || store.storageBusy || store.dictation.active)
                         Spacer()
                         Button("New Jot", systemImage: "square.and.pencil") { store.newJot() }
                             .keyboardShortcut("n", modifiers: .command)
-                            .disabled(store.importingImage || store.storageBusy)
+                            .disabled(store.importingImage || store.storageBusy || store.dictation.active)
                     }
                     .font(.system(size: 15, weight: .medium))
                     .padding(.horizontal, 22).padding(.vertical, 14)
                     PhoneEditor(store: store).allowsHitTesting(store.ready && !store.storageBusy)
-                    HStack(spacing: 28) {
-                        Button { store.send(["version": 1, "type": "toggleFormat", "format": "bold"]) } label: { Image(systemName: "bold") }
+                    HStack(spacing: 4) {
+                        Button { store.send(["version": 1, "type": "toggleFormat", "format": "bold"]) } label: { Image(systemName: "bold").frame(width: 44, height: 44) }
                             .accessibilityLabel("Bold")
-                        Button { store.send(["version": 1, "type": "toggleFormat", "format": "italic"]) } label: { Image(systemName: "italic") }
+                        Button { store.send(["version": 1, "type": "toggleFormat", "format": "italic"]) } label: { Image(systemName: "italic").frame(width: 44, height: 44) }
                             .accessibilityLabel("Italic")
                         PhotosPicker(selection: $pickedPhoto, matching: .images) {
-                            Image(systemName: "photo")
-                        }.accessibilityLabel("Add image").disabled(store.importingImage || store.storageBusy)
+                            Image(systemName: "photo").frame(width: 44, height: 44)
+                        }.accessibilityLabel("Add image").disabled(store.importingImage || store.storageBusy || store.dictation.active)
+                        if store.dictation.active {
+                            Button { store.dictation.finish() } label: { Image(systemName: "checkmark").frame(width: 44, height: 44) }
+                                .accessibilityLabel("Keep dictation").disabled(store.dictation.state != .recording)
+                            Button { store.dictation.cancel() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                                .accessibilityLabel("Cancel dictation")
+                        } else {
+                            Button { store.toggleDictation() } label: { Image(systemName: "mic").frame(width: 44, height: 44) }
+                                .accessibilityLabel("Start dictation").disabled(store.importingImage || store.storageBusy)
+                        }
                         Spacer()
+                        if store.dictation.state == .preparing || store.dictation.state == .finishing { ProgressView().controlSize(.small) }
                         if store.importingImage { ProgressView().controlSize(.small) }
-                        Button { store.webView?.endEditing(true) } label: { Image(systemName: "keyboard.chevron.compact.down") }
+                        Button { store.webView?.endEditing(true) } label: { Image(systemName: "keyboard.chevron.compact.down").frame(width: 44, height: 44) }
                             .accessibilityLabel("Dismiss keyboard")
-                    }.font(.system(size: 17)).padding(.horizontal, 24).padding(.vertical, 12)
+                    }.font(.system(size: 17)).padding(.horizontal, 16).padding(.vertical, 4)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 24) {
@@ -134,7 +145,7 @@ struct JotStorageSettings: View {
                     LabeledContent("Storage", value: store.storage == .local ? "On This iPhone" : "iCloud")
                     Button(store.storage == .local ? "Transfer to iCloud" : "Transfer to This iPhone") {
                         destination = store.storage == .local ? .iCloud : .local
-                    }.disabled(store.storageBusy || store.importingImage)
+                    }.disabled(store.storageBusy || store.importingImage || store.dictation.active)
                     if store.storageBusy { ProgressView("Transferring your jots…") }
                 }
                 Section {

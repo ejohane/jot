@@ -33,6 +33,9 @@ struct PhoneEditor: UIViewRepresentable {
                    let data = Data(base64Encoded: encoded) { store.importImage(requestID: requestID, data: data) }
             case "previewImage":
                 if let path = body["path"] as? String { store.previewImage(path: path) }
+            case "toggleDictation": store.toggleDictation()
+            case "finishDictation": store.dictation.finish()
+            case "cancelDictation": store.dictation.cancel()
             case "contentChanged": store.changed(body)
             case "editorStateChanged": store.stateChanged(body)
             case "finishAndNew": store.newJot()
@@ -41,7 +44,7 @@ struct PhoneEditor: UIViewRepresentable {
             default: break
             }
         }
-        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { webView.reload() }
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { store.dictation.interrupted(); webView.reload() }
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
             decisionHandler(["jot", "about"].contains(navigationAction.request.url?.scheme) ? .allow : .cancel)
         }

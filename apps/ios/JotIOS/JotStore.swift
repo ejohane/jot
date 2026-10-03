@@ -21,6 +21,7 @@ final class JotStore {
     var ready = false
     var error: String?
     var hasConflict = false
+    let dictation = PhoneDictation()
     var notes: [NoteSearchResult] = []
     var query = ""
     var showLibrary = false
@@ -43,6 +44,8 @@ final class JotStore {
         if let data = try? Data(contentsOf: sessionURL), let saved = try? JSONDecoder().decode(PhoneSession.self, from: data) {
             session = saved
         }
+        dictation.onMessage = { [weak self] message in self?.send(message) }
+        dictation.onError = { [weak self] message in self?.error = message }
         if let storage = session.storage ?? UserDefaults.standard.string(forKey: "storage").flatMap(NotebookStorage.init(rawValue:)) {
             if storage == .local { configureLocal() } else { configureCloud() }
         }
@@ -72,7 +75,7 @@ final class JotStore {
     }
 
     func transfer(to mode: NotebookStorage) {
-        guard mode != storage, !storageBusy, !importingImage, ready else { return }
+        guard mode != storage, !storageBusy, !importingImage, !dictation.active, ready else { return }
         storageBusy = true
         webView?.endEditing(true)
         enqueue { [self] in
@@ -165,7 +168,7 @@ final class JotStore {
     }
 
     func newJot() {
-        guard !importingImage, !storageBusy else { return }
+        guard !importingImage, !storageBusy, !dictation.active else { return }
         enqueue { [self] in
             guard await writer.finishAndNew(through: session.revision) else { error = "Your jot could not be saved. Try again before starting another."; return }
             session = PhoneSession(storage: storage)
@@ -180,7 +183,7 @@ final class JotStore {
     }
 
     func open(_ result: NoteSearchResult) {
-        guard !importingImage, !storageBusy else { return }
+        guard !importingImage, !storageBusy, !dictation.active else { return }
         enqueue { [self] in
             if result.id == session.active?.id { showLibrary = false; focus(); return }
             guard let entry = await index.entry(id: result.id) else { return }
@@ -195,7 +198,7 @@ final class JotStore {
     }
 
     func insertPickedImage(_ data: Data) {
-        guard ready, !importingImage else { return }
+        guard ready, !importingImage, !dictation.active else { return }
         pickedImageData = data
         importingImage = true
         send(["version": 1, "type": "beginImagePaste"])
@@ -244,6 +247,12 @@ final class JotStore {
             persist()
             loadEditor()
         }
+    }
+
+    func toggleDictation() {
+        guard ready, !storageBusy, !importingImage else { return }
+        if dictation.state == .recording { dictation.finish() }
+        else if !dictation.active { dictation.start() }
     }
 
     func flush() { enqueue { [self] in _ = await writer?.flush(); await updateActive() } }
