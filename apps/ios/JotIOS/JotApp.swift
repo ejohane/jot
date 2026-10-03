@@ -24,15 +24,23 @@ struct JotRootView: View {
             if store.configured {
                 VStack(spacing: 0) {
                     HStack {
-                        Button("Jots", systemImage: "line.3.horizontal") { store.showLibrary = true }.disabled(store.importingImage || store.storageBusy || store.dictation.active)
+                        Button("Jots", systemImage: "line.3.horizontal") { store.showLibrary = true }.disabled(!store.ready || store.importingImage || store.storageBusy || store.dictation.active)
                         Spacer()
                         Button("New Jot", systemImage: "square.and.pencil") { store.newJot() }
                             .keyboardShortcut("n", modifiers: .command)
-                            .disabled(store.importingImage || store.storageBusy || store.dictation.active)
+                            .disabled(!store.ready || store.importingImage || store.storageBusy || store.dictation.active)
                     }
                     .font(.system(size: 15, weight: .medium))
                     .padding(.horizontal, 22).padding(.vertical, 14)
                     PhoneEditor(store: store).allowsHitTesting(store.ready && !store.storageBusy)
+                        .overlay {
+                            if !store.ready {
+                                VStack(spacing: 16) {
+                                    if store.openingNotebook { ProgressView("Opening your notebook…") }
+                                    else { Button("Try Opening Again") { store.retryOpeningNotebook() } }
+                                }.padding(24).background(Color(uiColor: .systemBackground))
+                            }
+                        }
                     HStack(spacing: 4) {
                         Button { store.send(["version": 1, "type": "toggleFormat", "format": "bold"]) } label: { Image(systemName: "bold").frame(width: 44, height: 44) }
                             .accessibilityLabel("Bold")
@@ -40,7 +48,7 @@ struct JotRootView: View {
                             .accessibilityLabel("Italic")
                         PhotosPicker(selection: $pickedPhoto, matching: .images) {
                             Image(systemName: "photo").frame(width: 44, height: 44)
-                        }.accessibilityLabel("Add image").disabled(store.importingImage || store.storageBusy || store.dictation.active)
+                        }.accessibilityLabel("Add image").disabled(!store.ready || store.importingImage || store.storageBusy || store.dictation.active)
                         if store.dictation.active {
                             Button { store.dictation.finish() } label: { Image(systemName: "checkmark").frame(width: 44, height: 44) }
                                 .accessibilityLabel("Keep dictation").disabled(store.dictation.state != .recording)

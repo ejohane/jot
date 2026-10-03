@@ -19,6 +19,7 @@ final class JotStore {
     var showSettings = false
     var configured = false
     var ready = false
+    var openingNotebook = false
     var error: String?
     var hasConflict = false
     let dictation = PhoneDictation()
@@ -111,12 +112,17 @@ final class JotStore {
         session.storage = storage
         persist()
         ready = false
+        openingNotebook = true
         writer = JotWriter(rootURL: root) { [weak self] event in self?.handle(event) }
         configured = true
         UserDefaults.standard.set(storage.rawValue, forKey: "storage")
         enqueue { [self] in
+            defer { openingNotebook = false }
             await index.configure(root: root)
             do {
+                if storage == .iCloud, let active = session.active {
+                    try await Task.detached { try await NotebookCloudFile.prepare(URL(fileURLWithPath: active.path)) }.value
+                }
                 let text = try await writer.restore(session.active, recoveryText: session.text, recoveryRevision: session.revision)
                 if session.active == nil, !session.text.isEmpty {
                     await writer.receive(snapshot, flushImmediately: true)
@@ -131,6 +137,11 @@ final class JotStore {
                 loadEditor()
             } catch { self.error = error.localizedDescription }
         }
+    }
+
+    func retryOpeningNotebook() {
+        guard !openingNotebook, !ready, let root else { return }
+        configure(root: root, storage: storage)
     }
 
     private var snapshot: EditorSnapshot {
@@ -188,6 +199,9 @@ final class JotStore {
             if result.id == session.active?.id { showLibrary = false; focus(); return }
             guard let entry = await index.entry(id: result.id) else { return }
             do {
+                if storage == .iCloud {
+                    try await Task.detached { try await NotebookCloudFile.prepare(URL(fileURLWithPath: entry.path)) }.value
+                }
                 let opened = try await writer.openExisting(id: result.id, path: entry.path, through: session.revision)
                 session = PhoneSession(active: opened.jot, storage: storage, text: opened.text)
                 persist()

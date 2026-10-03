@@ -102,3 +102,15 @@ Evidence:
 - Physical delivery of this iteration still requires the previously requested iCloud signing setup.
 
 Acceptance remains open for real dictation, live iCloud reconciliation/conflict delivery, and all outstanding physical-device and Mac interaction checks.
+
+## Iteration 7 — 2026-10-02
+
+Added a shared cloud-file availability helper and used it before phone active-note restoration and library opens. Remote-only files request a download and wait up to 15 seconds before returning a recoverable error. Cached cloud notes remain usable offline; refresh errors do not block opening that copy. Notebook opening now displays progress and offers retry after failure, with capture/library controls disabled until restoration completes.
+
+Evidence:
+
+- Five focused tests pass: local bypass, cached offline access, download completion, remote timeout and cancellation. Tests use injected download state and do not prove actual iCloud transport.
+- Simulator build succeeds.
+- Live iPhone Mirroring inspection still shows the Touch ID lock screen. No physical interaction was possible.
+
+Outstanding: cloud-only notes are not yet discoverable by the full-text index until downloaded; active-note external reconciliation, iCloud conflict-version recovery, Mac download integration and attachment downloads still need implementation and live validation. The helper alone does not establish sync acceptance.
