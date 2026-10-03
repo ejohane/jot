@@ -143,6 +143,10 @@ final class JotStore {
     }
 
     private func configure(root: URL, storage: NotebookStorage) {
+        if storage == .local, let active = session.active,
+           let relocated = AppContainerNotePath.relocate(active, to: root) {
+            session.active = relocated
+        }
         self.root = root
         self.storage = storage
         cloudURLs = []

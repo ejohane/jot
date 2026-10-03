@@ -303,3 +303,11 @@ Read the Simulator app's actual data container: Documents contains no Markdown f
 After the user signed in to Xcode, the current branch built successfully for the physical iPhone and devicectl confirmed installation of com.erikjohansson.Jot.ios. Inspected the signed app entitlements: team TRA7965NM5, CloudDocuments, and iCloud.com.erikjohansson.Jot container identifiers are present.
 
 Launch failed because iOS reported the device locked (FBSOpenApplicationErrorDomain 7). CUA inspected iPhone Mirroring and observed its Touch ID/Mac login lock. Build and installation are proven; launch and all physical interaction/sync acceptance remain unproven pending unlock. The combined build/install/launch checkbox remains open.
+
+## Physical launch recovery fix — 2026-10-03
+
+The user's physical screenshot showed PersistenceError 3. Verified Swift bridging maps that code to activeFileMissing. Copied the actual phone journal and notebook through devicectl: the active path named a previous iOS container UUID, while the canonical note still existed under Documents/Jots and matched journal bytes.
+
+Local session configuration now relocates an app-container note path to the current Documents/Jots before restoration. The note ID and acknowledged revision are preserved by relocation. Arbitrary paths are rejected. PersistenceError now supplies readable localized descriptions.
+
+Final Swift suite: 97 executed, 1 skipped, 0 failures. Final signed physical build, installation and devicectl launch succeeded. Subsequent journal inspection points into the current container and contains a different, newly allocated jot (31 acknowledged revisions); therefore it cannot be used as a before/after text-preservation comparison. No note text is recorded here. iPhone Mirroring remains locked, so visible restoration/capture acceptance remains open.

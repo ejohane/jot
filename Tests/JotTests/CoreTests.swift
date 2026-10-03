@@ -1115,6 +1115,16 @@ final class AttachmentTests: XCTestCase {
         XCTAssertEqual(try files.data(at: URL(fileURLWithPath: imported.jot.path)), Data("Keep this".utf8))
     }
 
+    func testLocalNotePathSurvivesAppContainerReplacement() {
+        let note = ActiveJot(id: "same-note", path: "/var/mobile/Containers/Data/Application/OLD/Documents/Jots/2026/10/02/note.md", acknowledgedRevision: 37)
+        let root = URL(fileURLWithPath: "/var/mobile/Containers/Data/Application/NEW/Documents/Jots")
+        let moved = AppContainerNotePath.relocate(note, to: root)
+        XCTAssertEqual(moved?.path, root.appendingPathComponent("2026/10/02/note.md").path)
+        XCTAssertEqual(moved?.id, note.id)
+        XCTAssertEqual(moved?.acknowledgedRevision, 37)
+        XCTAssertNil(AppContainerNotePath.relocate(ActiveJot(id: "x", path: "/other/Documents/Jots/note.md", acknowledgedRevision: 0), to: root))
+    }
+
     func testFailedImportDoesNotAllocateNote() async {
         let files = InMemoryFileSystem()
         files.writeError = CocoaError(.fileWriteNoPermission)
