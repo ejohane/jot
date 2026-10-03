@@ -295,3 +295,11 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
 .cm-attachment-image:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; }
 .cm-attachment-image:disabled { cursor: default; }
 .cm-attachment-status { display: block; font: inherit; padding: 8px 0; }
+
+/* The phone uses native navigation and keyboard controls around the same editor. */
+.ios { --background: #fff; --editor-size: 17px; }
+@media (prefers-color-scheme: dark) { .ios { --background: #000; } }
+.ios .composer { --editor-top-inset: 12px; --editor-bottom-inset: 12px; }
+.ios .editor { right: 0; }
+.ios .note-rail, .ios .dictation-controls, .ios .command-controls { display: none; }
+.ios .cm-content { padding-inline: 22px; }

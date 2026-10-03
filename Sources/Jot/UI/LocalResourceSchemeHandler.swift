@@ -70,7 +70,12 @@ final class LocalResourceSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked
     func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {}
 
     private static func editorResourceRoot() -> URL? {
-        guard let appResources = Bundle.main.resourceURL?.appendingPathComponent("Editor", isDirectory: true),
+        #if os(iOS)
+        let editorDirectory = "dist"
+        #else
+        let editorDirectory = "Editor"
+        #endif
+        guard let appResources = Bundle.main.resourceURL?.appendingPathComponent(editorDirectory, isDirectory: true),
               FileManager.default.fileExists(atPath: appResources.appendingPathComponent("index.html").path)
         else { return nil }
         return appResources
