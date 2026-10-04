@@ -28,6 +28,7 @@
 		BEA49D3507E171BCA4AB82E6 /* NotebookConflictArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBF17E95D5A2120197C43EBF /* NotebookConflictArchive.swift */; };
 		DF038F73300ABBB288FD55BC /* dist in Resources */ = {isa = PBXBuildFile; fileRef = B9943DCF1318316CB8472944 /* dist */; };
 		E09D0F1E4472D9690921280C /* JotModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 729063AE400D5214F0838183 /* JotModels.swift */; };
+		E173B9AE89429E79624C2F4B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF1CA692EEDF2A07E3413580 /* Assets.xcassets */; };
 		E63E6A6714844F9C1D2D6832 /* NotebookCloudFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31FDF5DCE5DCAB5961EA428A /* NotebookCloudFile.swift */; };
 		EF6484E53701C9E1510B94A4 /* NotebookAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CE2CF9F9998E322A653DA33 /* NotebookAttachment.swift */; };
 		F988AFFF19F21E5441CFD135 /* PhoneEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 708873236499D04E946BFCFB /* PhoneEditor.swift */; };
@@ -55,6 +56,7 @@
 		CBF17E95D5A2120197C43EBF /* NotebookConflictArchive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotebookConflictArchive.swift; sourceTree = "<group>"; };
 		D4DC5B9BAE9D0E5A7A3E4CDD /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
 		DA233786EA7A57D7051F45BB /* JotWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JotWriter.swift; sourceTree = "<group>"; };
+		DF1CA692EEDF2A07E3413580 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E366AAE5E061CB4AF0B46820 /* NoteNavigationHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteNavigationHistory.swift; sourceTree = "<group>"; };
 		EED603993843F7BF53D5B82A /* NoteRailIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteRailIndex.swift; sourceTree = "<group>"; };
 		EFF44449D7BA8B92435AFB6B /* LocalResourceSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalResourceSchemeHandler.swift; sourceTree = "<group>"; };
@@ -65,6 +67,7 @@
 		17F826998196B128B8C8CCDF /* JotIOS */ = {
 			isa = PBXGroup;
 			children = (
+				DF1CA692EEDF2A07E3413580 /* Assets.xcassets */,
 				C05FB4CC3E69F7B0A0B106C7 /* JotApp.swift */,
 				314C89545B2CD0908590922B /* JotStore.swift */,
 				7EAF7BD2A85D8D5BFC53B4ED /* PhoneDictation.swift */,
@@ -187,6 +190,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E173B9AE89429E79624C2F4B /* Assets.xcassets in Resources */,
 				DF038F73300ABBB288FD55BC /* dist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -335,3 +335,9 @@ Signed device build, installation and launch succeeded. Physical keyboard-open a
 User screenshot proved that WebKit's previous/next/Done accessory remained below Jot's glass bar. PhoneEditor now uses a WKWebView subclass overriding the public inputAccessoryView getter to nil. Current upstream WebKit WKContentViewInteraction.mm forwards that getter to the owning web view, confirming this uses the supported subclass route rather than runtime replacement of internal classes. Jot's safe-area bar retains keyboard dismissal.
 
 Icons increased to 21-point semibold; microphone uses its filled symbol. Signed physical build and installation succeeded. Visual confirmation of the single-bar keyboard-open result is still pending.
+
+## Approved notebook app icon — 2026-10-04
+
+Read the jot logo thread and used its approved refined brick-red pocket notebook direction. Prepared a standalone notebook on ivory from the approved presentation with imagegen, then normalized it to a 1024-square opaque app-icon PNG. Added Assets.xcassets/AppIcon and explicit ASSETCATALOG_COMPILER_APPICON_NAME in the project specification.
+
+Signed physical build, installation and launch succeeded. Built Info.plist identifies AppIcon as the primary icon; compiled Assets.car and device icon renditions are present. Home-screen appearance is not visually verified by the agent.
