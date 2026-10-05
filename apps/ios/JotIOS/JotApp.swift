@@ -31,13 +31,17 @@ struct JotRootView: View {
     private var editorToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             Button("Jots", systemImage: "list.bullet") { store.openLibrary() }
-                .disabled(navigationDisabled)
+                .disabled(navigationDisabled || chromeHidden)
+                .opacity(chromeHidden ? 0 : 1)
+                .accessibilityHidden(chromeHidden)
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button("New Jot", systemImage: "square.and.pencil") { store.newJot() }
                 .labelStyle(.iconOnly)
                 .keyboardShortcut("n", modifiers: .command)
-                .disabled(navigationDisabled)
+                .disabled(navigationDisabled || chromeHidden)
+                .opacity(chromeHidden ? 0 : 1)
+                .accessibilityHidden(chromeHidden)
         }
     }
 
@@ -117,11 +121,17 @@ struct JotRootView: View {
                                 }.padding(24).background(Color(uiColor: .systemBackground))
                             }
                         }
-                        .navigationTitle("Jot")
+                        .navigationTitle(chromeHidden ? "" : "Jot")
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar { editorToolbar }
-                        .toolbar(chromeHidden ? .hidden : .visible, for: .navigationBar)
-                        .safeAreaInset(edge: .bottom, spacing: 0) { if !reviewChromeHidden { keyboardControls } }
+                        // Keep the navigation and accessory layout slots stable across modes.
+                        .toolbarBackground(.hidden, for: .navigationBar)
+                        .safeAreaInset(edge: .bottom, spacing: 0) {
+                            keyboardControls
+                                .opacity(keyboardVisible ? 1 : 0)
+                                .allowsHitTesting(keyboardVisible)
+                                .accessibilityHidden(!keyboardVisible)
+                        }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 24) {

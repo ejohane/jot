@@ -351,3 +351,9 @@ Implemented in three parallel subagent scopes, each with its own validation, fol
 - Unified bar adds bulleted-list, decrease-indent and increase-indent actions using existing shared Markdown commands. Larger semibold controls remain; actions scroll horizontally on narrow screens while dismissal stays pinned.
 
 Evidence: Web110 tests pass and production build succeeds. Full Swift100 executed, 1 skipped, 0 failures (new timing-boundary coverage plus existing writer new-entry protection). Simulator build passes. Final integrated signed device build, install and devicectl launch succeed. CUA Simulator screenshot shows the unified bar with all three new icons. Software-keyboard toggle produced no visible keyboard, so it does not prove keyboard/chrome transitions. Physical Mirroring remains TouchID locked; launch focus, five-minute restoration, scroll/tap and edge-swipe flows still require observed manual acceptance.
+
+## Stable writing/review placement — 2026-10-04
+
+Keyboard controls now appear only while the keyboard is visible. Hidden controls retain their layout slot, reject touches, and are removed from accessibility. Navigation chrome uses hidden title and invisible/disabled actions while retaining native navigation layout instead of removing the entire navigation bar. Font settings remain unchanged. These choices avoid layout shifts caused by inserting/removing chrome across modes.
+
+Signed device build, installation and launch succeeded; diff check passes. Visible keyboard/review text-position comparison still needs manual confirmation.
