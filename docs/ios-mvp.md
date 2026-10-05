@@ -363,3 +363,9 @@ Signed device build, installation and launch succeeded; diff check passes. Visib
 User still observed focus zoom and top controls during writing. Top toolbar actions are now conditionally omitted, rather than applying opacity to the labels inside native glass toolbar items. Navigation layout remains explicitly visible with an empty title during writing to preserve its layout slot.
 
 Phone-only viewport injection adds maximum-scale=1.0, and phone CSS fixes text-size-adjust at 100%; editor font sizing and Dynamic Type remain unchanged. This addresses WebKit focus scaling separately from chrome layout. Signed physical build, installation and launch succeed; source whitespace check passes. Focus-scale and keyboard transitions still require physical visual confirmation, including large Dynamic Type behavior and manual pinch behavior under the viewport constraint.
+
+## Left-side Jots menu — 2026-10-04
+
+Replaced the full-screen library cover with a leading drawer that animates in and out from the left. The menu button and existing left-edge swipe open the same drawer. Tapping the dimmed editor, swiping left across the drawer, or using its close chevron dismisses it. Search, note selection and settings remain available. Opening dismisses the keyboard; closing restores editor focus.
+
+Signed device build, installation and launch succeed. Source whitespace check passes. Physical transition appearance and gesture interaction remain visually unverified.

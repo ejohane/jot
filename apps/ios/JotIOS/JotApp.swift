@@ -187,7 +187,38 @@ struct JotRootView: View {
         }
         .background(Color(uiColor: .systemBackground))
         .sheet(isPresented: $store.showSettings) { JotStorageSettings(store: store) }
-        .fullScreenCover(isPresented: $store.showLibrary, onDismiss: { store.focus() }) { JotLibraryView(store: store) }
+        .overlay {
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    if store.showLibrary {
+                        Color.black.opacity(0.18)
+                            .ignoresSafeArea()
+                            .onTapGesture { store.showLibrary = false }
+                            .accessibilityLabel("Close Jots menu")
+                            .accessibilityAddTraits(.isButton)
+                            .transition(.opacity)
+                        JotLibraryView(store: store, onClose: { store.showLibrary = false })
+                            .frame(width: min(geometry.size.width * 0.9, 380))
+                            .frame(maxHeight: .infinity)
+                            .background(Color(uiColor: .systemBackground))
+                            .shadow(color: .black.opacity(0.12), radius: 16, x: 6)
+                            .transition(.move(edge: .leading))
+                            .simultaneousGesture(DragGesture().onEnded { value in
+                                if value.translation.width < -60,
+                                   abs(value.translation.width) > abs(value.translation.height) {
+                                    store.showLibrary = false
+                                }
+                            })
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            }
+            .animation(.easeInOut(duration: 0.25), value: store.showLibrary)
+        }
+        .onChange(of: store.showLibrary) { _, visible in
+            if visible { store.webView?.endEditing(true) }
+            else { store.focus() }
+        }
         .alert("Jot", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
             if store.hasConflict { Button("Keep Both Versions") { store.preserveBothVersions() } }
             Button(store.hasConflict ? "Keep Editing" : "OK", role: .cancel) { store.error = nil }
@@ -197,7 +228,7 @@ struct JotRootView: View {
 
 struct JotLibraryView: View {
     @Bindable var store: JotStore
-    @Environment(\.dismiss) private var dismiss
+    var onClose: () -> Void
     var body: some View {
         NavigationStack {
             List(store.notes, id: \.id) { note in
@@ -223,9 +254,11 @@ struct JotLibraryView: View {
             .navigationTitle("Jots")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("Settings", systemImage: "gearshape") { store.showSettings = true } }
-                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Close Jots", systemImage: "chevron.left") { onClose() }
+                        .labelStyle(.iconOnly).keyboardShortcut(.cancelAction)
+                }
             }
-            .sheet(isPresented: $store.showSettings) { JotStorageSettings(store: store) }
             .searchable(text: $store.query, prompt: "Search your jots")
             .task(id: store.query) { await store.refreshNotes() }
         }.tint(.primary)
