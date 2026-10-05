@@ -32,7 +32,11 @@ struct PhoneEditor: UIViewRepresentable {
           document.addEventListener('pointercancel', () => { pointerStart = null; });
         })();
         """, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
-        configuration.userContentController.addUserScript(WKUserScript(source: "document.documentElement.classList.add('ios')", injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        configuration.userContentController.addUserScript(WKUserScript(source: """
+            document.documentElement.classList.add('ios');
+            document.querySelector('meta[name="viewport"]')?.setAttribute('content',
+              'width=device-width, initial-scale=1.0, maximum-scale=1.0');
+            """, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         let view = JotEditorWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
         let edgeSwipe = UIScreenEdgePanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.openLibraryFromEdge(_:)))

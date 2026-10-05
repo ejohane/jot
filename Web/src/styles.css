@@ -297,7 +297,7 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
 .cm-attachment-status { display: block; font: inherit; padding: 8px 0; }
 
 /* The phone uses native navigation and keyboard controls around the same editor. */
-.ios { --background: #fff; --editor-size: 17px; }
+.ios { --background: #fff; --editor-size: 17px; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 @media (prefers-color-scheme: dark) { .ios { --background: #000; } }
 .ios .composer { --editor-top-inset: 12px; --editor-bottom-inset: 12px; }
 .ios .editor { right: 0; }

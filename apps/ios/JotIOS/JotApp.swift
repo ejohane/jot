@@ -29,19 +29,17 @@ struct JotRootView: View {
     }
     @ToolbarContentBuilder
     private var editorToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Button("Jots", systemImage: "list.bullet") { store.openLibrary() }
-                .disabled(navigationDisabled || chromeHidden)
-                .opacity(chromeHidden ? 0 : 1)
-                .accessibilityHidden(chromeHidden)
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button("New Jot", systemImage: "square.and.pencil") { store.newJot() }
-                .labelStyle(.iconOnly)
-                .keyboardShortcut("n", modifiers: .command)
-                .disabled(navigationDisabled || chromeHidden)
-                .opacity(chromeHidden ? 0 : 1)
-                .accessibilityHidden(chromeHidden)
+        if !chromeHidden {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Jots", systemImage: "list.bullet") { store.openLibrary() }
+                    .disabled(navigationDisabled)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("New Jot", systemImage: "square.and.pencil") { store.newJot() }
+                    .labelStyle(.iconOnly)
+                    .keyboardShortcut("n", modifiers: .command)
+                    .disabled(navigationDisabled)
+            }
         }
     }
 
@@ -125,6 +123,7 @@ struct JotRootView: View {
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar { editorToolbar }
                         // Keep the navigation and accessory layout slots stable across modes.
+                        .toolbar(.visible, for: .navigationBar)
                         .toolbarBackground(.hidden, for: .navigationBar)
                         .safeAreaInset(edge: .bottom, spacing: 0) {
                             keyboardControls

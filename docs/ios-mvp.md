@@ -357,3 +357,9 @@ Evidence: Web110 tests pass and production build succeeds. Full Swift100 execute
 Keyboard controls now appear only while the keyboard is visible. Hidden controls retain their layout slot, reject touches, and are removed from accessibility. Navigation chrome uses hidden title and invisible/disabled actions while retaining native navigation layout instead of removing the entire navigation bar. Font settings remain unchanged. These choices avoid layout shifts caused by inserting/removing chrome across modes.
 
 Signed device build, installation and launch succeeded; diff check passes. Visible keyboard/review text-position comparison still needs manual confirmation.
+
+## Focus scale and complete chrome removal — 2026-10-04
+
+User still observed focus zoom and top controls during writing. Top toolbar actions are now conditionally omitted, rather than applying opacity to the labels inside native glass toolbar items. Navigation layout remains explicitly visible with an empty title during writing to preserve its layout slot.
+
+Phone-only viewport injection adds maximum-scale=1.0, and phone CSS fixes text-size-adjust at 100%; editor font sizing and Dynamic Type remain unchanged. This addresses WebKit focus scaling separately from chrome layout. Signed physical build, installation and launch succeed; source whitespace check passes. Focus-scale and keyboard transitions still require physical visual confirmation, including large Dynamic Type behavior and manual pinch behavior under the viewport constraint.
