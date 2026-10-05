@@ -536,6 +536,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                         "noteID": jot.id,
                         "path": jot.path,
                         "revision": jot.acknowledgedRevision,
+                        "baseURL": imageBaseURL(for: jot.path) ?? "",
                     ])
                     await persistSessionNow()
                 }

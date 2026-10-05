@@ -9,6 +9,7 @@ final class InMemoryFileSystem: @unchecked Sendable, JotFileSystem {
     private var files: [String: Data] = [:]
     private(set) var writes: [(String, Data)] = []
     var writeError: Error?
+    var failMarkdownWrites = false
     private(set) var recoveryCallCount = 0
 
     func createDirectory(at url: URL) throws {}
@@ -25,6 +26,7 @@ final class InMemoryFileSystem: @unchecked Sendable, JotFileSystem {
     func writeAtomically(_ data: Data, to url: URL) throws {
         try lock.withLock {
             if let writeError { throw writeError }
+            if failMarkdownWrites && url.pathExtension == "md" { throw POSIXError(.EIO) }
             files[url.path] = data
             writes.append((url.path, data))
         }
@@ -727,6 +729,122 @@ final class CoreTests: XCTestCase {
         XCTAssertNotEqual(copy.path, original.path)
         XCTAssertEqual(String(data: try fileSystem.data(at: originalURL), encoding: .utf8), "external")
         XCTAssertEqual(String(data: try fileSystem.data(at: URL(fileURLWithPath: copy.path)), encoding: .utf8), "mine newer")
+    }
+
+    @MainActor
+    func testRecoveryCopyCarriesAttachmentsAcrossDatesAndRootsWithoutChangingSource() async throws {
+        let fs = InMemoryFileSystem()
+        let clock = TestClock()
+        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: fs, now: { clock.now() }) { _ in }
+        let image = Data([0, 1, 2, 255])
+        let imported = try await writer.importAttachment(image, fileExtension: "png")
+        let text = "![Image](\(imported.relativePath))\n![Again](<\(imported.relativePath)> \"title\")\n"
+        await writer.receive(snapshot(revision: 1, text: text))
+        let originalURL = URL(fileURLWithPath: imported.jot.path)
+        let originalImage = originalURL.deletingLastPathComponent().appendingPathComponent(imported.relativePath)
+        fs.replaceExternally(at: originalURL, with: "external version")
+        await writer.receive(snapshot(revision: 2, text: text + "my edits"), flushImmediately: true)
+
+        // Repeat recovery: the references retain the first note's attachment namespace.
+        for root in ["/Jots", "/OtherJots"] {
+            clock.advance(by: 86_400)
+            await writer.configureRoot(URL(fileURLWithPath: root))
+            let result = await writer.saveCurrentVersionAsCopy()
+            let copy = try XCTUnwrap(result)
+            let copyURL = URL(fileURLWithPath: copy.path)
+            XCTAssertNotEqual(copyURL.deletingLastPathComponent(), originalURL.deletingLastPathComponent())
+            XCTAssertEqual(try fs.data(at: copyURL), Data((text + "my edits").utf8))
+            XCTAssertEqual(try fs.data(at: copyURL.deletingLastPathComponent().appendingPathComponent(imported.relativePath)), image)
+            let reopened = JotWriter(rootURL: URL(fileURLWithPath: root), fileSystem: fs) { _ in }
+            let restored = try await reopened.restore(copy)
+            XCTAssertEqual(restored, text + "my edits")
+            XCTAssertEqual(try fs.data(at: originalURL), Data("external version".utf8))
+            XCTAssertEqual(try fs.data(at: originalImage), image)
+        }
+    }
+
+    @MainActor
+    func testRecoveryAttachmentFailureKeepsOriginalActiveAndAllowsRetry() async throws {
+        let fs = InMemoryFileSystem()
+        let clock = TestClock()
+        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: fs, now: { clock.now() }) { _ in }
+        let imported = try await writer.importAttachment(Data([42]), fileExtension: "png")
+        let text = "![Image](\(imported.relativePath))"
+        await writer.receive(snapshot(revision: 1, text: text))
+        let original = await writer.currentJot()
+        clock.advance(by: 86_400)
+        fs.writeError = POSIXError(.EIO)
+        let failed = await writer.saveCurrentVersionAsCopy()
+        let active = await writer.currentJot()
+        let blocked = await writer.hasBlockingError
+        XCTAssertNil(failed)
+        XCTAssertEqual(active?.path, original?.path)
+        XCTAssertTrue(blocked)
+        XCTAssertEqual(fs.fileCount, 2)
+        fs.writeError = nil
+        let retried = await writer.saveCurrentVersionAsCopy()
+        XCTAssertNotNil(retried)
+    }
+
+    @MainActor
+    func testRecoveryCopyCleansAttachmentsOnNoteFailureAndRejectsMissingSource() async throws {
+        let fs = InMemoryFileSystem()
+        let clock = TestClock()
+        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: fs, now: { clock.now() }) { _ in }
+        let imported = try await writer.importAttachment(Data([42]), fileExtension: "png")
+        let text = "![Image](\(imported.relativePath))"
+        await writer.receive(snapshot(revision: 1, text: text))
+        clock.advance(by: 86_400)
+        fs.failMarkdownWrites = true
+        let failed = await writer.saveCurrentVersionAsCopy()
+        XCTAssertNil(failed)
+        XCTAssertEqual(fs.fileCount, 2, "New attachment files must be removed if the note cannot be saved")
+        fs.failMarkdownWrites = false
+        let source = URL(fileURLWithPath: imported.jot.path).deletingLastPathComponent().appendingPathComponent(imported.relativePath)
+        fs.deleteExternally(at: source)
+        let missing = await writer.saveCurrentVersionAsCopy()
+        XCTAssertNil(missing)
+        let active = await writer.currentJot()
+        XCTAssertEqual(active?.path, imported.jot.path)
+        XCTAssertEqual(try fs.data(at: URL(fileURLWithPath: imported.jot.path)), Data(text.utf8))
+        try fs.writeAtomically(Data([42]), to: source)
+        let retried = await writer.saveCurrentVersionAsCopy()
+        XCTAssertNotNil(retried)
+    }
+
+    @MainActor
+    func testSameDayRecoveryCopyReusesOriginalAttachments() async throws {
+        let fs = InMemoryFileSystem()
+        let clock = TestClock()
+        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: fs, now: { clock.now() }) { _ in }
+        let imported = try await writer.importAttachment(Data([42]), fileExtension: "png")
+        await writer.receive(snapshot(revision: 1, text: "![Image](\(imported.relativePath))"))
+        let result = await writer.saveCurrentVersionAsCopy()
+        let copy = try XCTUnwrap(result)
+        XCTAssertNotEqual(copy.path, imported.jot.path)
+        XCTAssertEqual(fs.fileCount, 3, "Two notes share the same unchanged image on the same day")
+        XCTAssertEqual(fs.writeCount, 3)
+    }
+
+    @MainActor
+    func testRecoveryAttachmentCollisionNeverOverwritesDestination() async throws {
+        let fs = InMemoryFileSystem()
+        let clock = TestClock()
+        let root = URL(fileURLWithPath: "/Jots")
+        let writer = JotWriter(rootURL: root, fileSystem: fs, now: { clock.now() }) { _ in }
+        let imported = try await writer.importAttachment(Data([42]), fileExtension: "png")
+        await writer.receive(snapshot(revision: 1, text: "![Image](\(imported.relativePath))"))
+        clock.advance(by: 86_400)
+        let directory = JotPathAllocator().allocate(root: root, at: clock.now()).fileURL.deletingLastPathComponent()
+        let target = directory.appendingPathComponent(imported.relativePath)
+        try fs.writeAtomically(Data([99]), to: target)
+        let failed = await writer.saveCurrentVersionAsCopy()
+        XCTAssertNil(failed)
+        XCTAssertEqual(try fs.data(at: target), Data([99]))
+        // An identical destination is safe to reuse.
+        try fs.writeAtomically(Data([42]), to: target)
+        let retried = await writer.saveCurrentVersionAsCopy()
+        XCTAssertNotNil(retried)
     }
 
     @MainActor

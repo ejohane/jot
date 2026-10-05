@@ -202,6 +202,19 @@ actor JotWriter {
         let previousWrittenData = lastWrittenData
         let previousFileWasMissing = activeFileWasMissing
         let allocation = allocator.allocate(root: rootURL, at: now())
+        // Keep the Markdown byte-for-byte intact, including attachment namespaces from
+        // earlier recovery copies. Make its relative resources durable before the note.
+        let copiedAttachments: [URL]
+        do {
+            copiedAttachments = try copyRecoveryAttachments(
+                in: latestSnapshot.text,
+                from: previousJot.map { URL(fileURLWithPath: $0.path).deletingLastPathComponent() },
+                to: allocation.fileURL.deletingLastPathComponent()
+            )
+        } catch {
+            fail(latestSnapshot, error: .writeFailed(error.localizedDescription))
+            return nil
+        }
         activeJot = ActiveJot(id: allocation.id, path: allocation.fileURL.path, acknowledgedRevision: -1)
         lastWrittenData = nil
         activeFileWasMissing = false
@@ -210,6 +223,7 @@ actor JotWriter {
         guard !hasBlockingError,
               let activeJot,
               activeJot.acknowledgedRevision >= latestSnapshot.revision else {
+            for url in copiedAttachments { try? fileSystem.removeItem(at: url) }
             activeJot = previousJot
             lastWrittenData = previousWrittenData
             activeFileWasMissing = previousFileWasMissing
@@ -217,6 +231,36 @@ actor JotWriter {
             return nil
         }
         return activeJot
+    }
+
+    private func copyRecoveryAttachments(in text: String, from source: URL?, to destination: URL) throws -> [URL] {
+        guard let source, source.standardizedFileURL != destination.standardizedFileURL else { return [] }
+        // Jot imports use whitespace-free attachments/<note-id>/<filename> destinations.
+        // Accept angle brackets and titles too, without rewriting the editor's source.
+        let pattern = #"\(<?(attachments/[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+)(?=>?(?:\s|\)))"#
+        let regex = try NSRegularExpression(pattern: pattern)
+        let paths = Set(regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap {
+            Range($0.range(at: 1), in: text).map { String(text[$0]) }
+        })
+        var created: [URL] = []
+        do {
+            for path in paths.sorted() {
+                let data = try fileSystem.data(at: source.appendingPathComponent(path))
+                let target = destination.appendingPathComponent(path)
+                if fileSystem.fileExists(at: target) {
+                    guard try fileSystem.data(at: target) == data else {
+                        throw PersistenceError.writeFailed("A different attachment already exists at \(target.path).")
+                    }
+                    continue
+                }
+                try fileSystem.writeAtomically(data, to: target)
+                created.append(target)
+            }
+            return created
+        } catch {
+            for url in created { try? fileSystem.removeItem(at: url) }
+            throw error
+        }
     }
 
     func reloadExternalVersion() throws -> (text: String, jot: ActiveJot) {
