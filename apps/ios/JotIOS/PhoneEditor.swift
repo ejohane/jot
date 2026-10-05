@@ -6,9 +6,8 @@ struct PhoneEditor: UIViewRepresentable {
     var reviewChromeHidden = false
     var onReviewScroll: () -> Void = {}
     var onReviewTap: () -> Void = {}
-    var onOpenLibrary: () -> Void = {}
-    func makeCoordinator() -> Coordinator { Coordinator(store: store, onReviewScroll: onReviewScroll, onReviewTap: onReviewTap, onOpenLibrary: onOpenLibrary) }
-    func makeUIView(context: Context) -> WKWebView {
+    func makeCoordinator() -> Coordinator { Coordinator(store: store, onReviewScroll: onReviewScroll, onReviewTap: onReviewTap) }
+    func makeUIView(context: Context) -> JotPagingSurface {
         let configuration = WKWebViewConfiguration()
         configuration.setURLSchemeHandler(store.resources, forURLScheme: "jot")
         configuration.userContentController.add(context.coordinator, name: "jot")
@@ -39,21 +38,19 @@ struct PhoneEditor: UIViewRepresentable {
             """, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         let view = JotEditorWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
-        let edgeSwipe = UIScreenEdgePanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.openLibraryFromEdge(_:)))
-        edgeSwipe.edges = .left
-        view.addGestureRecognizer(edgeSwipe)
         view.isOpaque = false
         view.backgroundColor = .clear
         view.scrollView.isScrollEnabled = false
         store.webView = view
         view.load(URLRequest(url: URL(string: "jot://local/index.html")!))
-        return view
+        return JotPagingSurface(editor: view, store: store)
     }
-    func updateUIView(_ uiView: WKWebView, context: Context) {
+    func updateUIView(_ surface: JotPagingSurface, context: Context) {
+        let uiView = surface.editor
+        surface.refreshNeighbors()
         uiView.evaluateJavaScript("window.jotReviewChromeHidden = \(reviewChromeHidden ? "true" : "false")")
         context.coordinator.onReviewScroll = onReviewScroll
         context.coordinator.onReviewTap = onReviewTap
-        context.coordinator.onOpenLibrary = onOpenLibrary
         let category: UIContentSizeCategory
         switch context.environment.dynamicTypeSize {
         case .xSmall: category = .extraSmall
@@ -83,17 +80,10 @@ struct PhoneEditor: UIViewRepresentable {
         }
         var onReviewScroll: () -> Void
         var onReviewTap: () -> Void
-        var onOpenLibrary: () -> Void
-        init(store: JotStore, onReviewScroll: @escaping () -> Void, onReviewTap: @escaping () -> Void, onOpenLibrary: @escaping () -> Void) {
+        init(store: JotStore, onReviewScroll: @escaping () -> Void, onReviewTap: @escaping () -> Void) {
             self.store = store
             self.onReviewScroll = onReviewScroll
             self.onReviewTap = onReviewTap
-            self.onOpenLibrary = onOpenLibrary
-        }
-        @objc func openLibraryFromEdge(_ gesture: UIScreenEdgePanGestureRecognizer) {
-            guard gesture.state == .ended, let view = gesture.view,
-                  gesture.translation(in: view).x > 60, gesture.velocity(in: view).x >= 0 else { return }
-            onOpenLibrary()
         }
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             if message.name == "reviewChrome" {

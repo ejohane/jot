@@ -1484,3 +1484,33 @@ describe("phone list controls", () => {
     expect(view.state.doc.toString()).toBe("- parent\n- child");
   });
 });
+
+
+it("loads a paging preview without stealing focus, and preserves default writing focus", async () => {
+  const { view } = await makeConnectedEditor("Current jot");
+  const focus = vi.spyOn(view, "focus");
+  await act(async () => window.JotNative?.receive({
+    version: 1, type: "loadSession", focus: false, text: "Next jot", noteID: "next", revision: 0,
+    selection: { anchor: 0, head: 0 }, viewport: { scrollTop: 0 },
+  }));
+  await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+  expect(view.state.doc.toString()).toBe("Next jot");
+  expect(focus).not.toHaveBeenCalled();
+  await act(async () => window.JotNative?.receive({
+    version: 1, type: "loadSession", text: "Writing jot", noteID: "writing", revision: 0,
+    selection: { anchor: 0, head: 0 }, viewport: { scrollTop: 0 },
+  }));
+  await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+  expect(focus).toHaveBeenCalled();
+});
+
+
+it("locks a page for saving while retaining its editable focus surface", async () => {
+  const { view } = await makeConnectedEditor("In progress");
+  view.focus();
+  const snapshot = window.JotNative?.lockAndSnapshot(true);
+  expect(snapshot?.text).toBe("In progress");
+  expect(view.state.readOnly).toBe(true);
+  expect(view.contentDOM.getAttribute("contenteditable")).toBe("true");
+  expect(view.hasFocus).toBe(true);
+});

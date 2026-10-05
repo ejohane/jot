@@ -35,7 +35,7 @@ export type NativeToEditor =
   | { version: 1; type: "noteSearchResults"; requestID: number; results: NoteSearchResult[]; message?: string }
   | { version: 1; type: "toggleActionPanel" | "showNoteSearch" | "findInNote" | "escape" }
   | { version: 1; type: "actionState"; canNew: boolean; canReveal: boolean; canLatest: boolean; canBack: boolean; canForward: boolean }
-  | { version: 1; type: "loadSession"; sessionID?: string; baseURL?: string; text: string; noteID?: string; revision: number; selection: Selection; viewport: Viewport }
+  | { version: 1; type: "loadSession"; focus?: boolean; sessionID?: string; baseURL?: string; text: string; noteID?: string; revision: number; selection: Selection; viewport: Viewport }
   | { version: 1; type: "beginImagePaste" | "selectAll" }
   | { version: 1; type: "imageImported"; requestID: string; path: string; baseURL: string }
   | { version: 1; type: "imageImportFailed"; requestID: string; message: string }
@@ -60,7 +60,7 @@ declare global {
     webkit?: { messageHandlers?: { jot?: { postMessage(message: EditorToNative): void } } };
     JotNative?: {
       receive(message: NativeToEditor): void;
-      lockAndSnapshot(): { sessionID?: string; text: string; revision: number; selection: { anchor: number; head: number }; viewport: { scrollTop: number } };
+      lockAndSnapshot(keepFocus?: boolean): { sessionID?: string; text: string; revision: number; selection: { anchor: number; head: number }; viewport: { scrollTop: number } };
     };
   }
 }

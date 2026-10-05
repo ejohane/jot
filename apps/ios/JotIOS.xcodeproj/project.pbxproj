@@ -12,6 +12,7 @@
 		2876C82820A5EDEE6C07EB35 /* JotApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05FB4CC3E69F7B0A0B106C7 /* JotApp.swift */; };
 		2F4406D3BA2D6D43C13EC3C2 /* AtomicFileSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6DFEF0570A055C98D5A22B /* AtomicFileSystem.swift */; };
 		328ADD316A524BB5989AB037 /* InlineTags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 490A800820E242AED47A58C5 /* InlineTags.swift */; };
+		332CA49C9E84B81CC887D47D /* JotPagingSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7FFFE97F710F04683ECF47D /* JotPagingSurface.swift */; };
 		42E3CFE32EFABA8E610BD263 /* LocalResourceSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFF44449D7BA8B92435AFB6B /* LocalResourceSchemeHandler.swift */; };
 		532AC49BC41A52D8F588CEEE /* JotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 314C89545B2CD0908590922B /* JotStore.swift */; };
 		6D8CAF9793740090F1718F41 /* PhoneDictation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EAF7BD2A85D8D5BFC53B4ED /* PhoneDictation.swift */; };
@@ -51,6 +52,7 @@
 		729063AE400D5214F0838183 /* JotModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JotModels.swift; sourceTree = "<group>"; };
 		7EAF7BD2A85D8D5BFC53B4ED /* PhoneDictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneDictation.swift; sourceTree = "<group>"; };
 		91F858A491EAFDEC9508D18F /* JotPathAllocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JotPathAllocator.swift; sourceTree = "<group>"; };
+		A7FFFE97F710F04683ECF47D /* JotPagingSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JotPagingSurface.swift; sourceTree = "<group>"; };
 		AD4EA89BE2B54A2EB8ADAE03 /* TagIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagIndex.swift; sourceTree = "<group>"; };
 		B9943DCF1318316CB8472944 /* dist */ = {isa = PBXFileReference; lastKnownFileType = folder; name = dist; path = ../../Web/dist; sourceTree = SOURCE_ROOT; };
 		BE6DFEF0570A055C98D5A22B /* AtomicFileSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AtomicFileSystem.swift; sourceTree = "<group>"; };
@@ -71,6 +73,7 @@
 			children = (
 				DF1CA692EEDF2A07E3413580 /* Assets.xcassets */,
 				C05FB4CC3E69F7B0A0B106C7 /* JotApp.swift */,
+				A7FFFE97F710F04683ECF47D /* JotPagingSurface.swift */,
 				314C89545B2CD0908590922B /* JotStore.swift */,
 				7EAF7BD2A85D8D5BFC53B4ED /* PhoneDictation.swift */,
 				708873236499D04E946BFCFB /* PhoneEditor.swift */,
@@ -211,6 +214,7 @@
 				328ADD316A524BB5989AB037 /* InlineTags.swift in Sources */,
 				2876C82820A5EDEE6C07EB35 /* JotApp.swift in Sources */,
 				E09D0F1E4472D9690921280C /* JotModels.swift in Sources */,
+				332CA49C9E84B81CC887D47D /* JotPagingSurface.swift in Sources */,
 				743858E817785DBBD5DCF549 /* JotPathAllocator.swift in Sources */,
 				532AC49BC41A52D8F588CEEE /* JotStore.swift in Sources */,
 				7F00A0C50FB2554C15CAA05C /* JotWriter.swift in Sources */,

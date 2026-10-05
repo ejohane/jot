@@ -399,8 +399,8 @@ export function Editor() {
     document.addEventListener("keydown", documentKeyDown, true);
     sendPreferredHeight(view);
     window.JotNative = {
-      lockAndSnapshot() {
-        view.dispatch({ effects: editing.reconfigure([EditorState.readOnly.of(true), EditorView.editable.of(false)]) });
+      lockAndSnapshot(keepFocus = false) {
+        view.dispatch({ effects: editing.reconfigure([EditorState.readOnly.of(true), EditorView.editable.of(keepFocus)]) });
         const selection = view.state.selection.main;
         return { sessionID: sessionIDRef.current, text: view.state.doc.toString(), revision: revisionRef.current,
           selection: { anchor: selection.anchor, head: selection.head }, viewport: { scrollTop: view.scrollDOM.scrollTop } };
@@ -521,7 +521,7 @@ export function Editor() {
               }
               requestAnimationFrame(() => {
                 if (sessionLoadGeneration.current !== generation) return;
-                if (!panelOpenRef.current) view.focus();
+                if (message.focus !== false && !panelOpenRef.current) view.focus();
                 sendPreferredHeight(view);
               });
               break;
@@ -540,7 +540,7 @@ export function Editor() {
             requestAnimationFrame(() => {
               if (sessionLoadGeneration.current !== generation) return;
               view.scrollDOM.scrollTop = message.viewport.scrollTop;
-              if (!panelOpenRef.current) view.focus();
+              if (message.focus !== false && !panelOpenRef.current) view.focus();
               sendPreferredHeight(view);
             });
             setError(null);

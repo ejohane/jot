@@ -106,10 +106,6 @@ struct JotRootView: View {
                         if !keyboardVisible { withAnimation(.easeInOut(duration: 0.2)) { reviewChromeHidden = true } }
                     }, onReviewTap: {
                         if !keyboardVisible { withAnimation(.easeInOut(duration: 0.2)) { reviewChromeHidden = false } }
-                    }, onOpenLibrary: {
-                        guard !navigationDisabled else { return }
-                        store.webView?.endEditing(true)
-                        store.openLibrary()
                     }).allowsHitTesting(store.canEdit && !store.storageBusy && !store.reconciling)
                         .overlay {
                             if !store.canEdit {
@@ -186,39 +182,11 @@ struct JotRootView: View {
             }
         }
         .background(Color(uiColor: .systemBackground))
-        .sheet(isPresented: $store.showSettings) { JotStorageSettings(store: store) }
-        .overlay {
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    if store.showLibrary {
-                        Color.black.opacity(0.18)
-                            .ignoresSafeArea()
-                            .onTapGesture { store.showLibrary = false }
-                            .accessibilityLabel("Close Jots menu")
-                            .accessibilityAddTraits(.isButton)
-                            .transition(.opacity)
-                        JotLibraryView(store: store, onClose: { store.showLibrary = false })
-                            .frame(width: min(geometry.size.width * 0.9, 380))
-                            .frame(maxHeight: .infinity)
-                            .background(Color(uiColor: .systemBackground))
-                            .shadow(color: .black.opacity(0.12), radius: 16, x: 6)
-                            .transition(.move(edge: .leading))
-                            .simultaneousGesture(DragGesture().onEnded { value in
-                                if value.translation.width < -60,
-                                   abs(value.translation.width) > abs(value.translation.height) {
-                                    store.showLibrary = false
-                                }
-                            })
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            }
-            .animation(.easeInOut(duration: 0.25), value: store.showLibrary)
+        .sheet(isPresented: Binding(get: { store.showSettings && !store.showLibrary }, set: { store.showSettings = $0 })) { JotStorageSettings(store: store) }
+        .sheet(isPresented: $store.showLibrary, onDismiss: { store.focus() }) {
+            JotLibraryView(store: store, onClose: { store.showLibrary = false })
         }
-        .onChange(of: store.showLibrary) { _, visible in
-            if visible { store.webView?.endEditing(true) }
-            else { store.focus() }
-        }
+        .task(id: "\(store.ready)-\(store.configured)-\(store.session.active?.id ?? "new")") { await store.refreshPagingNotes() }
         .alert("Jot", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
             if store.hasConflict { Button("Keep Both Versions") { store.preserveBothVersions() } }
             Button(store.hasConflict ? "Keep Editing" : "OK", role: .cancel) { store.error = nil }
@@ -259,6 +227,7 @@ struct JotLibraryView: View {
                         .labelStyle(.iconOnly).keyboardShortcut(.cancelAction)
                 }
             }
+            .sheet(isPresented: $store.showSettings) { JotStorageSettings(store: store) }
             .searchable(text: $store.query, prompt: "Search your jots")
             .task(id: store.query) { await store.refreshNotes() }
         }.tint(.primary)

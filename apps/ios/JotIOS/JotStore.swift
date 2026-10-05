@@ -36,6 +36,7 @@ final class JotStore {
     var hasConflict = false
     let dictation = PhoneDictation()
     var notes: [NoteSearchResult] = []
+    var pagingNotes: [NoteSearchResult] = []
     var query = ""
     var pendingCloudNotes = 0
     var showLibrary = false
@@ -72,6 +73,7 @@ final class JotStore {
             self.cloudURLs = urls.filter { $0.pathExtension.lowercased() == "md" }
             self.preserveCloudConflicts()
             self.reconcileCloudNote()
+            Task { await self.refreshPagingNotes() }
             if self.showLibrary { Task { await self.refreshNotes() } }
         }
         dictation.onMessage = { [weak self] message in
@@ -290,9 +292,9 @@ final class JotStore {
         send(["version": 1, "type": "beginImagePaste"])
     }
 
-    private func lockAndCaptureEditor() async throws {
+    private func lockAndCaptureEditor(keepFocus: Bool = false) async throws {
         guard let webView,
-              let captured = try await webView.evaluateJavaScript("window.JotNative?.lockAndSnapshot()") as? [String: Any],
+              let captured = try await webView.evaluateJavaScript("window.JotNative?.lockAndSnapshot(\(keepFocus ? "true" : "false"))") as? [String: Any],
               captured["sessionID"] as? String == editorSessionID,
               let text = captured["text"] as? String, let revision = captured["revision"] as? Int,
               revision >= session.revision else { throw CocoaError(.coderReadCorrupt) }
@@ -366,6 +368,22 @@ final class JotStore {
             persist()
             loadEditor()
         }
+    }
+
+    func refreshPagingNotes() async {
+        if let results = await index.search(query: "", refresh: true, currentID: session.active?.id,
+            currentText: session.text, discoveredURLs: cloudURLs) { pagingNotes = results }
+    }
+
+    func pagingPreview(_ note: NoteSearchResult) async -> (String, String)? {
+        guard let entry = await index.entry(id: note.id) else { return nil }
+        let url = URL(fileURLWithPath: entry.path)
+        if storage == .iCloud {
+            do { try await Task.detached(priority: .utility) { try await NotebookCloudFile.prepare(url) }.value }
+            catch { return nil }
+        }
+        guard let text = await Task.detached(priority: .utility, operation: { try? String(contentsOf: url, encoding: .utf8) }).value else { return nil }
+        return (text, baseURL(ActiveJot(id: entry.id, path: entry.path, acknowledgedRevision: 0)))
     }
 
     func refreshNotes() async {
@@ -444,15 +462,15 @@ final class JotStore {
         }
     }
 
-    func open(_ result: NoteSearchResult) {
-        guard !importingImage, !storageBusy, !reconciling, !dictation.active else { return }
+    func open(_ result: NoteSearchResult, focus: Bool = true, completion: ((Bool) -> Void)? = nil) {
+        guard !importingImage, !storageBusy, !reconciling, !dictation.active else { completion?(false); return }
         enqueue { [self] in
-            if result.id == session.active?.id { showLibrary = false; focus(); return }
-            guard let entry = await index.entry(id: result.id) else { return }
+            if result.id == session.active?.id { showLibrary = false; if focus { self.focus() }; completion?(true); return }
+            guard let entry = await index.entry(id: result.id) else { completion?(false); return }
             reconciling = true
             defer { reconciling = false; send(["version": 1, "type": "setEditingEnabled", "enabled": true]) }
             do {
-                try await lockAndCaptureEditor()
+                try await lockAndCaptureEditor(keepFocus: focus)
                 if storage == .iCloud {
                     try await Task.detached { try await NotebookCloudFile.prepare(URL(fileURLWithPath: entry.path)) }.value
                 }
@@ -460,8 +478,9 @@ final class JotStore {
                 session = PhoneSession(active: opened.jot, storage: storage, acknowledgedData: await writer.acknowledgedData(), text: opened.text)
                 persist()
                 showLibrary = false
-                loadEditor()
-            } catch { self.error = error.localizedDescription }
+                loadEditor(focus: focus)
+                completion?(true)
+            } catch { self.error = error.localizedDescription; completion?(false) }
         }
     }
 
@@ -600,11 +619,11 @@ final class JotStore {
         guard let data = try? JSONSerialization.data(withJSONObject: payload), let json = String(data: data, encoding: .utf8) else { return }
         webView?.evaluateJavaScript("window.JotNative?.receive(\(json))")
     }
-    func loadEditor() {
+    func loadEditor(focus: Bool = true) {
         guard ready else { return }
         resources.configureAttachmentRoot(root)
         editorSessionID = UUID().uuidString
-        var value: [String: Any] = ["version": 1, "type": "loadSession", "sessionID": editorSessionID, "text": session.text, "revision": session.revision,
+        var value: [String: Any] = ["version": 1, "type": "loadSession", "focus": focus, "sessionID": editorSessionID, "text": session.text, "revision": session.revision,
             "selection": ["anchor": session.selection.anchor, "head": session.selection.head], "viewport": ["scrollTop": session.viewport.scrollTop]]
         if let active = session.active { value["noteID"] = active.id; value["baseURL"] = baseURL(active) }
         send(value)
