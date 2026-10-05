@@ -5,6 +5,8 @@ import UIKit
 
 struct PhoneSession: Codable {
     var active: ActiveJot?
+    var lastActiveAt: Date?
+    var lastDeparture: Date?
     var storage: NotebookStorage?
     var acknowledgedData: Data?
     var text = ""
@@ -53,6 +55,10 @@ final class JotStore {
     private var cloudURLs: [URL] = []
     private var index = NoteSearchIndex(root: nil)
     private let sessionURL: URL
+    private var freshCaptureOnReturn = false
+    private var isSceneActive = true
+    private var launchTransitionQueued = false
+    private var returningFromBackground = true
 
     init() {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -60,6 +66,7 @@ final class JotStore {
         if let data = try? Data(contentsOf: sessionURL), let saved = try? JSONDecoder().decode(PhoneSession.self, from: data) {
             session = saved
         }
+        freshCaptureOnReturn = CaptureLaunchPolicy.startsNewEntry(lastDeparture: session.lastDeparture ?? session.lastActiveAt, now: Date())
         cloudNotebook.onChange = { [weak self] urls in
             guard let self else { return }
             self.cloudURLs = urls.filter { $0.pathExtension.lowercased() == "md" }
@@ -71,6 +78,7 @@ final class JotStore {
             self?.send(message)
             if message["type"] as? String == "dictationState", message["status"] as? String == "idle" {
                 self?.reconcileCloudNote()
+                self?.resumePendingCapture()
             }
         }
         dictation.onError = { [weak self] message in self?.error = message }
@@ -109,6 +117,7 @@ final class JotStore {
         enqueue { [self] in
             defer {
                 storageBusy = false
+                resumePendingCapture()
                 if ready { send(["version": 1, "type": "setEditingEnabled", "enabled": true]) }
             }
             do { try await lockAndCaptureEditor() }
@@ -181,6 +190,9 @@ final class JotStore {
                     } else { session.text = text }
                 }
                 await updateActive()
+                if freshCaptureOnReturn {
+                    await startFreshCaptureIfSafe()
+                }
                 ready = true
                 loadEditor()
                 send(["version": 1, "type": "setEditingEnabled", "enabled": true])
@@ -241,6 +253,7 @@ final class JotStore {
                 ready = true
                 if editorLoaded { loadEditor(); send(["version": 1, "type": "setEditingEnabled", "enabled": true]) }
                 error = "The editor restarted while adding your image. Please choose it again."
+                resumePendingCapture()
             }
         }
     }
@@ -263,6 +276,7 @@ final class JotStore {
         photoLoadToken = nil
         photoSourceSessionID = nil
         importingImage = false
+        resumePendingCapture()
     }
 
     func finishPhotoLoad(_ data: Data, token: UUID) {
@@ -308,6 +322,7 @@ final class JotStore {
         if let importedImagePath, text.contains(importedImagePath) {
             self.importedImagePath = nil
             importingImage = false
+            resumePendingCapture()
         }
         session.text = text
         session.revision = revision
@@ -469,6 +484,7 @@ final class JotStore {
                 focus()
             } catch {
                 importingImage = false
+                resumePendingCapture()
                 send(["version": 1, "type": "imageImportFailed", "requestID": requestID,
                       "message": "This image couldn’t be added. Please choose or copy it again."])
             }
@@ -512,6 +528,72 @@ final class JotStore {
         else if !dictation.active { dictation.start() }
     }
 
+    /// Journal the departure before a possible process termination. Do not reset it
+    /// on inactive -> background, which can happen several seconds later.
+    func sceneBecameInactive() {
+        isSceneActive = false
+        if session.lastDeparture == nil { session.lastDeparture = Date(); persist() }
+        flush()
+    }
+
+    func sceneBecameBackground() {
+        returningFromBackground = true
+        sceneBecameInactive()
+    }
+
+    func sceneBecameActive() {
+        isSceneActive = true
+        let isLaunch = returningFromBackground
+        returningFromBackground = false
+        guard isLaunch else {
+            session.lastDeparture = nil
+            persist()
+            resumePendingCapture()
+            return
+        }
+        showLibrary = false
+        showSettings = false
+        imagePreview = nil
+        freshCaptureOnReturn = freshCaptureOnReturn || CaptureLaunchPolicy.startsNewEntry(lastDeparture: session.lastDeparture, now: Date())
+        session.lastDeparture = nil
+        persist()
+        guard ready, !launchTransitionQueued else { return } // configure applies the pending launch decision.
+        launchTransitionQueued = true
+        enqueue { [self] in
+            defer { launchTransitionQueued = false }
+            if freshCaptureOnReturn {
+                guard !importingImage, !dictation.active, !storageBusy else { return }
+                reconciling = true
+                defer { reconciling = false; send(["version": 1, "type": "setEditingEnabled", "enabled": true]) }
+                if editorLoaded {
+                    do { try await lockAndCaptureEditor() }
+                    catch { self.error = "Your writing couldn’t be saved before starting a new jot. Please try again."; return }
+                }
+                await startFreshCaptureIfSafe()
+                loadEditor()
+            } else { focus() }
+        }
+    }
+
+    private func resumePendingCapture() {
+        guard freshCaptureOnReturn, isSceneActive, ready, !launchTransitionQueued,
+              !importingImage, !dictation.active, !storageBusy, !reconciling else { return }
+        returningFromBackground = true
+        sceneBecameActive()
+    }
+
+    private func startFreshCaptureIfSafe() async {
+        guard freshCaptureOnReturn else { return }
+        // finishAndNew flushes first and refuses to abandon unsaved/conflicted text.
+        guard await writer.finishAndNew(through: session.revision) else {
+            error = "Your previous writing needs to be saved before starting a new jot. It remains in the recovery copy."
+            return
+        }
+        freshCaptureOnReturn = false
+        session = PhoneSession(storage: storage)
+        persist()
+    }
+
     func flush() { enqueue { [self] in _ = await writer?.flush(); await updateActive() } }
     func focus() { webView?.evaluateJavaScript("document.querySelector('.cm-content')?.focus()") }
     func send(_ payload: [String: Any]) {
@@ -539,6 +621,7 @@ final class JotStore {
         persist()
     }
     private func persist() {
+        if session.lastDeparture == nil { session.lastActiveAt = Date() }
         do {
             try FileManager.default.createDirectory(at: sessionURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(session).write(to: sessionURL, options: .atomic)

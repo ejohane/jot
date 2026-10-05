@@ -40,6 +40,8 @@ export type NativeToEditor =
   | { version: 1; type: "imageImported"; requestID: string; path: string; baseURL: string }
   | { version: 1; type: "imageImportFailed"; requestID: string; message: string }
   | { version: 1; type: "toggleFormat"; format: "bold" | "italic" }
+  | { version: 1; type: "setTextStyle"; style: "bullet" }
+  | { version: 1; type: "changeListIndent"; direction: "in" | "out" }
   | { version: 1; type: "noteAllocated"; baseURL?: string; noteID: string; path: string; revision: number }
   | { version: 1; type: "saving"; revision: number }
   | { version: 1; type: "writeSucceeded"; noteID: string; revision: number }

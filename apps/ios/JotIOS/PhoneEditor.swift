@@ -3,14 +3,41 @@ import WebKit
 
 struct PhoneEditor: UIViewRepresentable {
     let store: JotStore
-    func makeCoordinator() -> Coordinator { Coordinator(store: store) }
+    var reviewChromeHidden = false
+    var onReviewScroll: () -> Void = {}
+    var onReviewTap: () -> Void = {}
+    var onOpenLibrary: () -> Void = {}
+    func makeCoordinator() -> Coordinator { Coordinator(store: store, onReviewScroll: onReviewScroll, onReviewTap: onReviewTap, onOpenLibrary: onOpenLibrary) }
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.setURLSchemeHandler(store.resources, forURLScheme: "jot")
         configuration.userContentController.add(context.coordinator, name: "jot")
+        configuration.userContentController.add(context.coordinator, name: "reviewChrome")
+        configuration.userContentController.addUserScript(WKUserScript(source: """
+        (() => {
+          let previousTop = 0;
+          document.addEventListener('scroll', event => {
+            const target = event.target;
+            const top = target instanceof Element ? target.scrollTop : window.scrollY;
+            if (top > previousTop + 2) window.webkit.messageHandlers.reviewChrome.postMessage('scroll');
+            previousTop = top;
+          }, true);
+          let pointerStart = null;
+          document.addEventListener('pointerdown', event => { pointerStart = [event.clientX, event.clientY]; if (window.jotReviewChromeHidden) event.preventDefault(); }, { capture: true, passive: false });
+          document.addEventListener('pointerup', event => {
+            if (pointerStart && Math.hypot(event.clientX - pointerStart[0], event.clientY - pointerStart[1]) < 8)
+              window.webkit.messageHandlers.reviewChrome.postMessage('tap');
+            pointerStart = null;
+          });
+          document.addEventListener('pointercancel', () => { pointerStart = null; });
+        })();
+        """, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         configuration.userContentController.addUserScript(WKUserScript(source: "document.documentElement.classList.add('ios')", injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         let view = JotEditorWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
+        let edgeSwipe = UIScreenEdgePanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.openLibraryFromEdge(_:)))
+        edgeSwipe.edges = .left
+        view.addGestureRecognizer(edgeSwipe)
         view.isOpaque = false
         view.backgroundColor = .clear
         view.scrollView.isScrollEnabled = false
@@ -19,6 +46,10 @@ struct PhoneEditor: UIViewRepresentable {
         return view
     }
     func updateUIView(_ uiView: WKWebView, context: Context) {
+        uiView.evaluateJavaScript("window.jotReviewChromeHidden = \(reviewChromeHidden ? "true" : "false")")
+        context.coordinator.onReviewScroll = onReviewScroll
+        context.coordinator.onReviewTap = onReviewTap
+        context.coordinator.onOpenLibrary = onOpenLibrary
         let category: UIContentSizeCategory
         switch context.environment.dynamicTypeSize {
         case .xSmall: category = .extraSmall
@@ -46,8 +77,27 @@ struct PhoneEditor: UIViewRepresentable {
         func applyTextSize(to view: WKWebView) {
             view.evaluateJavaScript("document.documentElement.style.setProperty('--editor-size', '\(textSize)px')")
         }
-        init(store: JotStore) { self.store = store }
+        var onReviewScroll: () -> Void
+        var onReviewTap: () -> Void
+        var onOpenLibrary: () -> Void
+        init(store: JotStore, onReviewScroll: @escaping () -> Void, onReviewTap: @escaping () -> Void, onOpenLibrary: @escaping () -> Void) {
+            self.store = store
+            self.onReviewScroll = onReviewScroll
+            self.onReviewTap = onReviewTap
+            self.onOpenLibrary = onOpenLibrary
+        }
+        @objc func openLibraryFromEdge(_ gesture: UIScreenEdgePanGestureRecognizer) {
+            guard gesture.state == .ended, let view = gesture.view,
+                  gesture.translation(in: view).x > 60, gesture.velocity(in: view).x >= 0 else { return }
+            onOpenLibrary()
+        }
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            if message.name == "reviewChrome" {
+                guard message.webView === store.webView else { return }
+                if message.body as? String == "scroll" { onReviewScroll() }
+                else if message.body as? String == "tap" { onReviewTap() }
+                return
+            }
             guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
             guard type == "editorReady" || store.acceptsEditorMessage(body) else { return }
             switch type {

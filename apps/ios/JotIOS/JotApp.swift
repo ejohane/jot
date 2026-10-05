@@ -9,9 +9,9 @@ struct JotPhoneApp: App {
         WindowGroup {
             JotRootView(store: store)
                 .onChange(of: phase) { _, value in
-                    if value == .background { store.dictation.interrupted(); store.flush() }
-                    else if value == .inactive { store.flush() }
-                    else if value == .active { store.preserveCloudConflicts(); store.reconcileCloudNote() }
+                    if value == .background { store.sceneBecameBackground(); store.dictation.interrupted() }
+                    else if value == .inactive { store.sceneBecameInactive() }
+                    else if value == .active { store.sceneBecameActive(); store.preserveCloudConflicts(); store.reconcileCloudNote() }
                 }
         }
     }
@@ -19,6 +19,9 @@ struct JotPhoneApp: App {
 
 struct JotRootView: View {
     @Bindable var store: JotStore
+    @State private var keyboardVisible = false
+    @State private var reviewChromeHidden = false
+    private var chromeHidden: Bool { keyboardVisible || reviewChromeHidden }
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var photoLoadToken: UUID?
     private var navigationDisabled: Bool {
@@ -39,14 +42,24 @@ struct JotRootView: View {
     }
 
     private var keyboardControls: some View {
-        HStack(spacing: 4) {
-
+        HStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
             Button { store.send(["version": 1, "type": "toggleFormat", "format": "bold"]) } label: { Image(systemName: "bold").frame(width: 44, height: 44) }
                 .accessibilityLabel("Bold")
                 .disabled(!store.canEdit || store.storageBusy || store.reconciling)
             Button { store.send(["version": 1, "type": "toggleFormat", "format": "italic"]) } label: { Image(systemName: "italic").frame(width: 44, height: 44) }
                 .accessibilityLabel("Italic")
                 .disabled(!store.canEdit || store.storageBusy || store.reconciling)
+            Button { store.send(["version": 1, "type": "setTextStyle", "style": "bullet"]) } label: { Image(systemName: "list.bullet").frame(width: 44, height: 44) }
+                .accessibilityLabel("Bulleted list")
+                .disabled(!store.canEdit || store.storageBusy || store.reconciling || store.dictation.active)
+            Button { store.send(["version": 1, "type": "changeListIndent", "direction": "out"]) } label: { Image(systemName: "decrease.indent").frame(width: 44, height: 44) }
+                .accessibilityLabel("Decrease indent")
+                .disabled(!store.canEdit || store.storageBusy || store.reconciling || store.dictation.active)
+            Button { store.send(["version": 1, "type": "changeListIndent", "direction": "in"]) } label: { Image(systemName: "increase.indent").frame(width: 44, height: 44) }
+                .accessibilityLabel("Increase indent")
+                .disabled(!store.canEdit || store.storageBusy || store.reconciling || store.dictation.active)
             PhotosPicker(selection: Binding(get: { pickedPhoto }, set: { value in
                 if let token = photoLoadToken { store.cancelPhotoLoad(token) }
                 photoLoadToken = value == nil ? nil : store.beginPhotoLoad()
@@ -64,7 +77,8 @@ struct JotRootView: View {
                 Button { store.toggleDictation() } label: { Image(systemName: "mic.fill").frame(width: 44, height: 44) }
                     .accessibilityLabel("Start dictation").disabled(!store.canEdit || store.importingImage || store.storageBusy || store.reconciling)
             }
-            Spacer()
+                }
+            }
             if store.dictation.state == .preparing || store.dictation.state == .finishing { ProgressView().controlSize(.small) }
             if store.importingImage { ProgressView().controlSize(.small) }
             Button { store.webView?.endEditing(true) } label: { Image(systemName: "keyboard.chevron.compact.down").frame(width: 44, height: 44) }
@@ -74,11 +88,11 @@ struct JotRootView: View {
         .buttonStyle(.plain)
         .font(.system(size: 21, weight: .semibold))
         .tint(.primary)
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 4)
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity)
         .modifier(KeyboardBarSurface())
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 8)
         .padding(.vertical, 8)
     }
 
@@ -86,7 +100,15 @@ struct JotRootView: View {
         Group {
             if store.configured {
                 NavigationStack {
-                    PhoneEditor(store: store).allowsHitTesting(store.canEdit && !store.storageBusy && !store.reconciling)
+                    PhoneEditor(store: store, reviewChromeHidden: reviewChromeHidden, onReviewScroll: {
+                        if !keyboardVisible { withAnimation(.easeInOut(duration: 0.2)) { reviewChromeHidden = true } }
+                    }, onReviewTap: {
+                        if !keyboardVisible { withAnimation(.easeInOut(duration: 0.2)) { reviewChromeHidden = false } }
+                    }, onOpenLibrary: {
+                        guard !navigationDisabled else { return }
+                        store.webView?.endEditing(true)
+                        store.openLibrary()
+                    }).allowsHitTesting(store.canEdit && !store.storageBusy && !store.reconciling)
                         .overlay {
                             if !store.canEdit {
                                 VStack(spacing: 16) {
@@ -98,7 +120,8 @@ struct JotRootView: View {
                         .navigationTitle("Jot")
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar { editorToolbar }
-                        .safeAreaInset(edge: .bottom, spacing: 0) { keyboardControls }
+                        .toolbar(chromeHidden ? .hidden : .visible, for: .navigationBar)
+                        .safeAreaInset(edge: .bottom, spacing: 0) { if !reviewChromeHidden { keyboardControls } }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 24) {
@@ -115,6 +138,16 @@ struct JotRootView: View {
                     Spacer()
                 }.padding(32).frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+        .onChange(of: store.session.active) { _, _ in reviewChromeHidden = false }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            guard !store.showLibrary && !store.showSettings && store.imagePreview == nil else { return }
+            keyboardVisible = true
+            reviewChromeHidden = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardVisible = false
+            reviewChromeHidden = false
         }
         .task(id: pickedPhoto) {
             guard let pickedPhoto, let token = photoLoadToken else { return }

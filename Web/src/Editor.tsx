@@ -12,6 +12,7 @@ import { markdownPresentation } from "./presentation";
 import { beginDictation, clearDictation, dictationPreview, insertionForDictation, reviseDictation } from "./dictationPreview";
 import { inlineTagEditor, setTagVocabulary } from "./tagEditor";
 import { indentListItem, outdentListItem } from "./listIndent";
+import { setTextStyle } from "./selectionFormatting";
 import { toggleInlineFormat } from "./formatting";
 import { formattingToolbar } from "./formattingToolbar";
 import { usePointerActivity } from "./usePointerActivity";
@@ -469,6 +470,16 @@ export function Editor() {
               setImportingImage(false);
               setError({ message: message.message });
             }
+            break;
+          case "setTextStyle":
+            if (view.state.readOnly) break;
+            setTextStyle(view, message.style);
+            break;
+          case "changeListIndent":
+            if (view.state.readOnly) break;
+            if (message.direction === "in") indentListItem(view);
+            else outdentListItem(view);
+            view.focus();
             break;
           case "toggleFormat":
             if (view.state.readOnly) break;

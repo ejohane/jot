@@ -341,3 +341,13 @@ Icons increased to 21-point semibold; microphone uses its filled symbol. Signed 
 Read the jot logo thread and used its approved refined brick-red pocket notebook direction. Prepared a standalone notebook on ivory from the approved presentation with imagegen, then normalized it to a 1024-square opaque app-icon PNG. Added Assets.xcassets/AppIcon and explicit ASSETCATALOG_COMPILER_APPICON_NAME in the project specification.
 
 Signed physical build, installation and launch succeeded. Built Info.plist identifies AppIcon as the primary icon; compiled Assets.car and device icon renditions are present. Home-screen appearance is not visually verified by the agent.
+
+## Writing-first modes and list controls — 2026-10-04
+
+Implemented in three parallel subagent scopes, each with its own validation, followed by integration review:
+
+- Device session departure timing defaults to a new empty editor after >=300 seconds away, only after the previous writer flush/finish succeeds. Cold/foreground launches focus writing; transient photo/permission inactivity preserves its presentation. Pending capture retries after busy operations. Timing fields decode older sessions; blank captures do not allocate Markdown.
+- Visible keyboard hides navigation title/top actions while retaining the unified bar. Keyboard dismissal restores review chrome. Downward review scroll hides chrome and the bar; first tap restores controls without starting typing. Left-edge right swipe opens the existing native Jots cover; it is not an interactive horizontal transition.
+- Unified bar adds bulleted-list, decrease-indent and increase-indent actions using existing shared Markdown commands. Larger semibold controls remain; actions scroll horizontally on narrow screens while dismissal stays pinned.
+
+Evidence: Web110 tests pass and production build succeeds. Full Swift100 executed, 1 skipped, 0 failures (new timing-boundary coverage plus existing writer new-entry protection). Simulator build passes. Final integrated signed device build, install and devicectl launch succeed. CUA Simulator screenshot shows the unified bar with all three new icons. Software-keyboard toggle produced no visible keyboard, so it does not prove keyboard/chrome transitions. Physical Mirroring remains TouchID locked; launch focus, five-minute restoration, scroll/tap and edge-swipe flows still require observed manual acceptance.

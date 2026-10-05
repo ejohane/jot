@@ -1459,3 +1459,28 @@ it("identifies phone document callbacks and locked snapshots by loaded session",
   await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "n", ...modifier, bubbles: true, cancelable: true })));
   expect(messages.filter(message => message.type === "finishAndNew").at(-1)).toMatchObject({ sessionID: "phone-new" });
 });
+
+describe("phone list controls", () => {
+  it("creates bullets and round trips indentation through native controls", async () => {
+    const { view, messages } = await makeConnectedEditor("parent\nchild");
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+    window.JotNative?.receive({ version: 1, type: "setTextStyle", style: "bullet" });
+    expect(view.state.doc.toString()).toBe("- parent\n- child");
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
+    window.JotNative?.receive({ version: 1, type: "changeListIndent", direction: "in" });
+    expect(view.state.doc.toString()).toBe("- parent\n     - child");
+    window.JotNative?.receive({ version: 1, type: "changeListIndent", direction: "out" });
+    expect(view.state.doc.toString()).toBe("- parent\n- child");
+    expect(messages.filter(message => message.type === "contentChanged").at(-1)).toMatchObject({ text: "- parent\n- child" });
+  });
+  it("ignores list controls during a locked note transition", async () => {
+    const { view } = await makeConnectedEditor("- parent\n- child");
+    window.JotNative?.receive({ version: 1, type: "setEditingEnabled", enabled: false });
+    for (const message of [
+      { version: 1, type: "setTextStyle", style: "bullet" },
+      { version: 1, type: "changeListIndent", direction: "in" },
+      { version: 1, type: "changeListIndent", direction: "out" },
+    ] as const) window.JotNative?.receive(message);
+    expect(view.state.doc.toString()).toBe("- parent\n- child");
+  });
+});
