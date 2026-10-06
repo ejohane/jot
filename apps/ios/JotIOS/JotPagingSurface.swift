@@ -44,9 +44,9 @@ import WebKit
         let current = notes.firstIndex { $0.id == store.session.active?.id }
         var desired: [Int: NoteSearchResult] = [:]
         if let current {
-            if current > 0 { desired[-1] = notes[current - 1] }
-            if current + 1 < notes.count { desired[1] = notes[current + 1] }
-        } else if store.session.active == nil, let newest = notes.first { desired[1] = newest }
+            if current > 0 { desired[1] = notes[current - 1] }
+            if current + 1 < notes.count { desired[-1] = notes[current + 1] }
+        } else if store.session.active == nil, let newest = notes.first { desired[-1] = newest }
         let ids = desired.mapValues(\.id)
         guard ids != neighborIDs || notebookRoot != store.root else { return }
         notebookRoot = store.root

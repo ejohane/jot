@@ -372,10 +372,14 @@ Signed device build, installation and launch succeed. Source whitespace check pa
 
 ## Finger-following jot paging — 2026-10-05
 
-Removed the left drawer and edge-to-library swipe. Horizontal drags in the content area now translate the live editor and a neighboring read-only jot together, with a distance/velocity snap threshold and a selection haptic after a successful switch settles. Left moves toward older jots; right returns toward newer jots. Partial/cancelled drags return without opening a note. The Jots button retains library access through a standard sheet.
+Removed the left drawer and edge-to-library swipe. Horizontal drags in the content area now translate the live editor and a neighboring read-only jot together, with a distance/velocity snap threshold and a selection haptic after a successful switch settles. Right moves back toward older jots; left moves forward toward newer jots. Partial/cancelled drags return without opening a note. The Jots button retains library access through a standard sheet.
 
 The paging surface keeps one live editor and at most two neighboring WebKit previews using the same Markdown renderer, attachment roots and type sizing. Preview bridge messages never reach the writer. Neighbors preload asynchronously, including iCloud preparation; a page cannot be dragged in until its preview is ready. The horizontal velocity gate leaves vertical gestures alone, and selected text, dictation, imports and notebook operations guard against conflicting navigation. Preview handlers use weak forwarding to avoid retaining discarded web views.
 
 Completed navigation uses the existing serial snapshot/save/open path. Optional bridge focus flags preserve review mode and retain the editable focus surface while a writing-mode snapshot is locked read-only for saving. Existing Mac/default callers retain their focus behavior. Failed opens return to the source page without a selection haptic.
 
 Evidence: Web112 tests pass, including preview loads without focus and a focus-preserving read-only snapshot. Production Web build, simulator compilation, signed device compilation, physical installation and launch succeed. CUA shows the simulator build, but taps and drags do not trigger even the navigation button there; this is not proof of the paging gesture. Finger tracking, cancellation, vertical scrolling, keyboard persistence and physical haptic feel remain manually unverified.
+
+## Previous-jot swipe direction — 2026-10-05
+
+Corrected paging to match the requested convention: swipe right for the previous (older) jot, left for the next (newer) jot. From a fresh blank capture, swipe right opens the latest saved jot. Signed physical build, installation and launch succeed; direction was checked in source, with physical gesture verification still pending.
