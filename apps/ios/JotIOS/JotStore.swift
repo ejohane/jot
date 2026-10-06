@@ -47,6 +47,15 @@ final class JotStore {
     var session = PhoneSession()
     var root: URL?
     weak var webView: WKWebView?
+    weak var pageTitleView: JotPageTitleSurface?
+    private var draftCreatedAt = Date()
+    var noteTitleDate: Date {
+        guard let active = session.active else { return draftCreatedAt }
+        let url = URL(fileURLWithPath: active.path)
+        let clock = url.deletingPathExtension().lastPathComponent.components(separatedBy: "--")[0]
+        return NoteRailIndex.date(from: url, clock: clock)
+            ?? pagingNotes.first(where: { $0.id == active.id })?.timestamp ?? draftCreatedAt
+    }
     let resources = LocalResourceSchemeHandler()
     private var pending: Task<Void, Never>?
     private var writer: JotWriter!
@@ -356,17 +365,19 @@ final class JotStore {
         showLibrary = true
     }
 
-    func newJot() {
-        guard canEdit, !importingImage, !storageBusy, !reconciling, !dictation.active else { return }
+    func newJot(focus: Bool = true, createdAt: Date = Date(), completion: ((Bool) -> Void)? = nil) {
+        guard canEdit, !importingImage, !storageBusy, !reconciling, !dictation.active else { completion?(false); return }
         enqueue { [self] in
             reconciling = true
             defer { reconciling = false; send(["version": 1, "type": "setEditingEnabled", "enabled": true]) }
-            do { try await lockAndCaptureEditor() }
-            catch { self.error = "Your editor couldn’t be prepared for a new jot. Please try again."; return }
-            guard await writer.finishAndNew(through: session.revision) else { error = "Your jot could not be saved. Try again before starting another."; return }
+            do { try await lockAndCaptureEditor(keepFocus: focus) }
+            catch { self.error = "Your editor couldn’t be prepared for a new jot. Please try again."; completion?(false); return }
+            guard await writer.finishAndNew(through: session.revision) else { error = "Your jot could not be saved. Try again before starting another."; completion?(false); return }
             session = PhoneSession(storage: storage)
+            draftCreatedAt = createdAt
             persist()
-            loadEditor()
+            loadEditor(focus: focus)
+            completion?(true)
         }
     }
 
@@ -610,6 +621,7 @@ final class JotStore {
         }
         freshCaptureOnReturn = false
         session = PhoneSession(storage: storage)
+        draftCreatedAt = Date()
         persist()
     }
 

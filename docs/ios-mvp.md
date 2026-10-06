@@ -383,3 +383,11 @@ Evidence: Web112 tests pass, including preview loads without focus and a focus-p
 ## Previous-jot swipe direction — 2026-10-05
 
 Corrected paging to match the requested convention: swipe right for the previous (older) jot, left for the next (newer) jot. From a fresh blank capture, swipe right opens the latest saved jot. Signed physical build, installation and launch succeed; direction was checked in source, with physical gesture verification still pending.
+
+## Paging date titles and swipe-to-new — 2026-10-05
+
+The review navigation title displays the jot's creation date and time, using the same filename timestamp interpretation as the library. A fresh capture has a stable draft timestamp. During a page drag, outgoing and incoming title labels translate with the same normalized offset as the content; snap, cancellation and failed-open animations use the same UIKit animation transaction. Writing mode continues to hide the title and top controls.
+
+The latest saved jot has a blank neighboring page on its right, reached by swiping left. Only a committed swipe calls the existing snapshot/save/finish-and-new path; cancelled drags create nothing. The new draft title uses the time the swipe began, and a blank draft does not offer another blank successor. Swiping right from the draft returns to the latest saved jot. Save failure returns to the original page without a selection haptic.
+
+Signed device build, installation and launch succeed. Focused finish-and-new tests cover save-before-release, blank captures and write-failure protection. Physical date-title tracking and swipe-to-new interaction remain visually unverified.

@@ -13,6 +13,7 @@ import WebKit
     private var direction = 0
     private var settling = false
     private var writing = false
+    private var draftTimestamp = Date()
     private let feedback = UISelectionFeedbackGenerator()
 
     init(editor: WKWebView, store: JotStore) {
@@ -45,6 +46,7 @@ import WebKit
         var desired: [Int: NoteSearchResult] = [:]
         if let current {
             if current > 0 { desired[1] = notes[current - 1] }
+            else { desired[1] = NoteSearchResult(id: "paging-new-draft", timestamp: Date(), title: "", excerpt: "", titleMatches: [], excerptMatches: []) }
             if current + 1 < notes.count { desired[-1] = notes[current + 1] }
         } else if store.session.active == nil, let newest = notes.first { desired[-1] = newest }
         let ids = desired.mapValues(\.id)
@@ -56,13 +58,13 @@ import WebKit
         neighbors = [:]
         neighborIDs = ids
         for (side, note) in desired {
-            let preview = JotPagePreview(note: note, store: store)
+            let preview = JotPagePreview(note: note, store: store, isNewDraft: side == 1 && current == 0)
             neighbors[side] = preview
             preview.frame = bounds
             preview.isHidden = true
             insertSubview(preview, belowSubview: editor)
             Task { [weak self, weak preview, store] in
-                let content = await store.pagingPreview(note)
+                let content = preview?.isNewDraft == true ? ("", "") : await store.pagingPreview(note)
                 guard let self, self.generation == token, let preview else { return }
                 preview.setContent(content)
             }
@@ -94,11 +96,14 @@ import WebKit
             direction = pan.velocity(in: self).x < 0 ? 1 : -1
             target = neighbors[direction]
             target?.isHidden = false
+            draftTimestamp = Date()
+            if let target { store.pageTitleView?.begin(from: store.noteTitleDate, to: target.isNewDraft ? draftTimestamp : target.note.timestamp, direction: direction) }
             writing = editor.isFirstResponder || editor.findFirstResponder() != nil
             feedback.prepare()
         case .changed:
             let raw = pan.translation(in: self).x
             let offset = direction == 1 ? min(0, max(-width, raw)) : max(0, min(width, raw))
+            store.pageTitleView?.setProgress(offset / width)
             editor.transform = CGAffineTransform(translationX: offset, y: 0)
             target?.transform = CGAffineTransform(translationX: offset + CGFloat(direction) * width, y: 0)
         case .ended, .cancelled, .failed:
@@ -109,11 +114,12 @@ import WebKit
             settling = true
             UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0.12 : 0.25,
                            delay: 0, options: [.curveEaseOut, .beginFromCurrentState]) {
+                self.store.pageTitleView?.setProgress(commit ? -CGFloat(self.direction) : 0)
                 self.editor.transform = CGAffineTransform(translationX: commit ? -CGFloat(self.direction) * width : 0, y: 0)
                 target.transform = CGAffineTransform(translationX: commit ? 0 : CGFloat(self.direction) * width, y: 0)
             } completion: { _ in
                 if commit {
-                    self.store.open(target.note, focus: self.writing) { success in
+                    let completed: (Bool) -> Void = { success in
                         if success {
                             self.editor.callAsyncJavaScript("await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame)", arguments: [:], in: nil, in: .page) { result in
                                 self.resetPaging()
@@ -121,11 +127,15 @@ import WebKit
                             }
                         } else {
                             UIView.animate(withDuration: 0.2, animations: {
+                                self.store.pageTitleView?.setProgress(0)
                                 self.editor.transform = .identity
                                 target.transform = CGAffineTransform(translationX: CGFloat(self.direction) * width, y: 0)
                             }, completion: { _ in self.resetPaging() })
                         }
                     }
+                    if target.isNewDraft {
+                        self.store.newJot(focus: self.writing, createdAt: self.draftTimestamp, completion: completed)
+                    } else { self.store.open(target.note, focus: self.writing, completion: completed) }
                 } else { self.resetPaging() }
             }
         default: break
@@ -133,6 +143,7 @@ import WebKit
     }
 
     private func resetPaging() {
+        store.pageTitleView?.finish(date: store.noteTitleDate)
         editor.transform = .identity
         target?.isHidden = true
         target?.transform = .identity
@@ -144,13 +155,15 @@ import WebKit
 
 @MainActor private final class JotPagePreview: UIView, WKScriptMessageHandler {
     let note: NoteSearchResult
+    let isNewDraft: Bool
     private let web: WKWebView
     private let resources = LocalResourceSchemeHandler()
     private var content: (String, String)?
     private var loaded = false
     private(set) var ready = false
-    init(note: NoteSearchResult, store: JotStore) {
+    init(note: NoteSearchResult, store: JotStore, isNewDraft: Bool) {
         self.note = note
+        self.isNewDraft = isNewDraft
         let configuration = WKWebViewConfiguration()
         configuration.setURLSchemeHandler(resources, forURLScheme: "jot")
         web = WKWebView(frame: .zero, configuration: configuration)

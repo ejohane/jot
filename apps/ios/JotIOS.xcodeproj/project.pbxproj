@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		22F666623721000DA56BEDF1 /* JotPageTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59CEA9AEB464CE5618C1431E /* JotPageTitle.swift */; };
 		2565E15FE1C4D3C07279A86E /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4DC5B9BAE9D0E5A7A3E4CDD /* SessionStore.swift */; };
 		27C041D2314D98FEFA531D4D /* NotebookPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B753E2D5A137519F0A159A /* NotebookPresenter.swift */; };
 		2876C82820A5EDEE6C07EB35 /* JotApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05FB4CC3E69F7B0A0B106C7 /* JotApp.swift */; };
@@ -45,6 +46,7 @@
 		4A6DCBD6681DA294DB237331 /* NoteSearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteSearchIndex.swift; sourceTree = "<group>"; };
 		4CE2CF9F9998E322A653DA33 /* NotebookAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotebookAttachment.swift; sourceTree = "<group>"; };
 		4E2F8C5E776E6175B0F57B54 /* NotebookCloudInventory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotebookCloudInventory.swift; sourceTree = "<group>"; };
+		59CEA9AEB464CE5618C1431E /* JotPageTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JotPageTitle.swift; sourceTree = "<group>"; };
 		66544264B904A5FEEF7E5881 /* ULID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ULID.swift; sourceTree = "<group>"; };
 		708873236499D04E946BFCFB /* PhoneEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneEditor.swift; sourceTree = "<group>"; };
 		70BC150176EC42F2A3C6E204 /* AppContainerNotePath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainerNotePath.swift; sourceTree = "<group>"; };
@@ -73,6 +75,7 @@
 			children = (
 				DF1CA692EEDF2A07E3413580 /* Assets.xcassets */,
 				C05FB4CC3E69F7B0A0B106C7 /* JotApp.swift */,
+				59CEA9AEB464CE5618C1431E /* JotPageTitle.swift */,
 				A7FFFE97F710F04683ECF47D /* JotPagingSurface.swift */,
 				314C89545B2CD0908590922B /* JotStore.swift */,
 				7EAF7BD2A85D8D5BFC53B4ED /* PhoneDictation.swift */,
@@ -214,6 +217,7 @@
 				328ADD316A524BB5989AB037 /* InlineTags.swift in Sources */,
 				2876C82820A5EDEE6C07EB35 /* JotApp.swift in Sources */,
 				E09D0F1E4472D9690921280C /* JotModels.swift in Sources */,
+				22F666623721000DA56BEDF1 /* JotPageTitle.swift in Sources */,
 				332CA49C9E84B81CC887D47D /* JotPagingSurface.swift in Sources */,
 				743858E817785DBBD5DCF549 /* JotPathAllocator.swift in Sources */,
 				532AC49BC41A52D8F588CEEE /* JotStore.swift in Sources */,

@@ -84,7 +84,7 @@ actor NoteRailIndex {
             timestamp: (isJot ? date(from: url, clock: parts[0]) : nil) ?? values?.creationDate ?? .distantPast, excerpt: "Jot in iCloud — download to read")
     }
 
-    private static func date(from url: URL, clock: String) -> Date? {
+    static func date(from url: URL, clock: String) -> Date? {
         let day = url.deletingLastPathComponent()
         let month = day.deletingLastPathComponent()
         let year = month.deletingLastPathComponent()

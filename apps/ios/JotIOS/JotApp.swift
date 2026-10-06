@@ -30,6 +30,9 @@ struct JotRootView: View {
     @ToolbarContentBuilder
     private var editorToolbar: some ToolbarContent {
         if !chromeHidden {
+            ToolbarItem(placement: .principal) {
+                JotPageTitle(store: store).frame(width: 210, height: 36)
+            }
             ToolbarItem(placement: .topBarLeading) {
                 Button("Jots", systemImage: "list.bullet") { store.openLibrary() }
                     .disabled(navigationDisabled)
@@ -115,7 +118,7 @@ struct JotRootView: View {
                                 }.padding(24).background(Color(uiColor: .systemBackground))
                             }
                         }
-                        .navigationTitle(chromeHidden ? "" : "Jot")
+                        .navigationTitle("")
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar { editorToolbar }
                         // Keep the navigation and accessory layout slots stable across modes.
