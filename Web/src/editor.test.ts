@@ -1218,6 +1218,27 @@ describe("image attachments", () => {
     expect(view.state.doc.toString()).toBe("Other note");
   });
 
+  it("rebases recovery-copy images to the new dated folder and keeps that URL on reopen", async () => {
+    const text = "![Image](attachments/original/image.png)\n\n";
+    const { view, parent } = await makeConnectedEditor(text);
+    await act(async () => window.JotNative?.receive({ version: 1, type: "noteAllocated",
+      noteID: "original", path: "/Jots/2026/09/27/original.md", revision: 1,
+      baseURL: "jot://attachment/2026/09/27/" }));
+    expect(parent.querySelector(".cm-attachment-image img")?.getAttribute("src")).toBe(
+      "jot://attachment/2026/09/27/attachments/original/image.png");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "noteAllocated",
+      noteID: "copy", path: "/Jots/2026/10/01/copy.md", revision: 1,
+      baseURL: "jot://attachment/2026/10/01/" }));
+    expect(view.state.doc.toString()).toBe(text);
+    const expected = "jot://attachment/2026/10/01/attachments/original/image.png";
+    expect(parent.querySelector(".cm-attachment-image img")?.getAttribute("src")).toBe(expected);
+    await act(async () => window.JotNative?.receive({ version: 1, type: "loadSession",
+      noteID: "copy", text, revision: 1, selection: { anchor: 0, head: 0 },
+      viewport: { scrollTop: 0 }, baseURL: "jot://attachment/2026/10/01/" }));
+    expect(parent.querySelector(".cm-attachment-image img")?.getAttribute("src")).toBe(expected);
+    expect(view.state.doc.toString()).toBe(text);
+  });
+
   it("keeps the image visible at the caret, restores it after deleting and undoing, and reports a missing file", async () => {
     const text = "![Image](attachments/n/image.png)\n\n";
     const { view, parent } = await makeConnectedEditor(text);

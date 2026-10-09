@@ -39,7 +39,7 @@ final class CoordinatedSavingTests: XCTestCase {
         let saved = await memoryWriter.saveCurrentVersionAsCopy()
         let copy = try XCTUnwrap(saved)
         let copyURL = URL(fileURLWithPath: copy.path)
-        XCTAssertEqual(copyURL.deletingLastPathComponent(), noteURL.deletingLastPathComponent())
+        XCTAssertEqual(try files.data(at: attachment), Data([1, 2, 3]))
         XCTAssertEqual(try files.data(at: copyURL.deletingLastPathComponent().appendingPathComponent("attachments/original/photo.png")), Data([1, 2, 3]))
         XCTAssertEqual(try files.data(at: copyURL), Data((markdown + " locally edited").utf8))
         XCTAssertEqual(try files.data(at: noteURL), Data("Remote version".utf8))
