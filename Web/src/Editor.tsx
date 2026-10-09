@@ -1,5 +1,5 @@
 import { attachmentBaseURL, attachmentPresentation, beginImageImport, endImageImport, insertImportedImage, pendingImageImport } from "./attachments";
-import { deleteMarkupBackward, insertNewlineContinueMarkupCommand, markdown } from "@codemirror/lang-markdown";
+import { deleteMarkupBackward, markdown } from "@codemirror/lang-markdown";
 import { defaultKeymap, history, historyKeymap, selectAll } from "@codemirror/commands";
 import { Annotation, Compartment, EditorSelection, EditorState, Transaction } from "@codemirror/state";
 import { drawSelection, EditorView, keymap, tooltips } from "@codemirror/view";
@@ -12,6 +12,7 @@ import { markdownPresentation } from "./presentation";
 import { beginDictation, clearDictation, dictationPreview, insertionForDictation, reviseDictation } from "./dictationPreview";
 import { inlineTagEditor, setTagVocabulary } from "./tagEditor";
 import { indentListItem, outdentListItem } from "./listIndent";
+import { continueMarkdownList } from "./listNewline";
 import { toggleInlineFormat } from "./formatting";
 import { formattingToolbar } from "./formattingToolbar";
 import { usePointerActivity } from "./usePointerActivity";
@@ -24,7 +25,6 @@ import { closeSearchPanel, findNext, findPrevious, openSearchPanel, searchPanelO
 type RecoveryAction = "restoreRoot" | "saveCopy" | "reloadExternal";
 type ErrorStatus = { message: string; actions?: RecoveryAction[] };
 const loadSession = Annotation.define<boolean>();
-const continueMarkdownList = insertNewlineContinueMarkupCommand({ nonTightLists: false });
 const waveformBars = 48;
 
 // A dash below a paragraph is usually the start of a list while typing.

@@ -558,6 +558,45 @@ describe("source-first Markdown presentation", () => {
     expect(messages.filter((message) => message.type === "contentChanged").at(-1)).toMatchObject({ text: exited });
   });
 
+  it.each([
+    ["wowow\n\nwowow\n\n- sadfas\n\n- asdfasf", "- ", "- ", ""],
+    ["* first\n\n* second", "* ", "* ", ""],
+    ["+ first\n\n+ second", "+ ", "+ ", ""],
+    ["1. first\n\n2. second", "3. ", "4. ", ""],
+    ["- [x] first\n\n- [ ] second", "- [ ] ", "- [ ] ", ""],
+    ["- parent\n  - first\n\n  - second", "  - ", "  - ", "- "],
+    ["> - first\n>\n> - second", "> - ", "> - ", "> "],
+  ])("continues spaced lists with one newline: %s", async (source, first, next, exit) => {
+    const { view, messages } = await makeConnectedEditor(source);
+    const enter = async () => act(async () => {
+      view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+    });
+    await enter();
+    expect(view.state.doc.toString()).toBe(source + "\n" + first);
+    expect(view.state.selection.main.head).toBe(view.state.doc.length);
+    await act(async () => undo(view));
+    expect(view.state.doc.toString()).toBe(source);
+    await act(async () => redo(view));
+    expect(view.state.doc.toString()).toBe(source + "\n" + first);
+    await act(async () => view.dispatch(view.state.replaceSelection("third")));
+    await enter();
+    expect(view.state.doc.toString()).toBe(source + "\n" + first + "third\n" + next);
+    await enter();
+    const exited = source + "\n" + first + "third\n" + exit;
+    expect(view.state.doc.toString()).toBe(exited);
+    expect(messages.filter(message => message.type === "contentChanged").at(-1)).toMatchObject({ text: exited });
+  });
+
+  it("splits a spaced numbered item and renumbers its siblings in one undo step", async () => {
+    const source = "1. first\n\n2. second half\n\n3. third";
+    const { view } = await makeConnectedEditor(source);
+    view.dispatch({ selection: { anchor: source.indexOf(" half") } });
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true })));
+    expect(view.state.doc.toString()).toBe("1. first\n\n2. second\n3.  half\n\n4. third");
+    await act(async () => undo(view));
+    expect(view.state.doc.toString()).toBe(source);
+  });
+
   it("continues nested lists, splits items, and leaves fenced code literal", async () => {
     for (const [text, position, expected] of [
       ["- outer\n  - inner", 17, "- outer\n  - inner\n  - "],
