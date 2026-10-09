@@ -4,7 +4,7 @@ One notebook across Mac and iPhone when iCloud is selected; device-local noteboo
 
 ## Acceptance evidence
 
-- [ ] Physical iPhone build, install, launch
+- [x] Physical iPhone build, install, launch
 - [ ] First-launch local / iCloud choice and explicit storage transfer
 - [ ] Restore current jot, caret, scroll, keyboard
 - [ ] Immediate durable capture; background / termination restoration
@@ -391,3 +391,12 @@ The review navigation title displays the jot's creation date and time, using the
 The latest saved jot has a blank neighboring page on its right, reached by swiping left. Only a committed swipe calls the existing snapshot/save/finish-and-new path; cancelled drags create nothing. The new draft title uses the time the swipe began, and a blank draft does not offer another blank successor. Swiping right from the draft returns to the latest saved jot. Save failure returns to the original page without a selection haptic.
 
 Signed device build, installation and launch succeed. Focused finish-and-new tests cover save-before-release, blank captures and write-failure protection. Physical date-title tracking and swipe-to-new interaction remain visually unverified.
+
+
+## v0.1 merge acceptance — 2026-10-08
+
+Erik accepted the current scope for merging as v0.1. The iOS marketing version remains 0.1.0; the existing Mac release pipeline retains its automatic 0.1.<run number> versioning. Widgets, Share Extension, Siri and dedicated iPad layouts remain deferred. Manual acceptance items above remain open unless supported by observed evidence.
+
+Integrated main's recovery-copy attachment fix, retaining the newer cross-date/root attachment copying and the branch's external-reconciliation behavior. The conflict-copy test checks portable image bytes and preserved originals rather than requiring copies to remain in the original date directory. Added a committed-project iOS simulator compilation step to pull-request CI.
+
+Local integrated validation: Web113 tests and production build pass; Swift105 executed, 1 skipped, 0 failures. Release-signing fixture and shell syntax checks pass. CI separately validates the universal Mac package and iOS target before merge.
