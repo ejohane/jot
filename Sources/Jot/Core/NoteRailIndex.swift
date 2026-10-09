@@ -23,12 +23,20 @@ actor NoteRailIndex {
         entriesByID = [:]
     }
 
-    func refresh() async -> [NoteRailEntry]? {
+    func refresh(discoveredURLs: [URL] = []) async -> [NoteRailEntry]? {
         let root = self.root
         let generation = self.generation
         refreshGeneration += 1
         let refreshGeneration = self.refreshGeneration
-        let entries = await Task.detached(priority: .utility) { Self.scan(root: root) }.value
+        let entries = await Task.detached(priority: .utility) {
+            var entries = Self.scan(root: root)
+            if let root {
+                let paths = Set(entries.map(\.path))
+                entries += discoveredURLs.compactMap { Self.cloudEntry(url: $0, root: root) }
+                    .filter { !paths.contains($0.path) && !$0.id.hasPrefix("file:") }
+            }
+            return entries.sorted { $0.timestamp == $1.timestamp ? $0.id > $1.id : $0.timestamp > $1.timestamp }
+        }.value
         guard generation == self.generation, refreshGeneration == self.refreshGeneration else { return nil }
         entriesByID = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return entries
@@ -60,7 +68,23 @@ actor NoteRailIndex {
         return result.sorted { $0.timestamp == $1.timestamp ? $0.id > $1.id : $0.timestamp > $1.timestamp }
     }
 
-    private static func date(from url: URL, clock: String) -> Date? {
+    static func cloudEntry(url: URL, root: URL) -> NoteRailEntry? {
+        guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else { return nil }
+        let root = root.resolvingSymlinksInPath().standardizedFileURL
+        let url = url.resolvingSymlinksInPath().standardizedFileURL
+        guard url.path.hasPrefix(root.path + "/"), url.pathExtension.lowercased() == "md" else { return nil }
+        let relative = String(url.path.dropFirst(root.path.count + 1))
+        guard !relative.split(separator: "/").contains(where: { $0.hasPrefix(".") }) else { return nil }
+        let parts = url.deletingPathExtension().lastPathComponent.components(separatedBy: "--")
+        let isJot = parts.count == 2 && !parts[1].isEmpty
+        let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey, .creationDateKey])
+        guard values?.isSymbolicLink != true, values?.isDirectory != true else { return nil }
+        let id = isJot ? parts[1] : "file:" + relative
+        return NoteRailEntry(id: id, path: url.path,
+            timestamp: (isJot ? date(from: url, clock: parts[0]) : nil) ?? values?.creationDate ?? .distantPast, excerpt: "Jot in iCloud — download to read")
+    }
+
+    static func date(from url: URL, clock: String) -> Date? {
         let day = url.deletingLastPathComponent()
         let month = day.deletingLastPathComponent()
         let year = month.deletingLastPathComponent()
@@ -73,6 +97,10 @@ actor NoteRailIndex {
     }
 
     private static func preview(of url: URL) -> String {
+        if let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]),
+           values.isUbiquitousItem == true, values.ubiquitousItemDownloadingStatus == .notDownloaded {
+            return "Jot in iCloud — download to read"
+        }
         guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
         defer { try? handle.close() }
         guard let data = try? handle.read(upToCount: 512) else { return "" }

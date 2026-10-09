@@ -1209,6 +1209,40 @@ final class AttachmentTests: XCTestCase {
         XCTAssertEqual(try files.data(at: file), data)
     }
 
+    func testInterruptedImageImportDiscardsOnlyUncommittedEmptyCapture() async throws {
+        let files = InMemoryFileSystem()
+        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: files) { _ in }
+        let bytes = Data([1, 2, 3])
+        let imported = try await writer.importAttachment(bytes, fileExtension: "png")
+        let attachment = URL(fileURLWithPath: imported.jot.path).deletingLastPathComponent().appendingPathComponent(imported.relativePath)
+        await writer.discardUncommittedAttachmentCapture()
+        let active = await writer.currentJot()
+        XCTAssertNil(active)
+        XCTAssertFalse(files.fileExists(at: URL(fileURLWithPath: imported.jot.path)))
+        XCTAssertEqual(try files.data(at: attachment), bytes)
+    }
+
+    func testInterruptedImageImportDoesNotDiscardSavedWriting() async throws {
+        let files = InMemoryFileSystem()
+        let writer = JotWriter(rootURL: URL(fileURLWithPath: "/Jots"), fileSystem: files) { _ in }
+        let imported = try await writer.importAttachment(Data([1]), fileExtension: "png")
+        await writer.receive(EditorSnapshot(revision: 1, text: "Keep this", selection: .start, viewport: .top), flushImmediately: true)
+        await writer.discardUncommittedAttachmentCapture()
+        let active = await writer.currentJot()
+        XCTAssertEqual(active?.path, imported.jot.path)
+        XCTAssertEqual(try files.data(at: URL(fileURLWithPath: imported.jot.path)), Data("Keep this".utf8))
+    }
+
+    func testLocalNotePathSurvivesAppContainerReplacement() {
+        let note = ActiveJot(id: "same-note", path: "/var/mobile/Containers/Data/Application/OLD/Documents/Jots/2026/10/02/note.md", acknowledgedRevision: 37)
+        let root = URL(fileURLWithPath: "/var/mobile/Containers/Data/Application/NEW/Documents/Jots")
+        let moved = AppContainerNotePath.relocate(note, to: root)
+        XCTAssertEqual(moved?.path, root.appendingPathComponent("2026/10/02/note.md").path)
+        XCTAssertEqual(moved?.id, note.id)
+        XCTAssertEqual(moved?.acknowledgedRevision, 37)
+        XCTAssertNil(AppContainerNotePath.relocate(ActiveJot(id: "x", path: "/other/Documents/Jots/note.md", acknowledgedRevision: 0), to: root))
+    }
+
     func testFailedImportDoesNotAllocateNote() async {
         let files = InMemoryFileSystem()
         files.writeError = CocoaError(.fileWriteNoPermission)

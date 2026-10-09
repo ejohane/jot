@@ -23,6 +23,13 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     private var sentTags: [String] = []
     private var session: PersistedSession
     private var rootURL: URL?
+    private var notebookPresenter: NotebookPresenter?
+    private let cloudInventory = NotebookCloudInventory()
+    private var cloudNoteURLs: [URL] = []
+    private var latestNoteSearch: (query: String, requestID: Int)?
+    private var notebookRefreshTask: Task<Void, Never>?
+    private var notebookRefreshPending = false
+    private var notebookWatcherGeneration = UUID()
     private var writer: JotWriter!
     private var panelController: ComposerPanelController!
     private var shortcut: GlobalShortcut!
@@ -49,6 +56,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             savedFrame: session.panelPositionWasUserChosen == true ? session.panelFrame : nil
         )
         panelController.configureAttachmentRoot(rootURL)
+        configureNotebookPresenter()
         panelController.bridge.delegate = self
         panelController.panelDelegate = self
         voiceDictation.onStateChange = { [weak self] state, message in
@@ -110,7 +118,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
     func show() {
         panelController.showAndFocus()
-        Task { await refreshRail() }
+        Task { await reconcileNotebookNote(); await refreshRail() }
     }
 
     func prepareToTerminate(completion: @escaping (Bool) -> Void) {
@@ -222,7 +230,17 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
     func editorRequestedImagePreview(path: String) {
         guard let rootURL, let file = LocalResourceSchemeHandler.attachmentURL(path: path, root: rootURL) else { return }
-        panelController.previewImage(at: file)
+        let generation = documentGeneration
+        Task {
+            do {
+                _ = try await Task.detached { try await NotebookAttachment.load(file) }.value
+                guard generation == documentGeneration, self.rootURL == rootURL else { return }
+                panelController.previewImage(at: file)
+            } catch {
+                guard generation == documentGeneration, self.rootURL == rootURL else { return }
+                sendError(message: "This image couldn’t be opened. Check its attachment file or iCloud connection and try again.", actions: [])
+            }
+        }
     }
 
     func editorDidBecomeReady() {
@@ -248,15 +266,23 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         }
         Task {
             do {
-                let text = try await writer.restore(
-                    session.activeJot,
-                    recoveryText: session.recoveryText,
-                    recoveryRevision: session.recoveryRevision
-                )
-                latestRevision = session.activeJot?.acknowledgedRevision ?? 0
-                hasBlockingWriteError = false
-                session.recoveryText = session.activeJot == nil ? nil : text
-                session.recoveryRevision = session.activeJot?.acknowledgedRevision
+                if session.storage == .iCloud, let active = session.activeJot {
+                    try await Task.detached { try await NotebookCloudFile.prepare(URL(fileURLWithPath: active.path)) }.value
+                }
+                let revision = max(session.recoveryRevision ?? 0, session.activeJot?.acknowledgedRevision ?? 0)
+                let text = try await writer.restoreJournal(session.activeJot,
+                    text: session.recoveryText ?? "", revision: revision, baseline: session.acknowledgedData)
+                await writer.receive(EditorSnapshot(revision: revision, text: text,
+                    selection: session.selection, viewport: session.viewport), flushImmediately: true)
+                _ = await writer.flush(through: revision)
+                let acknowledged = await writer.acknowledgedState()
+                session.activeJot = acknowledged.jot
+                if let data = acknowledged.data { session.acknowledgedData = data }
+                latestRevision = max(revision, acknowledged.jot?.acknowledgedRevision ?? 0)
+                hasBlockingWriteError = await writer.hasBlockingError
+                session.recoveryText = session.activeJot == nil && text.isEmpty ? nil : text
+                session.recoveryRevision = latestRevision
+                await persistSessionNow()
                 sendLoadSession(text: text)
                 chooseRootIfNeeded()
                 if shortcutRegistrationFailed {
@@ -278,6 +304,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     func editorContentChanged(_ snapshot: EditorSnapshot, noteID: String?) {
+        guard snapshot.revision >= latestRevision else { return }
         if let noteID, noteID != session.activeJot?.id { return }
         let generation = documentGeneration
         latestRevision = max(latestRevision, snapshot.revision)
@@ -287,6 +314,8 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         if Self.containsImageAttachment(snapshot.text) { panelController.preservesFrameForImages = true }
         session.recoveryRevision = snapshot.revision
         Task {
+            guard documentGeneration == generation else { return }
+            await persistSessionNow()
             guard documentGeneration == generation else { return }
             await writer.receive(snapshot)
         }
@@ -306,6 +335,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     func editorRequestedNoteSearch(query: String, requestID: Int, refresh: Bool) {
+        latestNoteSearch = (query, requestID)
         let currentID = session.activeJot?.id
         let currentText = session.recoveryText
         noteSearchTask?.cancel()
@@ -315,9 +345,10 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             return
         }
         noteSearchTask = Task {
-            guard let results = await noteSearchIndex.search(query: query, refresh: refresh, currentID: currentID, currentText: currentText), !Task.isCancelled else { return }
+            guard let results = await noteSearchIndex.search(query: query, refresh: refresh, currentID: currentID, currentText: currentText, discoveredURLs: cloudNoteURLs), !Task.isCancelled else { return }
             panelController.send([
                 "version": 1, "type": "noteSearchResults", "requestID": requestID,
+                "message": await noteSearchIndex.pendingDownloadCount() > 0 ? "Some iCloud jots are awaiting download. Search updates as their text arrives." : "",
                 "results": results.map { result in [
                     "id": result.id, "timestamp": Int(result.timestamp.timeIntervalSince1970 * 1_000),
                     "title": result.title, "excerpt": result.excerpt,
@@ -329,6 +360,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     func editorActionPanelChanged(visible: Bool) {
+        if !visible { latestNoteSearch = nil }
         panelController.applyActionPanelVisibility(visible)
         if visible { sendActionState() }
     }
@@ -383,6 +415,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             session.selection = .start
             session.viewport = .top
             session.recoveryText = nil
+            session.acknowledgedData = nil
             session.recoveryRevision = nil
             latestRevision = 0
             hasBlockingWriteError = false
@@ -418,6 +451,9 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             let searchEntry = await noteSearchIndex.entry(id: id)
             guard let entry = railEntry ?? searchEntry else { return }
             do {
+                if session.storage == .iCloud {
+                    try await Task.detached { try await NotebookCloudFile.prepare(URL(fileURLWithPath: entry.path)) }.value
+                }
                 let result = try await writer.openExisting(id: id, path: entry.path, through: revision)
                 let source = currentLocation
                 let destination = NoteLocation.note(id)
@@ -433,6 +469,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 session.selection = position.selection
                 session.viewport = position.viewport
                 session.recoveryText = result.text
+                session.acknowledgedData = Data(result.text.utf8)
                 session.recoveryRevision = 0
                 latestRevision = 0
                 hasBlockingWriteError = false
@@ -440,9 +477,10 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 sendLoadSession(text: result.text)
             } catch {
                 if !(await writer.hasBlockingError) {
-                    let message = (error as? PersistenceError) == .activeFileMissing
-                        ? "This jot is no longer available."
-                        : "Could not switch notes. Save the current jot and try again."
+                    let message: String
+                    if error is NotebookCloudFile.DownloadError { message = error.localizedDescription }
+                    else if (error as? PersistenceError) == .activeFileMissing { message = "This jot is no longer available." }
+                    else { message = "Could not switch notes. Save the current jot and try again." }
                     sendError(message: message, actions: [])
                 }
                 await refreshRail()
@@ -469,6 +507,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             session.selection = position.selection
             session.viewport = position.viewport
             session.recoveryText = nil
+            session.acknowledgedData = nil
             session.recoveryRevision = nil
             latestRevision = 0
             hasBlockingWriteError = false
@@ -522,6 +561,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     }
 
     func editorRequestedRecovery(_ action: String) {
+        guard !isOpeningNote, !isImportingImage else { return }
         switch action {
         case "restoreRoot":
             chooseRoot()
@@ -556,6 +596,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                     session.selection = .start
                     session.viewport = .top
                     session.recoveryText = result.text
+                    session.acknowledgedData = Data(result.text.utf8)
                     session.recoveryRevision = result.jot.acknowledgedRevision
                     hasBlockingWriteError = false
                     await persistSessionNow()
@@ -570,7 +611,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         }
     }
 
-    func editorRequestedDictationToggle() { voiceDictation.toggle() }
+    func editorRequestedDictationToggle() { guard !isOpeningNote, !isImportingImage else { return }; voiceDictation.toggle() }
     func editorRequestedDictationFinish() { voiceDictation.finish() }
     func editorRequestedDictationCancel() { voiceDictation.cancel() }
 
@@ -594,6 +635,8 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 activeJot: session.activeJot,
                 hasBlockingWriteError: hasBlockingWriteError
             ) && !isOpeningNote
+        case #selector(chooseRoot), #selector(chooseICloud):
+            return !isOpeningNote && !isImportingImage && (voiceDictation.state == .idle || voiceDictation.state == .error)
         case #selector(revealCurrentJot):
             return session.activeJot != nil
         case #selector(navigateBackFromMenu):
@@ -658,32 +701,101 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         NSWorkspace.shared.open(rootURL)
     }
 
-    @objc private func chooseRoot() {
-        guard let choice = rootAccess.chooseRoot() else { return }
-        rootURL = choice.url
-        panelController.configureAttachmentRoot(choice.url)
-        Task { await tagIndex.configure(root: choice.url); await refreshTags(force: true) }
-        railNoteIDs = []
-        latestRailID = nil
-        navigation.reset()
-        hasBlankCapture = session.activeJot == nil
-        Task { await noteRailIndex.configure(root: choice.url); await noteSearchIndex.configure(root: choice.url); await refreshRail() }
-        session.rootBookmark = choice.bookmark
+    @objc private func chooseRoot() { chooseNotebook(storage: .local) }
+    @objc private func chooseICloud() { chooseNotebook(storage: .iCloud) }
+
+    private func chooseNotebook(storage: NotebookStorage) {
+        guard !isOpeningNote, !isImportingImage,
+              (voiceDictation.state == .idle || voiceDictation.state == .error) else { return }
+        guard let choice = rootAccess.chooseRoot(storage: storage) else { return }
+        let oldRoot = rootURL
+        if let oldRoot, oldRoot.standardizedFileURL != choice.url.standardizedFileURL {
+            let alert = NSAlert()
+            alert.messageText = "Transfer your notebook?"
+            alert.informativeText = "All jots and images will be copied to the selected folder. The original notebook is kept as a backup. New changes will save in the selected folder."
+            alert.addButton(withTitle: "Transfer Notebook")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        if oldRoot == nil, let active = session.activeJot,
+           !active.path.hasPrefix(choice.url.path + "/") {
+            let alert = NSAlert()
+            alert.messageText = "Restore your notebook first"
+            alert.informativeText = "Choose the original Jots folder to restore access before transferring it. Your recovery writing is kept safe."
+            alert.runModal()
+            return
+        }
+        isOpeningNote = true
+        panelController.send(["version": 1, "type": "setEditingEnabled", "enabled": false])
+        sendActionState()
         Task {
-            await writer.configureRoot(choice.url)
-            let flushed = await writer.flush(through: latestRevision)
-            if flushed, let jot = await writer.currentJot() {
-                hasBlockingWriteError = false
-                panelController.send([
-                    "version": 1,
-                    "type": "writeSucceeded",
-                    "noteID": jot.id,
-                    "revision": latestRevision,
-                ])
-            } else if !flushed {
-                hasBlockingWriteError = true
+            let accessing = choice.url.startAccessingSecurityScopedResource()
+            defer {
+                if accessing { choice.url.stopAccessingSecurityScopedResource() }
+                isOpeningNote = false
+                panelController.send(["version": 1, "type": "setEditingEnabled", "enabled": true])
+                sendActionState()
             }
-            await persistSessionNow()
+            do {
+                if oldRoot != nil {
+                    guard await writer.flush(through: latestRevision) else { throw PersistenceError.writeFailed("Save the current jot before transferring the notebook.") }
+                }
+                let current = await writer.currentJot()
+                if let oldRoot {
+                    let sourceFiles = session.storage == .iCloud ? try await NotebookCloudInventory.snapshot(root: oldRoot) : []
+                    let destinationFiles = storage == .iCloud ? try await NotebookCloudInventory.snapshot(root: choice.url) : []
+                    try await Task.detached {
+                        try await NotebookTransfer.copyPrepared(from: oldRoot, to: choice.url, cloudFiles: sourceFiles + destinationFiles)
+                    }.value
+                }
+                var nextSession = session
+                if let current, let oldRoot {
+                    let prefix = oldRoot.resolvingSymlinksInPath().path + "/"
+                    let path = URL(fileURLWithPath: current.path).resolvingSymlinksInPath().path
+                    guard path.hasPrefix(prefix) else { throw PersistenceError.rootUnavailable }
+                    nextSession.activeJot = ActiveJot(id: current.id,
+                        path: choice.url.appendingPathComponent(String(path.dropFirst(prefix.count))).path,
+                        acknowledgedRevision: current.acknowledgedRevision)
+                }
+                var replacementWriter: JotWriter?
+                if oldRoot != nil {
+                    let candidate = JotWriter(rootURL: choice.url) { [weak self] event in self?.handle(event) }
+                    let restored = try await candidate.restore(nextSession.activeJot)
+                    nextSession.recoveryText = restored
+                    nextSession.acknowledgedData = Data(restored.utf8)
+                    nextSession.recoveryRevision = nextSession.activeJot?.acknowledgedRevision
+                    replacementWriter = candidate
+                }
+                nextSession.rootBookmark = choice.bookmark
+                nextSession.storage = storage
+                sessionGeneration += 1
+                try await sessionStore.save(nextSession, generation: sessionGeneration)
+                _ = rootAccess.setRoot(choice.url)
+                rootURL = choice.url
+                session = nextSession
+                configureNotebookPresenter()
+                if let replacementWriter { writer = replacementWriter }
+                else { await writer.configureRoot(choice.url) }
+                let flushed = await writer.flush(through: latestRevision)
+                hasBlockingWriteError = !flushed
+                panelController.configureAttachmentRoot(choice.url)
+                railNoteIDs = []
+                latestRailID = nil
+                navigation.reset()
+                hasBlankCapture = session.activeJot == nil
+                await noteRailIndex.configure(root: choice.url)
+                await noteSearchIndex.configure(root: choice.url)
+                await tagIndex.configure(root: choice.url)
+                await refreshRail()
+                await refreshTags(force: true)
+                await persistSessionNow()
+                sendLoadSession(text: session.recoveryText ?? "")
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "The notebook could not be transferred"
+                alert.informativeText = "The source notebook is retained. \(error.localizedDescription)"
+                alert.runModal()
+            }
         }
     }
 
@@ -748,6 +860,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         menu.addItem(item("Reveal Current Jot in Finder", action: #selector(revealCurrentJot), key: ""))
         menu.addItem(item("Open Jots Folder", action: #selector(openJotsFolder), key: ""))
         menu.addItem(item("Change Jots Folder…", action: #selector(chooseRoot), key: ""))
+        menu.addItem(item("Use iCloud Notebook…", action: #selector(chooseICloud), key: ""))
         let shortcutMenu = NSMenu()
         for choice in ShortcutChoice.allCases {
             let menuItem = item(choice.displayName, action: #selector(changeShortcut(_:)), key: "")
@@ -780,6 +893,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         let changeFolder = item("Change Jots Folder…", action: #selector(chooseRoot), key: "j")
         changeFolder.keyEquivalentModifierMask = [.command, .option]
         applicationMenu.addItem(changeFolder)
+        applicationMenu.addItem(item("Use iCloud Notebook…", action: #selector(chooseICloud), key: ""))
         applicationMenu.addItem(.separator())
         applicationMenu.addItem(item("Quit Jot", action: #selector(quit), key: "q"))
         applicationItem.submenu = applicationMenu
@@ -874,7 +988,14 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 session.activeJot = jot
             }
             panelController.send(["version": 1, "type": "writeSucceeded", "noteID": id, "revision": revision])
-            persistSessionSoon()
+            let generation = documentGeneration
+            Task {
+                let acknowledged = await writer.acknowledgedState()
+                guard documentGeneration == generation, session.activeJot?.id == acknowledged.jot?.id else { return }
+                session.activeJot = acknowledged.jot
+                if let data = acknowledged.data { session.acknowledgedData = data }
+                await persistSessionNow()
+            }
         case let .writeFailed(id, revision, error):
             hasBlockingWriteError = true
             let message: String
@@ -941,8 +1062,103 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         panelController.send(["version": 1, "type": "tagVocabulary", "tags": tags])
     }
 
+    private func reconcileNotebookNote() async {
+        guard !isOpeningNote, !isImportingImage, voiceDictation.state == .idle || voiceDictation.state == .error else { return }
+        let generation = documentGeneration
+        do {
+            if session.storage == .iCloud, let active = session.activeJot {
+                try await Task.detached { try await NotebookCloudFile.prepare(URL(fileURLWithPath: active.path)) }.value
+            }
+            guard try await writer.hasExternalChange(), !isOpeningNote, !isImportingImage,
+                  generation == documentGeneration, voiceDictation.state == .idle || voiceDictation.state == .error else { return }
+            isOpeningNote = true
+            sendActionState()
+            defer {
+                isOpeningNote = false
+                panelController.send(["version": 1, "type": "setEditingEnabled", "enabled": true])
+                sendActionState()
+            }
+            let captured = try await panelController.lockAndSnapshot()
+            guard captured.revision >= latestRevision else { return }
+            session.recoveryText = captured.text
+            session.recoveryRevision = captured.revision
+            session.selection = captured.selection
+            session.viewport = captured.viewport
+            latestRevision = captured.revision
+            await persistSessionNow()
+            await writer.receive(captured, flushImmediately: true)
+            guard let changed = try await writer.reconcileExternal() else { return }
+            session.activeJot = changed.jot
+            session.recoveryText = changed.text
+            session.recoveryRevision = changed.jot.acknowledgedRevision
+            session.acknowledgedData = Data(changed.text.utf8)
+            latestRevision = changed.jot.acknowledgedRevision
+            hasBlockingWriteError = false
+            await persistSessionNow()
+            sendLoadSession(text: changed.text)
+        } catch {
+            // A missing or not-yet-ready editor must not alter recovery or canonical text.
+        }
+    }
+
+    private func configureNotebookPresenter() {
+        notebookWatcherGeneration = UUID()
+        notebookPresenter?.stop()
+        notebookPresenter = nil
+        notebookRefreshTask?.cancel()
+        notebookRefreshTask = nil
+        notebookRefreshPending = false
+        cloudNoteURLs = []
+        cloudInventory.onChange = { [weak self] urls in
+            guard let self else { return }
+            self.cloudNoteURLs = urls.filter { $0.pathExtension.lowercased() == "md" }
+            self.requestNotebookRefresh()
+        }
+        cloudInventory.configure(root: session.storage == .iCloud ? rootURL : nil)
+        guard let rootURL else { return }
+        notebookPresenter = NotebookPresenter(root: rootURL) { [weak self] in self?.requestNotebookRefresh() }
+    }
+
+    private func requestNotebookRefresh() {
+        notebookRefreshPending = true
+        guard notebookRefreshTask == nil, let rootURL else { return }
+        let token = notebookWatcherGeneration
+        notebookRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if self.notebookWatcherGeneration == token { self.notebookRefreshTask = nil } }
+            while self.notebookRefreshPending {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled, self.rootURL == rootURL, self.notebookWatcherGeneration == token else { return }
+                if self.isOpeningNote || self.isImportingImage || (self.voiceDictation.state != .idle && self.voiceDictation.state != .error) { continue }
+                self.notebookRefreshPending = false
+                await self.reconcileNotebookNote()
+                await self.refreshRail()
+                await self.refreshTags(force: true)
+                if let search = self.latestNoteSearch {
+                    self.editorRequestedNoteSearch(query: search.query, requestID: search.requestID, refresh: true)
+                }
+            }
+        }
+    }
+
+    private var cloudConflictScanRunning = false
+
     private func refreshRail() async {
-        guard let entries = await noteRailIndex.refresh() else { return }
+        if session.storage == .iCloud, let root = rootURL, !cloudConflictScanRunning {
+            cloudConflictScanRunning = true
+            do {
+                let copies = try await Task.detached(priority: .utility) { try NotebookConflictArchive.preserve(in: root) }.value
+                if rootURL == root, !copies.isEmpty {
+                    sendError(message: "iCloud delivered different versions of a jot. Each version is kept as a separate note.", actions: [])
+                }
+            } catch {
+                if rootURL == root {
+                    sendError(message: "An iCloud conflict couldn’t be copied yet. Its original versions remain protected.", actions: [])
+                }
+            }
+            cloudConflictScanRunning = false
+        }
+        guard let entries = await noteRailIndex.refresh(discoveredURLs: cloudNoteURLs) else { return }
         railNoteIDs = Set(entries.map(\.id))
         latestRailID = entries.first?.id
         sendActionState()

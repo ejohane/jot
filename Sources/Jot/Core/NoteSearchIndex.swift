@@ -12,6 +12,7 @@ struct NoteSearchResult: Equatable, Sendable {
     let excerpt: String
     let titleMatches: [NoteSearchMatch]
     let excerptMatches: [NoteSearchMatch]
+    var isDownloaded = true
 }
 
 /// Disposable full-text cache. Scanning and matching never run on the main actor.
@@ -20,7 +21,7 @@ actor NoteSearchIndex {
         let entry: NoteRailEntry
         let modified: Date?
         let size: Int?
-        let source: String
+        let source: String?
     }
     private var root: URL?
     private var generation = 0
@@ -41,15 +42,17 @@ actor NoteSearchIndex {
         scanned = false
     }
 
+    func pendingDownloadCount() -> Int { documents.values.filter { $0.source == nil }.count }
+
     func entry(id: String) -> NoteRailEntry? { documents[id]?.entry }
 
-    func search(query: String, refresh: Bool = false, currentID: String? = nil, currentText: String? = nil) async -> [NoteSearchResult]? {
+    func search(query: String, refresh: Bool = false, currentID: String? = nil, currentText: String? = nil, discoveredURLs: [URL] = []) async -> [NoteSearchResult]? {
         let generation = self.generation
         if scan == nil && (refresh || !scanned) {
             scanGeneration += 1
             let root = self.root
             let cached = documents
-            scan = Task.detached(priority: .userInitiated) { Self.load(root: root, cached: cached) }
+            scan = Task.detached(priority: .userInitiated) { Self.load(root: root, cached: cached, discoveredURLs: discoveredURLs) }
         }
         if let scan {
             let scanGeneration = self.scanGeneration
@@ -70,17 +73,31 @@ actor NoteSearchIndex {
         return results
     }
 
-    private static func load(root: URL?, cached: [String: Document]) -> [String: Document] {
+    private static func load(root: URL?, cached: [String: Document], discoveredURLs: [URL]) -> [String: Document] {
         var result: [String: Document] = [:]
-        for entry in NoteRailIndex.scan(root: root, includeOtherMarkdown: true) {
+        var entries = NoteRailIndex.scan(root: root, includeOtherMarkdown: true)
+        if let root {
+            let paths = Set(entries.map(\.path))
+            entries += discoveredURLs.compactMap { NoteRailIndex.cloudEntry(url: $0, root: root) }.filter { !paths.contains($0.path) }
+        }
+        for entry in entries {
             if Task.isCancelled { break }
             let url = URL(fileURLWithPath: entry.path)
-            guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]) else { continue }
+            guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey, .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]) else {
+                result[entry.id] = cached[entry.id] ?? Document(entry: entry, modified: nil, size: nil, source: nil)
+                continue
+            }
+            if values.isUbiquitousItem == true && values.ubiquitousItemDownloadingStatus == .notDownloaded {
+                result[entry.id] = cached[entry.id] ?? Document(entry: entry, modified: nil, size: nil, source: nil)
+                continue
+            }
             if let old = cached[entry.id], old.entry.path == entry.path,
                old.modified == values.contentModificationDate, old.size == values.fileSize {
                 result[entry.id] = old
             } else if let source = try? String(contentsOf: url, encoding: .utf8) {
                 result[entry.id] = Document(entry: entry, modified: values.contentModificationDate, size: values.fileSize, source: source)
+            } else {
+                result[entry.id] = cached[entry.id] ?? Document(entry: entry, modified: nil, size: nil, source: nil)
             }
         }
         return result
@@ -93,7 +110,14 @@ actor NoteSearchIndex {
         var ranked: [(score: Int, result: NoteSearchResult)] = []
         for document in documents.values {
             if Task.isCancelled { return [] }
-            let source = document.entry.id == currentID ? currentText ?? document.source : document.source
+            if document.source == nil && document.entry.id != currentID {
+                if words.isEmpty {
+                    ranked.append((0, NoteSearchResult(id: document.entry.id, timestamp: document.entry.timestamp,
+                        title: "Jot in iCloud", excerpt: "Download to read", titleMatches: [], excerptMatches: [], isDownloaded: false)))
+                }
+                continue
+            }
+            let source = document.entry.id == currentID ? (currentText ?? document.source ?? "") : (document.source ?? "")
             let text = source.split(whereSeparator: \.isWhitespace).joined(separator: " ")
             guard words.allSatisfy({ text.range(of: $0, options: options) != nil }) else { continue }
             let firstLine = source.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }

@@ -40,14 +40,34 @@ class ImageWidget extends WidgetType {
     status.textContent = "Loading image…";
     status.className = "cm-attachment-status";
     button.append(status);
-    image.onload = () => { status.remove(); button.classList.add("is-loaded"); };
+    let failed = false;
+    let retry = 0;
+    image.onload = () => {
+      failed = false;
+      status.remove(); button.classList.add("is-loaded");
+      button.setAttribute("aria-label", `Preview ${this.label || "image"}`);
+      button.title = "Open image preview";
+    };
     image.onerror = () => {
       image.remove();
-      status.textContent = "Image unavailable — check the attachment file";
-      button.disabled = true;
+      failed = true;
+      status.textContent = "Image unavailable. Tap to retry.";
+      button.setAttribute("aria-label", `Retry ${this.label || "image"}`);
+      button.title = "Retry image download";
     };
     button.onmousedown = (event) => event.preventDefault();
-    button.onclick = () => sendToNative({ version: 1, type: "previewImage", path: decodeURIComponent(new URL(this.url).pathname.slice(1)) });
+    button.onclick = () => {
+      if (failed) {
+        failed = false;
+        status.textContent = "Loading image…";
+        button.prepend(image);
+        const url = new URL(this.url);
+        url.searchParams.set("retry", String(++retry));
+        image.src = url.toString();
+      } else if (button.classList.contains("is-loaded")) {
+        sendToNative({ version: 1, type: "previewImage", path: decodeURIComponent(new URL(this.url).pathname.slice(1)) });
+      }
+    };
     return button;
   }
   ignoreEvent() { return true; }
