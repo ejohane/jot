@@ -5,7 +5,7 @@ import { Annotation, Compartment, EditorSelection, EditorState, Transaction } fr
 import { drawSelection, EditorView, keymap, tooltips } from "@codemirror/view";
 import { GFM } from "@lezer/markdown";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { sendToNative, type EditorToNative, type NoteSearchResult } from "./bridge";
+import { sendToNative, setBridgeSessionID, type EditorToNative, type NoteSearchResult } from "./bridge";
 import { clickableLinks } from "./links";
 import { editorTheme } from "./editorTheme";
 import { markdownPresentation } from "./presentation";
@@ -13,6 +13,7 @@ import { beginDictation, clearDictation, dictationPreview, insertionForDictation
 import { inlineTagEditor, setTagVocabulary } from "./tagEditor";
 import { indentListItem, outdentListItem } from "./listIndent";
 import { continueMarkdownList } from "./listNewline";
+import { setTextStyle } from "./selectionFormatting";
 import { toggleInlineFormat } from "./formatting";
 import { formattingToolbar } from "./formattingToolbar";
 import { usePointerActivity } from "./usePointerActivity";
@@ -74,6 +75,10 @@ export function Editor() {
     if (!visible) requestAnimationFrame(() => { if (!panelOpenRef.current) viewRef.current?.focus(); });
   };
   const showPalette = (mode: "actions" | "notes") => {
+    if (document.documentElement.classList.contains("ios")) {
+      sendToNative({ version: 1, type: "showLibrary" });
+      return;
+    }
     if (panelOpenRef.current && panelModeRef.current === mode) { changePanel(false); return; }
     panelModeRef.current = mode;
     setPanelMode(mode);
@@ -82,6 +87,8 @@ export function Editor() {
   };
   const host = useRef<HTMLDivElement>(null);
   const revisionRef = useRef(0);
+  const sessionIDRef = useRef<string | undefined>(undefined);
+  const sessionLoadGeneration = useRef(0);
   const noteIDRef = useRef<string | undefined>(undefined);
   const compositionDirty = useRef(false);
   const hasLoadedSession = useRef(false);
@@ -132,6 +139,7 @@ export function Editor() {
       const message: Extract<EditorToNative, { type: "contentChanged" }> = {
         version: 1,
         type: "contentChanged",
+        ...(sessionIDRef.current ? { sessionID: sessionIDRef.current } : {}),
         noteID: noteIDRef.current,
         revision: revisionRef.current,
         text: view.state.doc.toString(),
@@ -154,6 +162,7 @@ export function Editor() {
       sendToNative({
         version: 1,
         type: "editorStateChanged",
+        ...(sessionIDRef.current ? { sessionID: sessionIDRef.current } : {}),
         selection: { anchor: selection.anchor, head: selection.head },
         viewport: { scrollTop: view.scrollDOM.scrollTop },
       });
@@ -236,9 +245,11 @@ export function Editor() {
       }
     };
 
+    const editing = new Compartment();
     const state = EditorState.create({
       doc: "",
       extensions: [
+        editing.of([EditorState.readOnly.of(false), EditorView.editable.of(true)]),
         jotMarkdown,
         markdownPresentation,
         clickableLinks,
@@ -388,9 +399,18 @@ export function Editor() {
     document.addEventListener("keydown", documentKeyDown, true);
     sendPreferredHeight(view);
     window.JotNative = {
+      lockAndSnapshot(keepFocus = false) {
+        view.dispatch({ effects: editing.reconfigure([EditorState.readOnly.of(true), EditorView.editable.of(keepFocus)]) });
+        const selection = view.state.selection.main;
+        return { sessionID: sessionIDRef.current, text: view.state.doc.toString(), revision: revisionRef.current,
+          selection: { anchor: selection.anchor, head: selection.head }, viewport: { scrollTop: view.scrollDOM.scrollTop } };
+      },
       receive(message) {
         if (message.version !== 1) return;
         switch (message.type) {
+          case "setEditingEnabled":
+            view.dispatch({ effects: editing.reconfigure([EditorState.readOnly.of(!message.enabled), EditorView.editable.of(message.enabled)]) });
+            break;
           case "showNoteSearch":
             showPalette("notes");
             break;
@@ -420,9 +440,11 @@ export function Editor() {
             selectAll(view);
             break;
           case "beginImagePaste":
+            if (view.state.readOnly) break;
             requestImagePaste(view);
             break;
           case "beginImageFileDrop":
+            if (view.state.readOnly) break;
             if (view.state.field(pendingImageImport)) {
               setError({ message: "Wait for the current image to finish importing, then drop again." });
               break;
@@ -449,10 +471,24 @@ export function Editor() {
               setError({ message: message.message });
             }
             break;
+          case "setTextStyle":
+            if (view.state.readOnly) break;
+            setTextStyle(view, message.style);
+            break;
+          case "changeListIndent":
+            if (view.state.readOnly) break;
+            if (message.direction === "in") indentListItem(view);
+            else outdentListItem(view);
+            view.focus();
+            break;
           case "toggleFormat":
+            if (view.state.readOnly) break;
             toggleInlineFormat(view, message.format);
             break;
           case "loadSession": {
+            sessionIDRef.current = message.sessionID;
+            setBridgeSessionID(message.sessionID);
+            const generation = ++sessionLoadGeneration.current;
             droppedImages = [];
             nativeFileDropsRemaining = 0;
             if (panelOpenRef.current) changePanel(false);
@@ -469,6 +505,7 @@ export function Editor() {
               const selection = view.state.selection.main;
               const retry: Extract<EditorToNative, { type: "contentChanged" }> = {
                 ...pending,
+                ...(message.sessionID ? { sessionID: message.sessionID } : {}),
                 noteID: message.noteID,
                 revision: revisionRef.current,
                 text: view.state.doc.toString(),
@@ -483,7 +520,8 @@ export function Editor() {
                 scheduleBridgeRetry();
               }
               requestAnimationFrame(() => {
-                if (!panelOpenRef.current) view.focus();
+                if (sessionLoadGeneration.current !== generation) return;
+                if (message.focus !== false && !panelOpenRef.current) view.focus();
                 sendPreferredHeight(view);
               });
               break;
@@ -500,8 +538,9 @@ export function Editor() {
             });
             imageKeepsFrame = /!\[[^\n]*\]\([^\n]*attachments\//.test(message.text);
             requestAnimationFrame(() => {
+              if (sessionLoadGeneration.current !== generation) return;
               view.scrollDOM.scrollTop = message.viewport.scrollTop;
-              if (!panelOpenRef.current) view.focus();
+              if (message.focus !== false && !panelOpenRef.current) view.focus();
               sendPreferredHeight(view);
             });
             setError(null);
@@ -591,6 +630,7 @@ export function Editor() {
       composer?.removeEventListener("drop", drop, true);
       viewRef.current = null;
       view.destroy();
+      setBridgeSessionID(undefined);
       delete window.JotNative;
     };
   }, []);

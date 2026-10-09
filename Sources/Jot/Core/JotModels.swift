@@ -26,6 +26,8 @@ struct PersistedSession: Codable, Equatable, Sendable {
     var panelFrame: String?
     var panelPositionWasUserChosen: Bool?
     var rootBookmark: Data?
+    var storage: NotebookStorage? = nil
+    var acknowledgedData: Data? = nil
     var shortcut: ShortcutChoice
     var launchAtLogin: Bool
     var recoveryText: String?
@@ -66,11 +68,20 @@ struct EditorSnapshot: Equatable, Sendable {
     let viewport: EditorViewport
 }
 
-enum PersistenceError: Error, Equatable, Sendable {
+enum PersistenceError: LocalizedError, Equatable, Sendable {
     case rootUnavailable
     case externalConflict
     case activeFileMissing
     case writeFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .rootUnavailable: "Jot couldn’t access your notebook. Your recovery copy is kept safe."
+        case .externalConflict: "This jot changed elsewhere. Keep both versions to preserve your writing."
+        case .activeFileMissing: "The current jot couldn’t be found in your notebook. Your recovery copy is kept safe."
+        case let .writeFailed(message): message
+        }
+    }
 
     var code: String {
         switch self {

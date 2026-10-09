@@ -102,6 +102,48 @@ actor JotWriter {
         return text
     }
 
+    /// Restore the durable phone journal against the bytes it last acknowledged.
+    /// Reading a newer canonical file must not make it the baseline for an older local edit.
+    func restoreJournal(_ jot: ActiveJot?, text recoveryText: String, revision: Int,
+                        baseline: Data?) throws -> String {
+        let canonical = try restore(jot, recoveryText: recoveryText, recoveryRevision: revision)
+        guard var jot else { return recoveryText }
+        guard revision > jot.acknowledgedRevision else { return canonical }
+        latestSnapshot = EditorSnapshot(revision: revision, text: recoveryText, selection: .start, viewport: .top)
+        if lastWrittenData == Data(recoveryText.utf8) {
+            // The write reached disk before the journal recorded its acknowledgement.
+            jot.acknowledgedRevision = revision
+            activeJot = jot
+        } else {
+            let canonicalData = lastWrittenData
+            lastWrittenData = baseline
+            if baseline == nil || baseline != canonicalData {
+                conflict(jot: jot, revision: revision, error: .externalConflict)
+            }
+        }
+        return recoveryText
+    }
+
+    func discardUncommittedAttachmentCapture() {
+        guard let jot = activeJot, jot.acknowledgedRevision < 0,
+              latestSnapshot?.text.isEmpty != false,
+              !fileSystem.fileExists(at: URL(fileURLWithPath: jot.path)) else { return }
+        idleTask?.cancel()
+        sustainedTask?.cancel()
+        activeJot = nil
+        latestSnapshot = nil
+        lastWrittenData = nil
+        activeFileWasMissing = false
+        hasBlockingError = false
+        // Retain staged attachment bytes; never delete the only imported copy during recovery.
+    }
+
+    func acknowledgedState() -> (jot: ActiveJot?, data: Data?, blocked: Bool) {
+        (activeJot, hasBlockingError ? nil : lastWrittenData, hasBlockingError)
+    }
+
+    func acknowledgedData() -> Data? { hasBlockingError ? nil : lastWrittenData }
+
     func receive(_ snapshot: EditorSnapshot, flushImmediately: Bool = false) {
         guard snapshot.revision > (latestSnapshot?.revision ?? activeJot?.acknowledgedRevision ?? -1) else {
             return
@@ -233,6 +275,31 @@ actor JotWriter {
         return activeJot
     }
 
+    func hasExternalChange() throws -> Bool {
+        guard let jot = activeJot else { return false }
+        let url = URL(fileURLWithPath: jot.path)
+        guard fileSystem.fileExists(at: url) else { return true }
+        return try fileSystem.data(at: url) != lastWrittenData
+    }
+
+    /// Adopt external bytes only when the in-memory document is fully acknowledged.
+    /// A dirty or failed writer preserves its snapshot for Save Copy instead.
+    func reconcileExternal() throws -> (text: String, jot: ActiveJot)? {
+        guard let jot = activeJot else { return nil }
+        let url = URL(fileURLWithPath: jot.path)
+        guard fileSystem.fileExists(at: url) else {
+            conflict(jot: jot, revision: latestSnapshot?.revision ?? jot.acknowledgedRevision, error: .activeFileMissing)
+            return nil
+        }
+        let data = try fileSystem.data(at: url)
+        guard data != lastWrittenData else { return nil }
+        guard !hasBlockingError, (latestSnapshot?.revision ?? jot.acknowledgedRevision) <= jot.acknowledgedRevision else {
+            conflict(jot: jot, revision: latestSnapshot?.revision ?? jot.acknowledgedRevision, error: .externalConflict)
+            return nil
+        }
+        return try reloadExternalVersion()
+    }
+
     private func copyRecoveryAttachments(in text: String, from source: URL?, to destination: URL) throws -> [URL] {
         guard let source, source.standardizedFileURL != destination.standardizedFileURL else { return [] }
         // Jot imports use whitespace-free attachments/<note-id>/<filename> destinations.
@@ -343,22 +410,8 @@ actor JotWriter {
                 conflict(jot: jot, revision: snapshot.revision, error: .activeFileMissing)
                 return
             }
-            if let lastWrittenData {
-                guard fileSystem.fileExists(at: fileURL) else {
-                    conflict(jot: jot, revision: snapshot.revision, error: .activeFileMissing)
-                    return
-                }
-                guard try fileSystem.data(at: fileURL) == lastWrittenData else {
-                    conflict(jot: jot, revision: snapshot.revision, error: .externalConflict)
-                    return
-                }
-            } else if fileSystem.fileExists(at: fileURL) {
-                conflict(jot: jot, revision: snapshot.revision, error: .externalConflict)
-                return
-            }
-
             let data = Data(snapshot.text.utf8)
-            try fileSystem.writeAtomically(data, to: fileURL)
+            try fileSystem.writeIfUnchanged(data, to: fileURL, expected: lastWrittenData)
             lastWrittenData = data
             jot.acknowledgedRevision = snapshot.revision
             activeJot = jot
@@ -366,6 +419,8 @@ actor JotWriter {
             Task { @MainActor [eventHandler] in
                 eventHandler(.writeSucceeded(id: jot.id, revision: snapshot.revision))
             }
+        } catch let failure as PersistenceError where failure == .externalConflict || failure == .activeFileMissing {
+            conflict(jot: jot, revision: snapshot.revision, error: failure)
         } catch {
             fail(snapshot, error: .writeFailed(error.localizedDescription))
         }

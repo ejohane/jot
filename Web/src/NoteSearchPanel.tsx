@@ -69,6 +69,7 @@ export function NoteSearchPanel({ results, loading, error, onQuery, onOpen, onCl
               </div>
             </div>
           ))}
+          {results.length > 0 && error && <div className="action-panel-empty" role="status">{error}</div>}
           {!results.length && <div className="action-panel-empty" role="status">{loading ? "Searching notes…" : error ?? (query.trim() ? "No matching notes" : "No notes yet")}</div>}
         </div>
       </section>

@@ -1,8 +1,30 @@
 # Jot
 
-Jot is a local-first macOS Markdown capture utility. It keeps one active jot,
-autosaves the exact source to ordinary date-sharded Markdown files, and starts a
-new blank jot with Command-Return.
+Jot is a local-first Markdown capture app for Mac and iPhone. It autosaves the
+exact source to ordinary date-sharded Markdown files with adjacent attachments.
+Choose local storage or a shared iCloud notebook. On Mac, Command-Return starts
+a new blank jot.
+
+## iPhone v0.1
+
+The iOS app opens ready to write and starts a fresh capture after five minutes
+away. It includes Markdown editing, images, on-device dictation, search and
+explicit local/iCloud notebook transfer. Swipe right to the previous jot and
+left to the next; from the latest saved jot, swipe left into a blank capture.
+Review mode shows the jot's date and time, which moves with the page during a swipe.
+
+The phone target requires iOS 17 or newer and is currently installed through
+Xcode development signing. With Xcode, Node.js and XcodeGen installed:
+
+```sh
+script/build_ios.sh                         # Build for Simulator
+JOT_DEVICE_ID=YOUR_PAIRED_IPHONE_UDID script/build_ios.sh --device
+```
+
+Select your Apple development team in `apps/ios/project.yml` for your own device;
+iCloud requires provisioning for the declared container. GitHub release archives
+below distribute the Mac app. iOS acceptance evidence and remaining manual checks
+are recorded in [docs/ios-mvp.md](docs/ios-mvp.md).
 
 ## Install and update
 

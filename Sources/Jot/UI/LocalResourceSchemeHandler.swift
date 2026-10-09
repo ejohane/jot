@@ -1,11 +1,17 @@
 import Foundation
 import WebKit
 
-final class LocalResourceSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked Sendable {
-    private let rootLock = NSLock()
+@MainActor
+final class LocalResourceSchemeHandler: NSObject, WKURLSchemeHandler {
+    private var attachmentTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
     private var attachmentRoot: URL?
 
-    func configureAttachmentRoot(_ root: URL?) { rootLock.withLock { attachmentRoot = root } }
+    func configureAttachmentRoot(_ root: URL?) {
+        guard attachmentRoot != root else { return }
+        attachmentTasks.values.forEach { $0.cancel() }
+        attachmentTasks = [:]
+        attachmentRoot = root
+    }
 
     nonisolated static func attachmentURL(path: String, root: URL) -> URL? {
         let resolvedRoot = root.resolvingSymlinksInPath().standardizedFileURL
@@ -27,16 +33,30 @@ final class LocalResourceSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked
         }
 
         if requestURL.host == "attachment" {
-            guard let root = rootLock.withLock({ attachmentRoot }),
-                  let file = Self.attachmentURL(path: String(requestURL.path.dropFirst()), root: root),
-                  let data = try? Data(contentsOf: file) else {
-                urlSchemeTask.didFailWithError(URLError(.fileDoesNotExist))
+            guard let root = attachmentRoot,
+                  let file = Self.attachmentURL(path: String(requestURL.path.dropFirst()), root: root) else {
+                urlSchemeTask.didFailWithError(URLError(.noPermissionsToReadFile))
                 return
             }
-            urlSchemeTask.didReceive(URLResponse(url: requestURL, mimeType: mimeType(for: file.pathExtension),
-                                                expectedContentLength: data.count, textEncodingName: nil))
-            urlSchemeTask.didReceive(data)
-            urlSchemeTask.didFinish()
+            let key = ObjectIdentifier(urlSchemeTask)
+            attachmentTasks[key] = Task { [weak self] in
+                let loading = Task.detached(priority: .userInitiated) { try await NotebookAttachment.load(file) }
+                do {
+                    let data = try await withTaskCancellationHandler(operation: { try await loading.value }, onCancel: { loading.cancel() })
+                    guard !Task.isCancelled, let self, self.attachmentTasks[key] != nil else { return }
+                    urlSchemeTask.didReceive(URLResponse(url: requestURL, mimeType: self.mimeType(for: file.pathExtension),
+                                                        expectedContentLength: data.count, textEncodingName: nil))
+                    guard self.attachmentTasks[key] != nil else { return }
+                    urlSchemeTask.didReceive(data)
+                    guard self.attachmentTasks[key] != nil else { return }
+                    urlSchemeTask.didFinish()
+                    self.attachmentTasks[key] = nil
+                } catch {
+                    guard !Task.isCancelled, let self, self.attachmentTasks[key] != nil else { return }
+                    self.attachmentTasks[key] = nil
+                    urlSchemeTask.didFailWithError(error)
+                }
+            }
             return
         }
         let relativePath = requestURL.path == "/" ? "index.html" : String(requestURL.path.dropFirst())
@@ -67,10 +87,17 @@ final class LocalResourceSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked
         urlSchemeTask.didFinish()
     }
 
-    func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {}
+    func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {
+        attachmentTasks.removeValue(forKey: ObjectIdentifier(urlSchemeTask))?.cancel()
+    }
 
     private static func editorResourceRoot() -> URL? {
-        guard let appResources = Bundle.main.resourceURL?.appendingPathComponent("Editor", isDirectory: true),
+        #if os(iOS)
+        let editorDirectory = "dist"
+        #else
+        let editorDirectory = "Editor"
+        #endif
+        guard let appResources = Bundle.main.resourceURL?.appendingPathComponent(editorDirectory, isDirectory: true),
               FileManager.default.fileExists(atPath: appResources.appendingPathComponent("index.html").path)
         else { return nil }
         return appResources

@@ -1237,6 +1237,7 @@ describe("image attachments", () => {
     expect(messages.some((m) => m.type === "preferredHeightChanged")).toBe(false);
     expect(view.state.doc.toString()).toContain("New Before\n\n![Image]");
     const button = parent.querySelector<HTMLButtonElement>(".cm-attachment-image")!;
+    button.querySelector("img")!.dispatchEvent(new Event("load"));
     await act(async () => button.click());
     expect(messages).toContainEqual({ version: 1, type: "previewImage", path: "2026/09/27/attachments/n/screenshot.png" });
   });
@@ -1289,6 +1290,14 @@ describe("image attachments", () => {
     const image = parent.querySelector<HTMLImageElement>(".cm-attachment-image img")!;
     image.dispatchEvent(new Event("error"));
     expect(parent.textContent).toContain("Image unavailable");
+    const retry = parent.querySelector<HTMLButtonElement>(".cm-attachment-image")!;
+    expect(retry.disabled).toBe(false);
+    retry.click();
+    expect(image.isConnected).toBe(true);
+    expect(image.src).toContain("retry=1");
+    expect(parent.textContent).toContain("Loading image");
+    image.dispatchEvent(new Event("load"));
+    expect(retry.getAttribute("aria-label")).toBe("Preview Image");
   });
 });
 
@@ -1454,4 +1463,114 @@ it.each(["n", "Enter"])("finishes the current revision with Command-%s", async k
     { version: 1, type: "finishAndNew", revision: 1 },
   ]);
   expect(view.state.doc.toString()).toBe("Saved note");
+});
+
+
+it("locks native formatting during a notebook transfer and enables it afterward", async () => {
+  const { view, messages } = await makeConnectedEditor("a thought");
+  await act(async () => window.JotNative?.receive({ version: 1, type: "setEditingEnabled", enabled: false }));
+  expect(view.state.readOnly).toBe(true);
+  expect(view.contentDOM.getAttribute("contenteditable")).toBe("false");
+  await act(async () => window.JotNative?.receive({ version: 1, type: "toggleFormat", format: "bold" }));
+  expect(view.state.doc.toString()).toBe("a thought");
+  await act(async () => window.JotNative?.receive({ version: 1, type: "beginImagePaste" }));
+  expect(messages.some((message) => message.type === "importClipboardImage")).toBe(false);
+  await act(async () => window.JotNative?.receive({ version: 1, type: "setEditingEnabled", enabled: true }));
+  expect(view.state.readOnly).toBe(false);
+  expect(view.contentDOM.getAttribute("contenteditable")).toBe("true");
+  await act(async () => window.JotNative?.receive({ version: 1, type: "toggleFormat", format: "bold" }));
+  expect(view.state.doc.toString()).not.toBe("a thought");
+});
+
+it("captures the complete source and caret while locking reconciliation", async () => {
+  const { view } = await makeConnectedEditor("# A heading\n\n**A thought**");
+  await act(async () => view.dispatch({ changes: { from: view.state.doc.length, insert: " just typed" }, selection: { anchor: 5, head: 9 } }));
+  const snapshot = window.JotNative?.lockAndSnapshot();
+  expect(snapshot?.text).toBe("# A heading\n\n**A thought** just typed");
+  expect(snapshot?.selection).toEqual({ anchor: 5, head: 9 });
+  expect(snapshot?.revision).toBeGreaterThan(1);
+  expect(view.state.readOnly).toBe(true);
+  expect(view.contentDOM.getAttribute("contenteditable")).toBe("false");
+});
+
+it("routes phone palette shortcuts into the native library", async () => {
+  document.documentElement.classList.add("ios");
+  try {
+    const { view, parent, messages } = await makeConnectedEditor("Phone thought");
+    for (const key of ["p", "k"]) {
+      await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key, metaKey: true, bubbles: true, cancelable: true })));
+    }
+    expect(messages.filter(message => message.type === "showLibrary")).toHaveLength(2);
+    expect(messages.some(message => message.type === "searchNotes")).toBe(false);
+    expect(parent.querySelector(".action-panel")).toBeNull();
+    expect(view.state.doc.toString()).toBe("Phone thought");
+  } finally { document.documentElement.classList.remove("ios"); }
+});
+
+it("identifies phone document callbacks and locked snapshots by loaded session", async () => {
+  const { view, messages } = await makeConnectedEditor("Old thought");
+  await act(async () => window.JotNative?.receive({ version: 1, type: "loadSession", sessionID: "phone-new",
+    text: "New thought", revision: 0, selection: { anchor: 0, head: 0 }, viewport: { scrollTop: 0 } }));
+  await act(async () => view.dispatch({ changes: { from: view.state.doc.length, insert: " captured" } }));
+  const content = messages.filter(message => message.type === "contentChanged").at(-1);
+  expect(content).toMatchObject({ sessionID: "phone-new", text: "New thought captured" });
+  expect(window.JotNative?.lockAndSnapshot().sessionID).toBe("phone-new");
+  const modifier = /Mac/.test(navigator.platform) ? { metaKey: true } : { ctrlKey: true };
+  await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "n", ...modifier, bubbles: true, cancelable: true })));
+  expect(messages.filter(message => message.type === "finishAndNew").at(-1)).toMatchObject({ sessionID: "phone-new" });
+});
+
+describe("phone list controls", () => {
+  it("creates bullets and round trips indentation through native controls", async () => {
+    const { view, messages } = await makeConnectedEditor("parent\nchild");
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+    window.JotNative?.receive({ version: 1, type: "setTextStyle", style: "bullet" });
+    expect(view.state.doc.toString()).toBe("- parent\n- child");
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
+    window.JotNative?.receive({ version: 1, type: "changeListIndent", direction: "in" });
+    expect(view.state.doc.toString()).toBe("- parent\n     - child");
+    window.JotNative?.receive({ version: 1, type: "changeListIndent", direction: "out" });
+    expect(view.state.doc.toString()).toBe("- parent\n- child");
+    expect(messages.filter(message => message.type === "contentChanged").at(-1)).toMatchObject({ text: "- parent\n- child" });
+  });
+  it("ignores list controls during a locked note transition", async () => {
+    const { view } = await makeConnectedEditor("- parent\n- child");
+    window.JotNative?.receive({ version: 1, type: "setEditingEnabled", enabled: false });
+    for (const message of [
+      { version: 1, type: "setTextStyle", style: "bullet" },
+      { version: 1, type: "changeListIndent", direction: "in" },
+      { version: 1, type: "changeListIndent", direction: "out" },
+    ] as const) window.JotNative?.receive(message);
+    expect(view.state.doc.toString()).toBe("- parent\n- child");
+  });
+});
+
+
+it("loads a paging preview without stealing focus, and preserves default writing focus", async () => {
+  const { view } = await makeConnectedEditor("Current jot");
+  const focus = vi.spyOn(view, "focus");
+  await act(async () => window.JotNative?.receive({
+    version: 1, type: "loadSession", focus: false, text: "Next jot", noteID: "next", revision: 0,
+    selection: { anchor: 0, head: 0 }, viewport: { scrollTop: 0 },
+  }));
+  await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+  expect(view.state.doc.toString()).toBe("Next jot");
+  expect(focus).not.toHaveBeenCalled();
+  await act(async () => window.JotNative?.receive({
+    version: 1, type: "loadSession", text: "Writing jot", noteID: "writing", revision: 0,
+    selection: { anchor: 0, head: 0 }, viewport: { scrollTop: 0 },
+  }));
+  await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+  expect(focus).toHaveBeenCalled();
+});
+
+
+it("locks a page for saving while retaining its editable focus surface", async () => {
+  const { view } = await makeConnectedEditor("In progress");
+  view.focus();
+  const snapshot = window.JotNative?.lockAndSnapshot(true);
+  expect(snapshot?.text).toBe("In progress");
+  expect(view.state.readOnly).toBe(true);
+  expect(view.contentDOM.getAttribute("contenteditable")).toBe("true");
+  expect(view.hasFocus).toBe(true);
 });
