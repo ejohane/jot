@@ -1,3 +1,4 @@
+import { mobileInlineEnabled, mobileFormatActive } from "./mobileInline";
 import { syntaxTree } from "@codemirror/language";
 import { Prec, StateEffect, StateField } from "@codemirror/state";
 import { EditorView, getTooltip, keymap, showTooltip, type Tooltip, type ViewUpdate } from "@codemirror/view";
@@ -24,6 +25,7 @@ const toolbarState = StateField.define<{ visible: boolean; tooltip: Tooltip | nu
 });
 
 function active(view: EditorView, name: string) {
+  if (view.state.facet(mobileInlineEnabled) && (name === "StrongEmphasis" || name === "Emphasis")) return mobileFormatActive(view.state, name === "StrongEmphasis" ? "bold" : "italic");
   const selection = view.state.selection.main;
   for (let node: SyntaxNode | null = syntaxTree(view.state).resolveInner(selection.from, 1); node; node = node.parent) {
     if (node.name === name && node.to >= selection.to) return true;

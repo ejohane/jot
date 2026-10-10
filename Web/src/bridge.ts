@@ -12,7 +12,7 @@ export type EditorToNative = { sessionID?: string } & (
   | { version: 1; type: "importDroppedFile"; requestID: string; dropID: string }
   | { version: 1; type: "previewImage"; path: string }
   | { version: 1; type: "contentChanged"; sessionID?: string; noteID?: string; revision: number; text: string; selection: Selection; viewport: Viewport }
-  | { version: 1; type: "editorStateChanged"; sessionID?: string; selection: Selection; viewport: Viewport }
+  | { version: 1; type: "editorStateChanged"; sessionID?: string; selection: Selection; viewport: Viewport; formatting?: { bold: boolean; italic: boolean } }
   | { version: 1; type: "preferredHeightChanged"; height: number }
   | { version: 1; type: "formattingToolbarBounds"; bounds: { x: number; y: number; width: number; height: number } | null }
   | { version: 1; type: "searchNotes"; query: string; requestID: number; refresh: boolean }
@@ -57,6 +57,7 @@ export type NativeToEditor =
 
 declare global {
   interface Window {
+    jotMobileEditor?: boolean;
     webkit?: { messageHandlers?: { jot?: { postMessage(message: EditorToNative): void } } };
     JotNative?: {
       receive(message: NativeToEditor): void;

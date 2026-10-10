@@ -10,6 +10,7 @@ struct PhoneEditor: UIViewRepresentable {
     func makeUIView(context: Context) -> JotPagingSurface {
         let configuration = WKWebViewConfiguration()
         configuration.setURLSchemeHandler(store.resources, forURLScheme: "jot")
+        configuration.userContentController.addUserScript(WKUserScript(source: "window.jotMobileEditor = true;", injectionTime: .atDocumentStart, forMainFrameOnly: true))
         configuration.userContentController.add(context.coordinator, name: "jot")
         configuration.userContentController.add(context.coordinator, name: "reviewChrome")
         configuration.userContentController.addUserScript(WKUserScript(source: """

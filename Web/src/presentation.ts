@@ -1,3 +1,4 @@
+import { mobileInlineEnabled, mobileMarkerHidden } from "./mobileInline";
 import { syntaxTree } from "@codemirror/language";
 import { RangeSetBuilder } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from "@codemirror/view";
@@ -120,6 +121,11 @@ function markerDecorations(view: EditorView): DecorationSet {
 
   syntaxTree(view.state).iterate({
     enter(node) {
+      if (view.state.facet(mobileInlineEnabled) && (node.name === "Emphasis" || node.name === "StrongEmphasis")
+        && !mobileMarkerHidden(view.state, node.from, node.to)) {
+        add(node.from, node.to, Decoration.mark({ class: "cm-mobile-literal" }));
+        return false;
+      }
       if (node.name === "HorizontalRule") {
         add(node.from, node.to, touchesLine(node.from)
           ? Decoration.mark({ class: "cm-markdown-marker-active" }) : ruleDecoration);
@@ -142,7 +148,8 @@ function markerDecorations(view: EditorView): DecorationSet {
         || inBlockquote
         || node.name === "ListMark" && parentName === "ListItem"
         || node.name === "TaskMarker" && parentName === "Task";
-      const active = inline || fence ? touches(parent.from, parent.to) : touchesLine(node.from);
+      const mobileEmphasis = view.state.facet(mobileInlineEnabled) && node.name === "EmphasisMark";
+      const active = mobileEmphasis ? !mobileMarkerHidden(view.state, parent.from, parent.to) : inline || fence ? touches(parent.from, parent.to) : touchesLine(node.from);
       const isBullet = node.name === "ListMark" && /^[*+-]$/.test(view.state.sliceDoc(node.from, node.to));
       if (isBullet) {
         add(node.from, node.to, active
@@ -208,7 +215,7 @@ export const markdownPresentation = ViewPlugin.fromClass(
     }
 
     update(update: ViewUpdate) {
-      if (update.docChanged || update.selectionSet || update.viewportChanged) {
+      if (update.docChanged || update.selectionSet || update.viewportChanged || update.transactions.some(tr => tr.effects.length > 0)) {
         this.decorations = markerDecorations(update.view);
       }
     }

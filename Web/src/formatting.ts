@@ -3,6 +3,8 @@ import { EditorSelection } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
 
+import { mobileInlineEnabled, toggleMobileFormat } from "./mobileInline";
+
 export type InlineFormat = "bold" | "italic";
 
 const formats = {
@@ -11,6 +13,7 @@ const formats = {
 } as const;
 
 export function toggleInlineFormat(view: EditorView, format: InlineFormat): boolean {
+  if (view.state.facet(mobileInlineEnabled)) return toggleMobileFormat(view, format);
   const { marker, alternate, node: nodeName } = formats[format];
   const selection = view.state.selection.main;
   const source = view.state.doc.toString();
