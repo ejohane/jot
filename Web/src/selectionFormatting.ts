@@ -1,5 +1,5 @@
 import { syntaxTree } from "@codemirror/language";
-import { EditorSelection } from "@codemirror/state";
+import { EditorSelection, type EditorState } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
 
@@ -9,7 +9,57 @@ const prefixes: Record<TextStyle, string> = {
   bullet: "- ", number: "1. ", task: "- [ ] ", quote: "> ",
 };
 
-export function setTextStyle(view: EditorView, style: TextStyle) {
+// Report a shared heading level for the affected lines; null means mixed styles.
+export function selectedHeadingLevel(state: EditorState): number | null {
+  const { from, to } = state.selection.main;
+  const first = state.doc.lineAt(from).number;
+  const last = state.doc.lineAt(to > from && state.doc.lineAt(to).from === to ? to - 1 : to).number;
+  let selected: number | undefined;
+  for (let number = first; number <= last; number++) {
+    const line = state.doc.line(number);
+    let level = 0;
+    for (let node: SyntaxNode | null = syntaxTree(state).resolveInner(line.from + line.text.search(/\S|$/), 1); node; node = node.parent) {
+      const match = /^ATXHeading([1-6])$/.exec(node.name);
+      if (match) { level = Number(match[1]); break; }
+    }
+    if (selected !== undefined && selected !== level) return null;
+    selected = level;
+  }
+  return selected ?? 0;
+}
+
+export function selectedTextStyle(state: EditorState): TextStyle | null {
+  const { from, to } = state.selection.main;
+  const first = state.doc.lineAt(from).number;
+  const last = state.doc.lineAt(to > from && state.doc.lineAt(to).from === to ? to - 1 : to).number;
+  let selected: TextStyle | undefined;
+  for (let number = first; number <= last; number++) {
+    const line = state.doc.line(number);
+    let style: TextStyle = "paragraph";
+    for (let node: SyntaxNode | null = syntaxTree(state).resolveInner(line.from + line.text.search(/\S|$/), 1); node; node = node.parent) {
+      if (/^(FencedCode|CodeBlock)$/.test(node.name)) break;
+      if (/^ATXHeading[1-3]$/.test(node.name)) { style = `heading${node.name.at(-1)}` as TextStyle; break; }
+      if (node.name === "Blockquote") style = "quote";
+      if (node.name === "BulletList") { style = /^\s*[-+*]\s+\[[ xX]\]/.test(line.text) ? "task" : "bullet"; break; }
+      if (node.name === "OrderedList") { style = "number"; break; }
+    }
+    if (selected !== undefined && selected !== style) return null;
+    selected = style;
+  }
+  return selected ?? "paragraph";
+}
+
+export function activeInlineFormats(state: EditorState): string[] {
+  const { from, to, head } = state.selection.main;
+  const active = new Set<string>();
+  const names: Record<string, string> = { StrongEmphasis: "bold", Emphasis: "italic", Strikethrough: "strikethrough", InlineCode: "code" };
+  for (let node: SyntaxNode | null = syntaxTree(state).resolveInner(head, -1); node; node = node.parent) {
+    if (names[node.name] && from >= node.from && to <= node.to) active.add(names[node.name]);
+  }
+  return [...active];
+}
+
+export function setTextStyle(view: EditorView, style: TextStyle, focus = true) {
   const { from, to, anchor, head } = view.state.selection.main;
   const first = view.state.doc.lineAt(from).number;
   const last = view.state.doc.lineAt(to > from && view.state.doc.lineAt(to).from === to ? to - 1 : to).number;
@@ -22,7 +72,7 @@ export function setTextStyle(view: EditorView, style: TextStyle) {
   }
   const transaction = view.state.update({ changes, userEvent: "input.format" });
   view.dispatch({ changes: transaction.changes, selection: EditorSelection.single(transaction.changes.mapPos(anchor, 1), transaction.changes.mapPos(head, 1)), scrollIntoView: true, userEvent: "input.format" });
-  view.focus();
+  if (focus) view.focus();
 }
 
 export function selectedLink(view: EditorView) {
@@ -56,7 +106,7 @@ export function removeLink(view: EditorView) {
   view.focus();
 }
 
-export function toggleInlineCode(view: EditorView) {
+export function toggleInlineCode(view: EditorView, focus = true) {
   const selection = view.state.selection.main;
   for (let node: SyntaxNode | null = syntaxTree(view.state).resolveInner(selection.from, 1); node; node = node.parent) {
     if (node.name !== "InlineCode" || selection.to > node.to) continue;
@@ -64,12 +114,12 @@ export function toggleInlineCode(view: EditorView) {
     if (marks.length !== 2) continue;
     const content = view.state.sliceDoc(marks[0].to, marks[1].from);
     view.dispatch({ changes: { from: node.from, to: node.to, insert: content }, selection: EditorSelection.single(node.from, node.from + content.length), userEvent: "input.format" });
-    view.focus(); return;
+    if (focus) view.focus(); return;
   }
   const selected = view.state.sliceDoc(selection.from, selection.to);
   const marker = "`".repeat(Math.max(0, ...Array.from(selected.matchAll(/`+/g), (match) => match[0].length)) + 1);
   const pad = selected.startsWith("`") || selected.endsWith("`") ? " " : "";
   const from = selection.from + marker.length + pad.length;
   view.dispatch({ changes: { from: selection.from, to: selection.to, insert: `${marker}${pad}${selected}${pad}${marker}` }, selection: EditorSelection.single(from, from + selected.length), userEvent: "input.format" });
-  view.focus();
+  if (focus) view.focus();
 }

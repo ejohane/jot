@@ -20,8 +20,9 @@ struct JotPhoneApp: App {
 struct JotRootView: View {
     @Bindable var store: JotStore
     @State private var keyboardVisible = false
+    @State private var formatPanelVisible = false
     @State private var reviewChromeHidden = false
-    private var chromeHidden: Bool { keyboardVisible || reviewChromeHidden }
+    private var chromeHidden: Bool { keyboardVisible || reviewChromeHidden || formatPanelVisible }
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var photoLoadToken: UUID?
     private var navigationDisabled: Bool {
@@ -48,27 +49,18 @@ struct JotRootView: View {
 
     private var keyboardControls: some View {
         HStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 0) {
-            Button { store.send(["version": 1, "type": "toggleFormat", "format": "bold"]) } label: { Image(systemName: "bold").frame(width: 44, height: 44) }
-                .foregroundStyle(store.boldActive ? Color.accentColor : Color.primary)
-                .accessibilityAddTraits(store.boldActive ? .isSelected : [])
-                .accessibilityLabel("Bold")
-                .disabled(!store.canEdit || store.storageBusy || store.reconciling)
-            Button { store.send(["version": 1, "type": "toggleFormat", "format": "italic"]) } label: { Image(systemName: "italic").frame(width: 44, height: 44) }
-                .foregroundStyle(store.italicActive ? Color.accentColor : Color.primary)
-                .accessibilityAddTraits(store.italicActive ? .isSelected : [])
-                .accessibilityLabel("Italic")
-                .disabled(!store.canEdit || store.storageBusy || store.reconciling)
-            Button { store.send(["version": 1, "type": "setTextStyle", "style": "bullet"]) } label: { Image(systemName: "list.bullet").frame(width: 44, height: 44) }
-                .accessibilityLabel("Bulleted list")
-                .disabled(!store.canEdit || store.storageBusy || store.reconciling || store.dictation.active)
-            Button { store.send(["version": 1, "type": "changeListIndent", "direction": "out"]) } label: { Image(systemName: "decrease.indent").frame(width: 44, height: 44) }
-                .accessibilityLabel("Decrease indent")
-                .disabled(!store.canEdit || store.storageBusy || store.reconciling || store.dictation.active)
-            Button { store.send(["version": 1, "type": "changeListIndent", "direction": "in"]) } label: { Image(systemName: "increase.indent").frame(width: 44, height: 44) }
-                .accessibilityLabel("Increase indent")
-                .disabled(!store.canEdit || store.storageBusy || store.reconciling || store.dictation.active)
+            HStack(spacing: 0) {
+            Button {
+                formatPanelVisible = true
+                store.webView?.endEditing(true)
+            } label: { Image(systemName: "textformat").frame(width: 52, height: 44) }
+                .accessibilityLabel("Format")
+                .disabled(navigationDisabled)
+            Spacer(minLength: 12)
+            Button { store.send(["version": 1, "type": "setTextStyle", "style": "task"]) } label: { Image(systemName: "checklist").frame(width: 44, height: 44) }
+                .accessibilityLabel("Checklist")
+                .disabled(navigationDisabled)
+            Spacer(minLength: 12)
             PhotosPicker(selection: Binding(get: { pickedPhoto }, set: { value in
                 if let token = photoLoadToken { store.cancelPhotoLoad(token) }
                 photoLoadToken = value == nil ? nil : store.beginPhotoLoad()
@@ -76,6 +68,7 @@ struct JotRootView: View {
             }), matching: .images) {
                 Image(systemName: "photo").frame(width: 44, height: 44)
             }.accessibilityLabel("Add image").disabled(!store.canEdit || store.importingImage || store.storageBusy || store.reconciling || store.dictation.active)
+            Spacer(minLength: 12)
             if store.dictation.active {
                 Button { store.dictation.finish() } label: { Image(systemName: "checkmark").frame(width: 44, height: 44) }
                     .accessibilityLabel("Keep dictation").disabled(!store.canEdit || store.storageBusy || store.reconciling || store.dictation.state != .recording)
@@ -86,8 +79,8 @@ struct JotRootView: View {
                 Button { store.toggleDictation() } label: { Image(systemName: "mic.fill").frame(width: 44, height: 44) }
                     .accessibilityLabel("Start dictation").disabled(!store.canEdit || store.importingImage || store.storageBusy || store.reconciling)
             }
-                }
             }
+            Spacer(minLength: 12)
             if store.dictation.state == .preparing || store.dictation.state == .finishing { ProgressView().controlSize(.small) }
             if store.importingImage { ProgressView().controlSize(.small) }
             Button { store.webView?.endEditing(true) } label: { Image(systemName: "keyboard.chevron.compact.down").frame(width: 44, height: 44) }
@@ -129,10 +122,20 @@ struct JotRootView: View {
                         .toolbar(.visible, for: .navigationBar)
                         .toolbarBackground(.hidden, for: .navigationBar)
                         .safeAreaInset(edge: .bottom, spacing: 0) {
-                            keyboardControls
-                                .opacity(keyboardVisible ? 1 : 0)
-                                .allowsHitTesting(keyboardVisible)
-                                .accessibilityHidden(!keyboardVisible)
+                            if formatPanelVisible {
+                                JotFormatPanel(store: store) {
+                                    formatPanelVisible = false
+                                    store.focus()
+                                }
+                                .disabled(navigationDisabled)
+                                .padding(.horizontal, 8)
+                                .padding(.bottom, 8)
+                            } else {
+                                keyboardControls
+                                    .opacity(keyboardVisible ? 1 : 0)
+                                    .allowsHitTesting(keyboardVisible)
+                                    .accessibilityHidden(!keyboardVisible)
+                            }
                         }
                 }
             } else {
@@ -151,10 +154,14 @@ struct JotRootView: View {
                 }.padding(32).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .onChange(of: store.session.active) { _, _ in reviewChromeHidden = false }
+        .onChange(of: store.session.active?.id) { previous, _ in
+            reviewChromeHidden = false
+            if previous != nil { formatPanelVisible = false }
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             guard !store.showLibrary && !store.showSettings && store.imagePreview == nil else { return }
             keyboardVisible = true
+            formatPanelVisible = false
             reviewChromeHidden = false
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
@@ -269,6 +276,118 @@ struct JotStorageSettings: View {
                 Button("Cancel", role: .cancel) { destination = nil }
             } message: { Text("All jots and images will be copied. The original notebook will be kept as a backup.") }
         }.interactiveDismissDisabled(store.storageBusy).tint(.primary)
+    }
+}
+
+private struct JotFormatPanel: View {
+    @Bindable var store: JotStore
+    var onClose: () -> Void
+    @ScaledMetric private var controlHeight = 44
+    private let accent = Color(uiColor: .systemYellow)
+    private let styles: [(name: String, value: String, size: CGFloat, weight: Font.Weight)] = [
+        ("Title", "heading1", 22, .bold),
+        ("Heading", "heading2", 18, .bold),
+        ("Subheading", "heading3", 14, .semibold),
+        ("Body", "paragraph", 16, .regular)
+    ]
+
+    private func style(_ value: String) {
+        store.send(["version": 1, "type": "setTextStyle", "style": value, "focus": false])
+    }
+
+    private func format(_ value: String) {
+        store.send(["version": 1, "type": value == "code" ? "toggleCode" : "toggleFormat", "format": value, "focus": false])
+    }
+
+    private func control(_ label: String, icon: String, selected: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 21, weight: .medium))
+                .foregroundStyle(selected ? Color.black : Color.primary)
+                .frame(maxWidth: .infinity, minHeight: controlHeight)
+                .background(selected ? accent : Color.clear)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func group<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 1) { content() }
+            .background(Color(uiColor: .tertiarySystemFill))
+            .clipShape(Capsule())
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            HStack {
+                Text("Format").font(.title3.bold())
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 20, weight: .medium))
+                        .frame(width: 44, height: 44)
+                        .background(Color(uiColor: .tertiarySystemFill), in: Circle())
+                }
+                .accessibilityLabel("Close formatting")
+            }
+            .padding(.horizontal, 4)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 2) {
+                    ForEach(styles, id: \.value) { item in
+                        Button { style(item.value) } label: {
+                            Text(item.name)
+                                .font(.system(size: item.size, weight: item.weight))
+                                .fixedSize(horizontal: true, vertical: false)
+                                .padding(.horizontal, 16)
+                                .frame(minHeight: controlHeight)
+                                .foregroundStyle(store.textStyle == item.value ? Color.black : Color.primary)
+                                .background(store.textStyle == item.value ? accent : Color.clear, in: Capsule())
+                        }
+                        .accessibilityAddTraits(store.textStyle == item.value ? .isSelected : [])
+                    }
+                }
+                .padding(4)
+            }
+            .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
+
+            HStack(spacing: 14) {
+                group {
+                    control("Bold", icon: "bold", selected: store.boldActive) { format("bold") }
+                    control("Italic", icon: "italic", selected: store.italicActive) { format("italic") }
+                    control("Strikethrough", icon: "strikethrough", selected: store.activeFormats.contains("strikethrough")) { format("strikethrough") }
+                }
+                group {
+                    control("Monospace", icon: "chevron.left.forwardslash.chevron.right", selected: store.activeFormats.contains("code")) { format("code") }
+                }
+                .frame(width: 64)
+            }
+
+            HStack(spacing: 14) {
+                group {
+                    control("Bulleted list", icon: "list.bullet", selected: store.textStyle == "bullet") { style(store.textStyle == "bullet" ? "paragraph" : "bullet") }
+                    control("Checklist", icon: "checklist", selected: store.textStyle == "task") { style(store.textStyle == "task" ? "paragraph" : "task") }
+                    control("Numbered list", icon: "list.number", selected: store.textStyle == "number") { style(store.textStyle == "number" ? "paragraph" : "number") }
+                }
+                group {
+                    control("Decrease indent", icon: "decrease.indent") { store.send(["version": 1, "type": "changeListIndent", "direction": "out", "focus": false]) }
+                    control("Increase indent", icon: "increase.indent") { store.send(["version": 1, "type": "changeListIndent", "direction": "in", "focus": false]) }
+                }
+                .frame(width: 96)
+                group {
+                    control("Block quote", icon: "text.quote", selected: store.textStyle == "quote") { style(store.textStyle == "quote" ? "paragraph" : "quote") }
+                }
+                .frame(width: 44)
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .padding(16)
+        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 32))
+        .overlay { RoundedRectangle(cornerRadius: 32).strokeBorder(.primary.opacity(0.08), lineWidth: 1) }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Format")
     }
 }
 

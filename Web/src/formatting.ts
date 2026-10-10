@@ -5,15 +5,16 @@ import type { SyntaxNode } from "@lezer/common";
 
 import { mobileInlineEnabled, toggleMobileFormat } from "./mobileInline";
 
-export type InlineFormat = "bold" | "italic";
+export type InlineFormat = "bold" | "italic" | "strikethrough";
 
 const formats = {
   bold: { marker: "**", alternate: "__", node: "StrongEmphasis" },
   italic: { marker: "*", alternate: "_", node: "Emphasis" },
+  strikethrough: { marker: "~~", alternate: "~~", node: "Strikethrough" },
 } as const;
 
-export function toggleInlineFormat(view: EditorView, format: InlineFormat): boolean {
-  if (view.state.facet(mobileInlineEnabled)) return toggleMobileFormat(view, format);
+export function toggleInlineFormat(view: EditorView, format: InlineFormat, focus = true): boolean {
+  if (format !== "strikethrough" && view.state.facet(mobileInlineEnabled)) return toggleMobileFormat(view, format, focus);
   const { marker, alternate, node: nodeName } = formats[format];
   const selection = view.state.selection.main;
   const source = view.state.doc.toString();
@@ -37,7 +38,7 @@ export function toggleInlineFormat(view: EditorView, format: InlineFormat): bool
       scrollIntoView: true,
       userEvent: "input.format",
     });
-    view.focus();
+    if (focus) view.focus();
     return true;
   }
 
@@ -56,7 +57,7 @@ export function toggleInlineFormat(view: EditorView, format: InlineFormat): bool
       scrollIntoView: true,
       userEvent: "input.format",
     });
-    view.focus();
+    if (focus) view.focus();
     return true;
   }
 
@@ -74,6 +75,6 @@ export function toggleInlineFormat(view: EditorView, format: InlineFormat): bool
     scrollIntoView: true,
     userEvent: "input.format",
   });
-  view.focus();
+  if (focus) view.focus();
   return true;
 }
