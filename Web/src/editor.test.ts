@@ -77,7 +77,7 @@ async function makeConnectedEditor(text = "") {
 }
 
 function syntheticClipboardEvent(
-  type: "copy" | "paste",
+  type: "copy" | "cut" | "paste",
   values: Record<string, string>,
   files: unknown[] = [],
 ) {
@@ -1573,4 +1573,75 @@ it("locks a page for saving while retaining its editable focus surface", async (
   expect(view.state.readOnly).toBe(true);
   expect(view.contentDOM.getAttribute("contenteditable")).toBe("true");
   expect(view.hasFocus).toBe(true);
+});
+
+it("mobile bridge reports typing styles without saving empty wrappers and resets between notes", async () => {
+  window.jotMobileEditor = true;
+  try {
+    const { view, messages } = await makeConnectedEditor();
+    await act(async () => window.JotNative?.receive({ version: 1, type: "toggleFormat", format: "bold" }));
+    expect(view.state.doc.toString()).toBe("");
+    expect(messages.filter(message => message.type === "contentChanged")).toHaveLength(0);
+    expect(messages.filter(message => message.type === "editorStateChanged").at(-1)).toMatchObject({ formatting: { bold: true, italic: false } });
+    await act(async () => view.dispatch({ changes: { from: 0, insert: "hello" }, selection: { anchor: 5 }, userEvent: "input.type" }));
+    expect(messages.filter(message => message.type === "contentChanged").at(-1)).toMatchObject({ text: "**hello**" });
+    const snapshot = window.JotNative!.lockAndSnapshot();
+    expect(snapshot.text).toBe("**hello**");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "loadSession", text: "different note", revision: 0, selection: { anchor: 0, head: 0 }, viewport: { scrollTop: 0 } }));
+    await act(async () => view.dispatch({ changes: { from: 0, insert: "plain " }, selection: { anchor: 6 }, userEvent: "input.type" }));
+    expect(view.state.doc.toString()).toBe("plain different note");
+  } finally { delete window.jotMobileEditor; }
+});
+
+it("mobile clipboard copies readable and rich text, cuts canonically, and pastes Markdown", async () => {
+  window.jotMobileEditor = true;
+  try {
+    const { view } = await makeConnectedEditor("**bold** and *italic* & <literal>");
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+    const copy = syntheticClipboardEvent("copy", {});
+    view.contentDOM.dispatchEvent(copy.event);
+    expect(copy.written["text/plain"]).toBe("bold and italic & <literal>");
+    expect(copy.written["text/html"]).toContain("<strong>bold</strong>");
+    expect(copy.written["text/html"]).toContain("<em>italic</em>");
+    expect(copy.written["text/html"]).toContain("&amp; &lt;literal&gt;");
+    const cut = syntheticClipboardEvent("cut", {});
+    view.contentDOM.dispatchEvent(cut.event);
+    expect(view.state.doc.toString()).toBe("");
+    undo(view); expect(view.state.doc.toString()).toBe("**bold** and *italic* & <literal>");
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+    const paste = syntheticClipboardEvent("paste", { "text/plain": "**new**" });
+    view.contentDOM.dispatchEvent(paste.event);
+    expect(view.state.doc.toString()).toBe("**new**");
+    expect(view.contentDOM.textContent).toBe("new");
+  } finally { delete window.jotMobileEditor; }
+});
+
+it("mobile composition saves only the final formatted source", async () => {
+  window.jotMobileEditor = true;
+  try {
+    const { view, messages } = await makeConnectedEditor();
+    await act(async () => window.JotNative?.receive({ version: 1, type: "toggleFormat", format: "bold" }));
+    view.contentDOM.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    await act(async () => view.dispatch({ changes: { from: 0, insert: "k" }, selection: { anchor: 1 }, userEvent: "input.type.compose" }));
+    await act(async () => view.dispatch({ changes: { from: 0, to: 1, insert: "かな" }, selection: { anchor: 2 }, userEvent: "input.type.compose" }));
+    expect(messages.filter(message => message.type === "contentChanged")).toHaveLength(0);
+    await act(async () => view.contentDOM.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "かな" })));
+    const saved = messages.filter(message => message.type === "contentChanged");
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({ text: "**かな**" });
+  } finally { delete window.jotMobileEditor; }
+});
+
+it("mobile dictation respects pending formatting and remains one undo step", async () => {
+  window.jotMobileEditor = true;
+  try {
+    const { view } = await makeConnectedEditor();
+    await act(async () => window.JotNative?.receive({ version: 1, type: "toggleFormat", format: "italic" }));
+    await act(async () => window.JotNative?.receive({ version: 1, type: "dictationState", status: "recording" }));
+    await act(async () => window.JotNative?.receive({ version: 1, type: "dictationPartial", text: "provisional" }));
+    expect(view.state.doc.toString()).toBe("");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "dictationResult", text: "a spoken thought" }));
+    expect(view.state.doc.toString()).toBe("*a spoken thought*");
+    undo(view); expect(view.state.doc.toString()).toBe("");
+  } finally { delete window.jotMobileEditor; }
 });

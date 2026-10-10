@@ -44,6 +44,8 @@ final class JotStore {
     var imagePreview: PhoneImagePreview?
     private var pickedImageData: Data?
     private var importedImagePath: String?
+    var boldActive = false
+    var italicActive = false
     var session = PhoneSession()
     var root: URL?
     weak var webView: WKWebView?
@@ -248,6 +250,8 @@ final class JotStore {
     }
 
     func editorWillReload() {
+        boldActive = false
+        italicActive = false
         editorLoaded = false
         editorLoadFailed = false
         dictation.interrupted()
@@ -351,6 +355,10 @@ final class JotStore {
 
     func stateChanged(_ body: [String: Any]) {
         guard body["sessionID"] as? String == editorSessionID else { return }
+        if let formatting = body["formatting"] as? [String: Bool] {
+            boldActive = formatting["bold"] ?? false
+            italicActive = formatting["italic"] ?? false
+        }
         if let selection = body["selection"] as? [String: Int], let anchor = selection["anchor"], let head = selection["head"] {
             session.selection = EditorSelection(anchor: anchor, head: head)
         }

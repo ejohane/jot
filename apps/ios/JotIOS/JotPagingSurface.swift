@@ -176,6 +176,7 @@ import WebKit
         web.backgroundColor = .clear
         web.scrollView.isScrollEnabled = false
         configuration.userContentController.add(WeakPageMessageHandler(self), name: "jot")
+        configuration.userContentController.addUserScript(WKUserScript(source: "window.jotMobileEditor = true;", injectionTime: .atDocumentStart, forMainFrameOnly: true))
         configuration.userContentController.addUserScript(WKUserScript(source: "document.documentElement.classList.add('ios');", injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         addSubview(web)
         web.load(URLRequest(url: URL(string: "jot://local/index.html")!))

@@ -34,6 +34,7 @@ export const editorTheme = [
     ".cm-cursor": { borderLeftColor: "var(--text)" },
     ".cm-selectionBackground, ::selection": { backgroundColor: "var(--selection) !important" },
     ".cm-gutters": { display: "none" },
+    ".cm-mobile-literal, .cm-mobile-literal *": { fontStyle: "normal !important", fontWeight: "400 !important" },
     ".cm-markdown-marker": { color: "var(--marker)", transition: "color 100ms ease" },
     ".cm-markdown-marker-active": { color: "var(--text)" },
     ".cm-list-bullet": { display: "inline-block", width: "0.65em", textAlign: "center", color: "var(--text)" },

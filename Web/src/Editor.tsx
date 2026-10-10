@@ -1,3 +1,4 @@
+import { mobileInlineEditing, mobileInlineEnabled, mobileFormatActive, resetMobileInline } from "./mobileInline";
 import { attachmentBaseURL, attachmentPresentation, beginImageImport, endImageImport, insertImportedImage, pendingImageImport } from "./attachments";
 import { deleteMarkupBackward, markdown } from "@codemirror/lang-markdown";
 import { defaultKeymap, history, historyKeymap, selectAll } from "@codemirror/commands";
@@ -165,6 +166,7 @@ export function Editor() {
         ...(sessionIDRef.current ? { sessionID: sessionIDRef.current } : {}),
         selection: { anchor: selection.anchor, head: selection.head },
         viewport: { scrollTop: view.scrollDOM.scrollTop },
+        ...(view.state.facet(mobileInlineEnabled) ? { formatting: { bold: mobileFormatActive(view.state, "bold"), italic: mobileFormatActive(view.state, "italic") } } : {}),
       });
     };
 
@@ -251,6 +253,7 @@ export function Editor() {
       extensions: [
         editing.of([EditorState.readOnly.of(false), EditorView.editable.of(true)]),
         jotMarkdown,
+        ...(window.jotMobileEditor || document.documentElement.classList.contains("ios") ? [mobileInlineEditing()] : []),
         markdownPresentation,
         clickableLinks,
         attachmentPresentation,
@@ -306,8 +309,12 @@ export function Editor() {
         EditorView.domEventHandlers({
           compositionend: (_event, view) => {
             if (compositionDirty.current) {
-              compositionDirty.current = false;
-              queueMicrotask(() => sendCurrentDocument(view));
+              const generation = sessionLoadGeneration.current;
+              queueMicrotask(() => {
+                if (sessionLoadGeneration.current !== generation) return;
+                compositionDirty.current = false;
+                sendCurrentDocument(view);
+              });
             }
           },
           paste: (event, view) => {
@@ -333,14 +340,14 @@ export function Editor() {
           if (update.docChanged) setDocumentEmpty(update.state.doc.length === 0);
           const isSessionLoad = update.transactions.some((transaction) => transaction.annotation(loadSession));
           if (update.docChanged && !isSessionLoad) {
-            if (update.view.compositionStarted) {
+            if (update.view.compositionStarted || compositionDirty.current) {
               compositionDirty.current = true;
               return;
             }
             sendCurrentDocument(update.view);
             sendPreferredHeight(update.view);
           }
-          if (update.selectionSet && !isSessionLoad) sendEditorState(update.view);
+          if ((update.selectionSet || update.docChanged || update.transactions.some(tr => tr.effects.length > 0)) && !isSessionLoad) sendEditorState(update.view);
         }),
       ],
     });
@@ -489,11 +496,12 @@ export function Editor() {
             sessionIDRef.current = message.sessionID;
             setBridgeSessionID(message.sessionID);
             const generation = ++sessionLoadGeneration.current;
+            compositionDirty.current = false;
             droppedImages = [];
             nativeFileDropsRemaining = 0;
             if (panelOpenRef.current) changePanel(false);
             closeSearchPanel(view);
-            view.dispatch({ effects: [clearDictation.of(), endImageImport.of(null), attachmentBaseURL.of(message.baseURL ?? "")] });
+            view.dispatch({ effects: [resetMobileInline.of(), clearDictation.of(), endImageImport.of(null), attachmentBaseURL.of(message.baseURL ?? "")] });
             setImportingImage(false);
             imageKeepsFrame = false;
             noteIDRef.current = message.noteID;
@@ -536,6 +544,7 @@ export function Editor() {
               selection: EditorSelection.single(anchor, head),
               annotations: [loadSession.of(true), Transaction.addToHistory.of(false)],
             });
+            sendEditorState(view);
             imageKeepsFrame = /!\[[^\n]*\]\([^\n]*attachments\//.test(message.text);
             requestAnimationFrame(() => {
               if (sessionLoadGeneration.current !== generation) return;

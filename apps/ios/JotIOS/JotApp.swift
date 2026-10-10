@@ -51,9 +51,13 @@ struct JotRootView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 0) {
             Button { store.send(["version": 1, "type": "toggleFormat", "format": "bold"]) } label: { Image(systemName: "bold").frame(width: 44, height: 44) }
+                .foregroundStyle(store.boldActive ? Color.accentColor : Color.primary)
+                .accessibilityAddTraits(store.boldActive ? .isSelected : [])
                 .accessibilityLabel("Bold")
                 .disabled(!store.canEdit || store.storageBusy || store.reconciling)
             Button { store.send(["version": 1, "type": "toggleFormat", "format": "italic"]) } label: { Image(systemName: "italic").frame(width: 44, height: 44) }
+                .foregroundStyle(store.italicActive ? Color.accentColor : Color.primary)
+                .accessibilityAddTraits(store.italicActive ? .isSelected : [])
                 .accessibilityLabel("Italic")
                 .disabled(!store.canEdit || store.storageBusy || store.reconciling)
             Button { store.send(["version": 1, "type": "setTextStyle", "style": "bullet"]) } label: { Image(systemName: "list.bullet").frame(width: 44, height: 44) }

@@ -9,3 +9,4 @@ TestData/
 .playwright-cli/
 CODEX_GOAL_PROMPT.md
 __pycache__/
+output/playwright/
