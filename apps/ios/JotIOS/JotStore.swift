@@ -24,6 +24,9 @@ final class JotStore {
     var ready = false
     var editorLoaded = false
     var editorLoadFailed = false
+    var headingLevel: Int? = 0
+    var textStyle: String? = "paragraph"
+    var activeFormats: [String] = []
     var canEdit: Bool { ready && editorLoaded }
     private var photoLoadToken: UUID?
     private var photoSourceSessionID: String?
@@ -359,6 +362,9 @@ final class JotStore {
             boldActive = formatting["bold"] ?? false
             italicActive = formatting["italic"] ?? false
         }
+        if body.keys.contains("headingLevel") { headingLevel = body["headingLevel"] as? Int }
+        if body.keys.contains("textStyle") { textStyle = body["textStyle"] as? String }
+        if let formats = body["activeFormats"] as? [String] { activeFormats = formats }
         if let selection = body["selection"] as? [String: Int], let anchor = selection["anchor"], let head = selection["head"] {
             session.selection = EditorSelection(anchor: anchor, head: head)
         }

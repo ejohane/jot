@@ -14,6 +14,7 @@ import { findInlineTags } from "./tags";
 import { completionStatus, currentCompletions } from "@codemirror/autocomplete";
 import { indentListItem } from "./listIndent";
 import { toggleInlineFormat } from "./formatting";
+import { selectedHeadingLevel } from "./selectionFormatting";
 import { searchPanelOpen } from "@codemirror/search";
 
 const views: EditorView[] = [];
@@ -104,6 +105,7 @@ afterEach(async () => {
     for (const root of roots.splice(0)) root.unmount();
   });
   delete window.webkit;
+  delete window.jotMobileEditor;
   vi.useRealTimers();
   document.body.replaceChildren();
 });
@@ -1518,6 +1520,115 @@ it("identifies phone document callbacks and locked snapshots by loaded session",
   const modifier = /Mac/.test(navigator.platform) ? { metaKey: true } : { ctrlKey: true };
   await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "n", ...modifier, bubbles: true, cancelable: true })));
   expect(messages.filter(message => message.type === "finishAndNew").at(-1)).toMatchObject({ sessionID: "phone-new" });
+});
+
+describe("phone heading controls", () => {
+  it("keeps mobile typing emphasis active while formatting is open without reopening the keyboard", async () => {
+    window.jotMobileEditor = true;
+    const { view, messages } = await makeConnectedEditor("A thought");
+    const focus = vi.spyOn(view, "focus");
+    window.JotNative?.receive({ version: 1, type: "toggleFormat", format: "bold", focus: false });
+    expect(view.state.doc.toString()).toBe("A thought");
+    expect(messages.filter(message => message.type === "editorStateChanged").at(-1)).toMatchObject({ formatting: { bold: true, italic: false } });
+    window.JotNative?.receive({ version: 1, type: "toggleFormat", format: "italic", focus: false });
+    expect(messages.filter(message => message.type === "editorStateChanged").at(-1)).toMatchObject({ formatting: { bold: true, italic: true } });
+    window.JotNative?.receive({ version: 1, type: "setTextStyle", style: "heading2", focus: false });
+    expect(view.state.doc.toString()).toBe("## A thought");
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  it("keeps the keyboard dismissed while the Format panel applies multiple styles to the preserved selection", async () => {
+    const { view, messages } = await makeConnectedEditor("A thought");
+    view.dispatch({ selection: { anchor: 0, head: 9 } });
+    view.contentDOM.blur();
+    const focus = vi.spyOn(view, "focus");
+    window.JotNative?.receive({ version: 1, type: "setTextStyle", style: "heading2", focus: false });
+    window.JotNative?.receive({ version: 1, type: "toggleFormat", format: "bold", focus: false });
+    expect(view.state.doc.toString()).toBe("## **A thought**");
+    expect(messages.filter(message => message.type === "editorStateChanged").at(-1)).toMatchObject({ textStyle: "heading2", activeFormats: ["bold"] });
+    window.JotNative?.receive({ version: 1, type: "toggleFormat", format: "bold", focus: false });
+    window.JotNative?.receive({ version: 1, type: "setTextStyle", style: "paragraph", focus: false });
+    expect(view.state.doc.toString()).toBe("A thought");
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  it("supports strikethrough and monospace with selected-state feedback and without raising the keyboard", async () => {
+    const { view, messages } = await makeConnectedEditor("A thought");
+    view.dispatch({ selection: { anchor: 0, head: 9 } });
+    const focus = vi.spyOn(view, "focus");
+    window.JotNative?.receive({ version: 1, type: "toggleFormat", format: "strikethrough", focus: false });
+    expect(view.state.doc.toString()).toBe("~~A thought~~");
+    expect(messages.filter(message => message.type === "editorStateChanged").at(-1)).toMatchObject({ activeFormats: ["strikethrough"] });
+    window.JotNative?.receive({ version: 1, type: "toggleFormat", format: "strikethrough", focus: false });
+    window.JotNative?.receive({ version: 1, type: "toggleCode", focus: false });
+    expect(view.state.doc.toString()).toBe("`A thought`");
+    expect(messages.filter(message => message.type === "editorStateChanged").at(-1)).toMatchObject({ activeFormats: ["code"] });
+    window.JotNative?.receive({ version: 1, type: "toggleCode", focus: false });
+    expect(view.state.doc.toString()).toBe("A thought");
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  it.each(["bullet", "task", "number", "quote"] as const)("reports the %s paragraph style and restores body", async style => {
+    const { view, messages } = await makeConnectedEditor("A thought");
+    window.JotNative?.receive({ version: 1, type: "setTextStyle", style, focus: false });
+    expect(messages.filter(message => message.type === "editorStateChanged").at(-1)).toMatchObject({ textStyle: style });
+    window.JotNative?.receive({ version: 1, type: "setTextStyle", style: "paragraph", focus: false });
+    expect(view.state.doc.toString()).toBe("A thought");
+  });
+
+  it.each([1, 2, 3] as const)("applies heading %s to the cursor's whole paragraph and returns to body", async level => {
+    const { view, messages } = await makeConnectedEditor("A thought");
+    view.dispatch({ selection: { anchor: 4 } });
+    window.JotNative?.receive({ version: 1, type: "setTextStyle", style: `heading${level}` });
+    expect(view.state.doc.toString()).toBe(`${"#".repeat(level)} A thought`);
+    expect(view.state.selection.main.head).toBe(4 + level + 1);
+    expect(view.hasFocus).toBe(true);
+    expect(messages.filter(message => message.type === "editorStateChanged").at(-1)).toMatchObject({ headingLevel: level });
+    window.JotNative?.receive({ version: 1, type: "setTextStyle", style: "paragraph" });
+    expect(view.state.doc.toString()).toBe("A thought");
+    expect(selectedHeadingLevel(view.state)).toBe(0);
+    undo(view);
+    expect(view.state.doc.toString()).toBe(`${"#".repeat(level)} A thought`);
+  });
+
+  it("formats selected paragraphs, excluding a line whose start ends the selection", async () => {
+    const { view } = await makeConnectedEditor("First\nSecond\nThird");
+    view.dispatch({ selection: { anchor: 0, head: 13 } });
+    window.JotNative?.receive({ version: 1, type: "setTextStyle", style: "heading2" });
+    expect(view.state.doc.toString()).toBe("## First\n## Second\nThird");
+    expect(selectedHeadingLevel(view.state)).toBe(2);
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+    expect(selectedHeadingLevel(view.state)).toBeNull();
+  });
+
+  it.each(["", "A thought"])("starts body text after Enter on a heading containing '%s'", async text => {
+    const { view, messages } = await makeConnectedEditor(text);
+    window.JotNative?.receive({ version: 1, type: "setTextStyle", style: "heading1" });
+    expect(selectedHeadingLevel(view.state)).toBe(1);
+    await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true })));
+    expect(view.state.doc.toString()).toBe(`# ${text}\n`);
+    expect(messages.filter(message => message.type === "editorStateChanged").at(-1)).toMatchObject({ headingLevel: 0 });
+  });
+
+  it("reports loaded headings, cursor changes, typed markers, and fenced code accurately", async () => {
+    const { view, messages } = await makeConnectedEditor("## Title\nBody\n```\n# code\n```");
+    view.dispatch({ selection: { anchor: 4 } });
+    expect(messages.filter(message => message.type === "editorStateChanged").at(-1)).toMatchObject({ headingLevel: 2 });
+    view.dispatch({ selection: { anchor: 20 } });
+    expect(selectedHeadingLevel(view.state)).toBe(0);
+    await act(async () => window.JotNative?.receive({ version: 1, type: "loadSession", text: "### Loaded", revision: 0,
+      selection: { anchor: 5, head: 5 }, viewport: { scrollTop: 0 } }));
+    expect(messages.filter(message => message.type === "editorStateChanged").at(-1)).toMatchObject({ headingLevel: 3 });
+    view.dispatch({ changes: { from: 0, to: 4, insert: "" } });
+    expect(messages.filter(message => message.type === "editorStateChanged").at(-1)).toMatchObject({ headingLevel: 0 });
+  });
+
+  it("ignores heading controls while editing is locked", async () => {
+    const { view } = await makeConnectedEditor("A thought");
+    window.JotNative?.receive({ version: 1, type: "setEditingEnabled", enabled: false });
+    window.JotNative?.receive({ version: 1, type: "setTextStyle", style: "heading1" });
+    expect(view.state.doc.toString()).toBe("A thought");
+  });
 });
 
 describe("phone list controls", () => {

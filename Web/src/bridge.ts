@@ -12,7 +12,7 @@ export type EditorToNative = { sessionID?: string } & (
   | { version: 1; type: "importDroppedFile"; requestID: string; dropID: string }
   | { version: 1; type: "previewImage"; path: string }
   | { version: 1; type: "contentChanged"; sessionID?: string; noteID?: string; revision: number; text: string; selection: Selection; viewport: Viewport }
-  | { version: 1; type: "editorStateChanged"; sessionID?: string; selection: Selection; viewport: Viewport; formatting?: { bold: boolean; italic: boolean } }
+  | { version: 1; type: "editorStateChanged"; sessionID?: string; selection: Selection; viewport: Viewport; headingLevel?: number | null; textStyle?: import("./selectionFormatting").TextStyle | null; activeFormats?: string[]; formatting?: { bold: boolean; italic: boolean } }
   | { version: 1; type: "preferredHeightChanged"; height: number }
   | { version: 1; type: "formattingToolbarBounds"; bounds: { x: number; y: number; width: number; height: number } | null }
   | { version: 1; type: "searchNotes"; query: string; requestID: number; refresh: boolean }
@@ -39,9 +39,10 @@ export type NativeToEditor =
   | { version: 1; type: "beginImagePaste" | "selectAll" }
   | { version: 1; type: "imageImported"; requestID: string; path: string; baseURL: string }
   | { version: 1; type: "imageImportFailed"; requestID: string; message: string }
-  | { version: 1; type: "toggleFormat"; format: "bold" | "italic" }
-  | { version: 1; type: "setTextStyle"; style: "bullet" }
-  | { version: 1; type: "changeListIndent"; direction: "in" | "out" }
+  | { version: 1; type: "toggleFormat"; format: "bold" | "italic" | "strikethrough"; focus?: boolean }
+  | { version: 1; type: "toggleCode"; focus?: boolean }
+  | { version: 1; type: "setTextStyle"; style: import("./selectionFormatting").TextStyle; focus?: boolean }
+  | { version: 1; type: "changeListIndent"; direction: "in" | "out"; focus?: boolean }
   | { version: 1; type: "noteAllocated"; baseURL?: string; noteID: string; path: string; revision: number }
   | { version: 1; type: "saving"; revision: number }
   | { version: 1; type: "writeSucceeded"; noteID: string; revision: number }

@@ -145,14 +145,14 @@ function affectedRegion(state: EditorState, from: number, to: number) {
   return { from: start, to: end };
 }
 
-export function toggleMobileFormat(view: EditorView, format: "bold" | "italic"): boolean {
+export function toggleMobileFormat(view: EditorView, format: "bold" | "italic", focus = true): boolean {
   if (view.state.readOnly) return true;
   const bit = format === "bold" ? 1 : 2;
   const selection = view.state.selection.main;
   if (selection.empty) {
     const style = view.state.field(mobileInlineState).typing ?? caretStyle(view.state, selection.head);
     view.dispatch({ effects: [setTyping.of(style ^ bit), conversion.of(null)], annotations: [handled.of(true), isolateHistory.of("full")], userEvent: "input.format" });
-    view.focus();
+    if (focus) view.focus();
     return true;
   }
   const region = affectedRegion(view.state, selection.from, selection.to);
@@ -170,7 +170,7 @@ export function toggleMobileFormat(view: EditorView, format: "bold" | "italic"):
     selection: EditorSelection.single(selection.anchor <= selection.head ? from : to, selection.anchor <= selection.head ? to : from),
     effects: setTyping.of(null), annotations: [handled.of(true), isolateHistory.of("full")], userEvent: "input.format", scrollIntoView: true,
   });
-  view.focus();
+  if (focus) view.focus();
   return true;
 }
 

@@ -14,7 +14,7 @@ import { beginDictation, clearDictation, dictationPreview, insertionForDictation
 import { inlineTagEditor, setTagVocabulary } from "./tagEditor";
 import { indentListItem, outdentListItem } from "./listIndent";
 import { continueMarkdownList } from "./listNewline";
-import { setTextStyle } from "./selectionFormatting";
+import { activeInlineFormats, selectedHeadingLevel, selectedTextStyle, setTextStyle, toggleInlineCode } from "./selectionFormatting";
 import { toggleInlineFormat } from "./formatting";
 import { formattingToolbar } from "./formattingToolbar";
 import { usePointerActivity } from "./usePointerActivity";
@@ -163,6 +163,9 @@ export function Editor() {
       sendToNative({
         version: 1,
         type: "editorStateChanged",
+        headingLevel: selectedHeadingLevel(view.state),
+        textStyle: selectedTextStyle(view.state),
+        activeFormats: activeInlineFormats(view.state),
         ...(sessionIDRef.current ? { sessionID: sessionIDRef.current } : {}),
         selection: { anchor: selection.anchor, head: selection.head },
         viewport: { scrollTop: view.scrollDOM.scrollTop },
@@ -480,17 +483,21 @@ export function Editor() {
             break;
           case "setTextStyle":
             if (view.state.readOnly) break;
-            setTextStyle(view, message.style);
+            setTextStyle(view, message.style, message.focus !== false);
             break;
           case "changeListIndent":
             if (view.state.readOnly) break;
             if (message.direction === "in") indentListItem(view);
             else outdentListItem(view);
-            view.focus();
+            if (message.focus !== false) view.focus();
             break;
           case "toggleFormat":
             if (view.state.readOnly) break;
-            toggleInlineFormat(view, message.format);
+            toggleInlineFormat(view, message.format, message.focus !== false);
+            break;
+          case "toggleCode":
+            if (view.state.readOnly) break;
+            toggleInlineCode(view, message.focus !== false);
             break;
           case "loadSession": {
             sessionIDRef.current = message.sessionID;
