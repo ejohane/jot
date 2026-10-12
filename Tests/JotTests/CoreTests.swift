@@ -260,6 +260,32 @@ final class CoreTests: XCTestCase {
     }
 
     @MainActor
+    func testComposerSupportsLargeWindowsAndFullScreenWithoutAutosizing() throws {
+        let controller = ComposerPanelController(savedFrame: nil)
+        let panel = try XCTUnwrap(controller.window)
+        defer { panel.close() }
+        XCTAssertTrue(panel.collectionBehavior.contains(.fullScreenPrimary))
+        XCTAssertFalse(panel.collectionBehavior.contains(.fullScreenAuxiliary))
+        XCTAssertGreaterThan(panel.maxSize.width, 900)
+        XCTAssertGreaterThan(panel.maxSize.height, 900)
+
+        let frame = panel.frame
+        let notification = Notification(name: NSWindow.willEnterFullScreenNotification, object: panel)
+        controller.windowWillEnterFullScreen(notification)
+        controller.applyPreferredContentHeight(600)
+        XCTAssertEqual(panel.frame, frame)
+        XCTAssertEqual(panel.level, .normal)
+        controller.windowDidEnterFullScreen(notification)
+        controller.windowWillExitFullScreen(notification)
+        controller.applyPreferredContentHeight(600)
+        XCTAssertEqual(panel.frame, frame)
+        controller.windowDidExitFullScreen(notification)
+        XCTAssertEqual(panel.level, .floating)
+        controller.applyPreferredContentHeight(600)
+        XCTAssertGreaterThan(panel.frame.height, frame.height)
+    }
+
+    @MainActor
     func testFormattingToolbarBridgeDecodesBoundsAndClearsThemOnDismissal() {
         let bridge = EditorBridge()
         let delegate = BridgeDelegateSpy()

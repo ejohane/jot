@@ -114,9 +114,10 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
     private let dragView = WindowDragContainerView(frame: .zero)
     private var isProgrammaticFrameChange = false
     private var userHasResized = false
+    private var isFullScreenTransition = false
     private var userPlacedPanel = false
     private var hasShown = false
-    private var escapeMonitor: Any?
+    private var keyMonitor: Any?
     private var actionPanelVisible = false
     private var frameBeforeActions: NSRect?
     private var imagePreview: NSWindowController?
@@ -151,9 +152,8 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenPrimary]
         panel.minSize = NSSize(width: 360, height: 180)
-        panel.maxSize = NSSize(width: 900, height: 900)
         let contentView = NSView(frame: initialFrame)
         webView.translatesAutoresizingMaskIntoConstraints = false
         dragView.translatesAutoresizingMaskIntoConstraints = false
@@ -200,11 +200,17 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
                 userPlacedPanel = true
             }
         }
-        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 53,
-                  let self,
-                  self.window?.isVisible == true,
-                  self.window?.isKeyWindow == true else { return event }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, let panel = self.window,
+                  panel.isVisible, panel.isKeyWindow else { return event }
+            // Handle this before WebKit's editor interprets Command-F as Find.
+            if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == [.control, .command],
+               event.charactersIgnoringModifiers?.lowercased() == "f" {
+                panel.toggleFullScreen(nil)
+                return nil
+            }
+            guard event.keyCode == 53 else { return event }
+            if panel.styleMask.contains(.fullScreen) { return event }
             self.onEscape?()
             return nil
         }
@@ -238,7 +244,9 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
     func showAndFocus() {
         guard let panel = window else { return }
         isProgrammaticFrameChange = true
-        if userPlacedPanel {
+        if panel.styleMask.contains(.fullScreen) || isFullScreenTransition {
+            // AppKit owns the frame while the window occupies its full screen space.
+        } else if userPlacedPanel {
             restoreVisiblePosition(panel)
         } else if let visibleFrame = activeVisibleFrame() {
             panel.setFrame(Self.centeredFrame(panel.frame, in: visibleFrame), display: true)
@@ -307,7 +315,9 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
     }
 
     func applyPreferredContentHeight(_ requestedHeight: CGFloat) {
-        guard !actionPanelVisible, !preservesFrameForImages, !userHasResized, let panel = window else { return }
+        guard !actionPanelVisible, !preservesFrameForImages, !userHasResized,
+              !isFullScreenTransition, let panel = window,
+              !panel.styleMask.contains(.fullScreen) else { return }
         let contentHeight = min(max(requestedHeight, 180), 700)
         let frameHeight = panel.frameRect(forContentRect: NSRect(x: 0, y: 0, width: panel.contentLayoutRect.width, height: contentHeight)).height
         guard abs(panel.frame.height - frameHeight) > 1 else { return }
@@ -329,17 +339,46 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
     }
 
     func windowDidMove(_ notification: Notification) {
-        guard hasShown, !isProgrammaticFrameChange else { return }
+        guard hasShown, !isProgrammaticFrameChange, !isFullScreenTransition,
+              window?.styleMask.contains(.fullScreen) != true else { return }
         frameBeforeActions = nil
         userPlacedPanel = true
         recordFrame()
     }
     func windowDidResize(_ notification: Notification) {
-        guard hasShown, !isProgrammaticFrameChange else { return }
+        guard hasShown, !isProgrammaticFrameChange, !isFullScreenTransition,
+              window?.styleMask.contains(.fullScreen) != true else { return }
         frameBeforeActions = nil
         userHasResized = true
         userPlacedPanel = true
         recordFrame()
+    }
+
+    func windowWillEnterFullScreen(_ notification: Notification) {
+        isFullScreenTransition = true
+        window?.level = .normal
+    }
+
+    func windowDidEnterFullScreen(_ notification: Notification) {
+        isFullScreenTransition = false
+    }
+
+    func windowWillExitFullScreen(_ notification: Notification) {
+        isFullScreenTransition = true
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        isFullScreenTransition = false
+        window?.level = .floating
+    }
+
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) {
+        isFullScreenTransition = false
+        window.level = .floating
+    }
+
+    func windowDidFailToExitFullScreen(_ window: NSWindow) {
+        isFullScreenTransition = false
     }
 
     private func recordFrame() {

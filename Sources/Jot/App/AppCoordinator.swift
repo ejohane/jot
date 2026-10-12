@@ -937,7 +937,19 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         navigateItem.submenu = navigateMenu
         mainMenu.addItem(navigateItem)
 
+        let windowItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        let fullScreen = item("Toggle Full Screen", action: #selector(toggleFullScreenFromMenu), key: "f")
+        fullScreen.keyEquivalentModifierMask = [.control, .command]
+        windowMenu.addItem(fullScreen)
+        windowItem.submenu = windowMenu
+        mainMenu.addItem(windowItem)
+
         NSApp.mainMenu = mainMenu
+    }
+
+    @objc private func toggleFullScreenFromMenu() {
+        panelController.window?.toggleFullScreen(nil)
     }
 
     private func item(_ title: String, action: Selector, key: String) -> NSMenuItem {
