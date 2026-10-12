@@ -286,6 +286,29 @@ final class CoreTests: XCTestCase {
     }
 
     @MainActor
+    func testEscapeAndQueuedHideDoNotHideDuringFullScreenTransition() throws {
+        let controller = ComposerPanelController(savedFrame: nil)
+        let panel = try XCTUnwrap(controller.window)
+        defer { panel.close() }
+        var editorEscapes = 0
+        controller.onEscape = { editorEscapes += 1 }
+        controller.showAndFocus()
+
+        let notification = Notification(name: NSWindow.willEnterFullScreenNotification, object: panel)
+        controller.windowWillEnterFullScreen(notification)
+        controller.handleEscape()
+        controller.hide()
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(editorEscapes, 0)
+
+        controller.windowDidFailToEnterFullScreen(panel)
+        controller.handleEscape()
+        XCTAssertEqual(editorEscapes, 1)
+        controller.hide()
+        XCTAssertFalse(panel.isVisible)
+    }
+
+    @MainActor
     func testFormattingToolbarBridgeDecodesBoundsAndClearsThemOnDismissal() {
         let bridge = EditorBridge()
         let delegate = BridgeDelegateSpy()
