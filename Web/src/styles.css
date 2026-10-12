@@ -303,3 +303,11 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
 .ios .editor { right: 0; }
 .ios .note-rail, .ios .dictation-controls, .ios .command-controls { display: none; }
 .ios .cm-content { padding-inline: 22px; }
+
+/* Keep the writing column centered horizontally in wide Mac windows. */
+@media (min-width: 820px) {
+  html:not(.ios) .editor { right: 0; }
+  html:not(.ios) .editor .cm-scroller {
+    padding-inline: max(24px, calc((100% - 720px) / 2));
+  }
+}
