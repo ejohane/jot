@@ -210,8 +210,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
                 return nil
             }
             guard event.keyCode == 53 else { return event }
-            if panel.styleMask.contains(.fullScreen) { return event }
-            self.onEscape?()
+            self.handleEscape()
             return nil
         }
     }
@@ -260,7 +259,25 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         webView.evaluateJavaScript("document.querySelector('.cm-content')?.focus()")
     }
 
-    func hide() { window?.orderOut(nil) }
+    func handleEscape() {
+        guard !isFullScreenTransition, let panel = window else { return }
+        if panel.styleMask.contains(.fullScreen) {
+            panel.toggleFullScreen(nil)
+        } else {
+            onEscape?()
+        }
+    }
+
+    func hide() {
+        guard !isFullScreenTransition, let panel = window else { return }
+        // Hiding a full screen window leaves its Space empty. Exit it instead,
+        // including when a hide request was already queued by the editor.
+        if panel.styleMask.contains(.fullScreen) {
+            panel.toggleFullScreen(nil)
+        } else {
+            panel.orderOut(nil)
+        }
+    }
 
     func applyActionPanelVisibility(_ visible: Bool) {
         guard let panel = window, visible != actionPanelVisible else { return }
