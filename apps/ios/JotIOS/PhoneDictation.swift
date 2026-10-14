@@ -66,30 +66,27 @@ final class PhoneDictation {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { throw CocoaError(.featureUnsupported) }
-        let sink = PhoneSpeechAudioSink(request: request)
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in sink.append(buffer) }
+        let sink = SpeechAudioSink(request: request)
+        input.installTap(onBus: 0, bufferSize: 1024, format: format, block: sink.callback())
         hasTap = true
-        recognition = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            let text = result?.bestTranscription.formattedString
-            let final = result?.isFinal == true
-            let failed = error != nil
-            Task { @MainActor [weak self] in
+        recognition = recognizer.recognitionTask(with: request, resultHandler:
+            SpeechRecognitionCallbacks.recognition { [weak self] update in
                 guard let self, self.generation == token else { return }
-                if let text {
+                if let text = update.text {
                     self.transcript = text
                     self.onMessage?(["version": 1, "type": "dictationPartial", "text": text])
                 }
-                if self.state == .finishing && (final || failed) {
+                if self.state == .finishing && (update.isFinal || update.failed) {
                     self.commit()
-                } else if final {
+                } else if update.isFinal {
                     self.recognitionCompleted = true
                     // Recognition can finish automatically. Preserve the preview until Keep or Cancel.
                     self.stopAudio()
-                } else if failed {
+                } else if update.failed {
                     self.fail("Dictation was interrupted. Please try again; your saved jot is unchanged.")
                 }
             }
-        }
+        )
         interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification,
             object: audio, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in
@@ -162,10 +159,4 @@ final class PhoneDictation {
         state = .idle
         transcript = ""
     }
-}
-
-private final class PhoneSpeechAudioSink: @unchecked Sendable {
-    private let request: SFSpeechAudioBufferRecognitionRequest
-    init(request: SFSpeechAudioBufferRecognitionRequest) { self.request = request }
-    func append(_ buffer: AVAudioPCMBuffer) { request.append(buffer) }
 }
