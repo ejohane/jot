@@ -311,3 +311,17 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
     padding-inline: max(24px, calc((100% - 720px) / 2));
   }
 }
+
+.cm-markdown-table { margin: 8px 0 12px; max-width: 100%; overflow-x: auto; }
+.cm-markdown-table table { border-collapse: collapse; width: 100%; font: inherit; font-variant-numeric: tabular-nums; }
+.cm-markdown-table th, .cm-markdown-table td {
+  border: 1px solid var(--secondary);
+  padding: 7px 12px;
+  min-width: 5ch;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+.cm-markdown-table th { font-weight: 650; background: var(--selection); }
+.cm-markdown-table code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
+.cm-table-link { color: var(--link); text-decoration: underline; text-underline-offset: 0.15em; }

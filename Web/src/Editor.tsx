@@ -10,6 +10,7 @@ import { sendToNative, setBridgeSessionID, type EditorToNative, type NoteSearchR
 import { clickableLinks } from "./links";
 import { editorTheme } from "./editorTheme";
 import { markdownPresentation } from "./presentation";
+import { markdownTables } from "./tables";
 import { beginDictation, clearDictation, dictationPreview, insertionForDictation, reviseDictation } from "./dictationPreview";
 import { inlineTagEditor, setTagVocabulary } from "./tagEditor";
 import { indentListItem, outdentListItem } from "./listIndent";
@@ -258,6 +259,7 @@ export function Editor() {
         jotMarkdown,
         ...(window.jotMobileEditor || document.documentElement.classList.contains("ios") ? [mobileInlineEditing()] : []),
         markdownPresentation,
+        ...(window.jotMobileEditor || document.documentElement.classList.contains("ios") ? [] : [markdownTables]),
         clickableLinks,
         attachmentPresentation,
         pendingImageImport,
