@@ -13,7 +13,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: rgba(31, 31, 30, 0.95);
+    --background: #000;
     --text: #f2f1ed;
     --secondary: #b5b2aa;
     --marker: #77746e;
@@ -29,7 +29,7 @@
 
 @media (prefers-reduced-transparency: reduce) {
   :root { --background: #f8f8f7; }
-  @media (prefers-color-scheme: dark) { :root { --background: #1f1f1e; } }
+  @media (prefers-color-scheme: dark) { :root { --background: #000; } }
 }
 
 @media (prefers-reduced-motion: reduce) {
