@@ -10,6 +10,7 @@ import { editorTheme } from "./editorTheme";
 import { Editor, insertLiteralNewline, jotMarkdown } from "./Editor";
 import type { EditorToNative } from "./bridge";
 import { markdownPresentation } from "./presentation";
+import { markdownTables } from "./tables";
 import { findInlineTags } from "./tags";
 import { completionStatus, currentCompletions } from "@codemirror/autocomplete";
 import { indentListItem } from "./listIndent";
@@ -37,6 +38,7 @@ function makeView(doc: string) {
       extensions: [
         jotMarkdown,
         markdownPresentation,
+        markdownTables,
         editorTheme,
         history(),
       ],
@@ -1755,4 +1757,103 @@ it("mobile dictation respects pending formatting and remains one undo step", asy
     expect(view.state.doc.toString()).toBe("*a spoken thought*");
     undo(view); expect(view.state.doc.toString()).toBe("");
   } finally { delete window.jotMobileEditor; }
+});
+
+describe("Markdown tables", () => {
+  const source = "Above\n\n| Name | Status | Count |\n| :--- | :---: | ---: |\n| **Mac** | _Ready_ | 12 |\n| a\\|b | `code` | 3 |\n\nBelow";
+
+  it("renders semantic tables with alignment and inline formatting without changing source", () => {
+    const view = makeView(source);
+    const table = view.dom.querySelector("table")!;
+    expect(table).not.toBeNull();
+    expect([...table.querySelectorAll("th")].map(cell => cell.style.textAlign)).toEqual(["left", "center", "right"]);
+    expect(table.querySelector("strong")?.textContent).toBe("Mac");
+    expect(table.querySelector("em")?.textContent).toBe("Ready");
+    expect(table.querySelector("code")?.textContent).toBe("code");
+    expect(table.textContent).toContain("a|b");
+    expect(view.state.doc.toString()).toBe(source);
+  });
+
+  it("reveals source for keyboard entry and cross-table selection, and renders again on exit", () => {
+    const view = makeView(source);
+    view.dispatch({ selection: { anchor: source.indexOf("Mac") } });
+    expect(view.dom.querySelector("table")).toBeNull();
+    view.dispatch({ selection: { anchor: 0 } });
+    expect(view.dom.querySelector("table")).not.toBeNull();
+    view.dispatch({ selection: { anchor: 0, head: source.length } });
+    expect(view.dom.querySelector("table")).toBeNull();
+    expect(view.state.doc.toString()).toBe(source);
+  });
+
+  it("clicks through to the correct source cell and supports edits with undo", () => {
+    const view = makeView(source);
+    view.dom.querySelector("td")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    expect(view.state.selection.main.head).toBe(source.indexOf("**Mac**"));
+    expect(view.dom.querySelector("table")).toBeNull();
+    const from = source.indexOf("12");
+    view.dispatch({ changes: { from, to: from + 2, insert: "24" }, userEvent: "input.type" });
+    view.dispatch({ selection: { anchor: 0 } });
+    expect(view.dom.querySelector("table")?.textContent).toContain("24");
+    expect(undo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe(source);
+    expect(undo(view)).toBe(false);
+  });
+
+  it("handles empty, missing and extra cells using the header column count", () => {
+    const view = makeView("Above\n\n| A | B | C |\n| --- | --- | --- |\n| x || z |\n| y |\n| 1 | 2 | 3 | 4 |\n\nBelow");
+    const rows = [...view.dom.querySelectorAll("tbody tr")];
+    expect(rows.map(row => [...row.querySelectorAll("td")].map(cell => cell.textContent))).toEqual([["x", "", "z"], ["y", "", ""], ["1", "2", "3"]]);
+  });
+
+  it("leaves incomplete tables and fenced examples as source and renders HTML inertly", () => {
+    const view = makeView("Above\n\n| incomplete | table |\n\n```md\n| A | B |\n| --- | --- |\n| x | y |\n```\n\n| A | B |\n| --- | --- |\n| <img src=x onerror=alert(1)> | safe |\n\nBelow");
+    expect(view.dom.querySelectorAll("table")).toHaveLength(1);
+    expect(view.dom.querySelector("table img")).toBeNull();
+    expect(view.dom.querySelector("table")?.textContent).toContain("<img src=x onerror=alert(1)>");
+  });
+
+  it("supports optional outer pipes and trailing whitespace", () => {
+    for (const table of ["A | B\n--- | ---:\nx | y", "  | A | B |  \n  | --- | ---: |\n  | x | y |  "]) {
+      const view = makeView("Above\n\n" + table + "\n\nBelow");
+      expect([...view.dom.querySelectorAll("th")].map(cell => cell.textContent)).toEqual(["A", "B"]);
+      expect([...view.dom.querySelectorAll("td")].map(cell => cell.textContent)).toEqual(["x", "y"]);
+    }
+  });
+
+  it("recognizes a newly typed table and returns to plain source when its separator is broken", () => {
+    const view = makeView("Above\n\n| A | B |\n\nBelow");
+    expect(view.dom.querySelector("table")).toBeNull();
+    const at = view.state.doc.toString().indexOf("\n\nBelow");
+    view.dispatch({ changes: { from: at, insert: "\n| --- | --- |\n| x | y |" } });
+    expect(view.dom.querySelector("table")).not.toBeNull();
+    const separator = view.state.doc.toString().indexOf("---");
+    view.dispatch({ changes: { from: separator, to: separator + 3, insert: "invalid" } });
+    expect(view.dom.querySelector("table")).toBeNull();
+    expect(view.state.doc.toString()).toContain("invalid");
+  });
+
+  it("keeps table source editable on iPhone without enabling the Mac renderer", async () => {
+    window.jotMobileEditor = true;
+    try {
+      const { view } = await makeConnectedEditor(source);
+      view.dispatch({ selection: { anchor: 0 } });
+      expect(view.dom.querySelector("table")).toBeNull();
+      expect(view.state.doc.toString()).toBe(source);
+    } finally { delete window.jotMobileEditor; }
+  });
+
+  it("pastes, saves, copies and reloads exact Markdown through the native bridge", async () => {
+    const { view, messages } = await makeConnectedEditor();
+    const paste = syntheticClipboardEvent("paste", { "text/plain": source });
+    view.contentDOM.dispatchEvent(paste.event);
+    expect(messages.filter(message => message.type === "contentChanged").at(-1)).toMatchObject({ text: source });
+    view.dispatch({ selection: { anchor: 0, head: source.length } });
+    const copy = syntheticClipboardEvent("copy", {});
+    view.focus();
+    view.contentDOM.dispatchEvent(copy.event);
+    expect(copy.written["text/plain"]).toBe(source);
+    await act(async () => window.JotNative?.receive({ version: 1, type: "loadSession", noteID: "note-1", revision: 10, text: source, selection: { anchor: 0, head: 0 }, viewport: { scrollTop: 0 } }));
+    expect(view.state.doc.toString()).toBe(source);
+    expect(view.dom.querySelector("table")).not.toBeNull();
+  });
 });

@@ -211,3 +211,19 @@ The v1 grammar is intentionally small: `#` followed by an ASCII letter, then zer
 The native index holds tag sets per Markdown file and a distinct vocabulary in memory. A scan after each save and a periodic background reconciliation pick up external additions, edits, renames, removals, and missed file events. Capture and typing never wait for that scan; the editor filters the latest vocabulary locally.
 
 For disposable UI verification, launch the packaged app with `JOT_TEST_SESSION_PATH` set to an absolute path outside the normal Application Support directory, then choose a disposable Jots folder. This keeps the test session separate from the installed app's session.
+
+## Markdown tables
+
+Type a header, separator, and rows using GitHub-style Markdown:
+
+```md
+| Item | Status | Count |
+| :--- | :---: | ---: |
+| **Mac** | Ready | 24 |
+```
+
+Tables render when the caret is outside them. Click a cell or move the caret
+into the table to edit the Markdown; move outside to render it again. Colons
+set left, center, or right alignment. Copying and saving preserve the original
+Markdown. There is no table insertion control in this version.
+
