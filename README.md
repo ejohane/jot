@@ -119,8 +119,18 @@ The action panel offers New Note, Search Notes, Reveal in Finder, Open Notes Fol
 
 Note search uses an in-memory cache of the local Markdown archive, refreshed when you open the palette. Search matches all typed words, prioritizes first-line and exact-phrase matches, and shows dates and highlighted excerpts. Moving through results does not open them; Return or a click saves the current note and opens the selected result using viewing history. Escape returns to the unchanged editor selection.
 
-The menu-bar item can change the shortcut or Jots folder, reveal the active jot,
-open the Jots folder, and control launch at login.
+Open **Settings…** from the Jot application menu, the menu-bar item, or **Command-,**.
+The separate native settings window has General and About panes. General shows
+the notebook location with **Show in Finder** and **Choose Folder…**, launch at
+login, and the global shortcut. About shows the app version/build and checks for
+updates. Development builds explain that updates require a published release.
+
+**Choose Folder…** saves pending writing and opens the chosen folder as a different
+notebook, starting with a blank capture. Existing notes and attachments stay in
+their original folder; nothing is transferred or merged. Local folders and iCloud
+Drive folders are supported. To share with iPhone, select the same Jots folder
+inside Jot in iCloud Drive. Selecting the current folder or cancelling leaves
+the current note unchanged.
 The composer opens centered on the active display. After you move it, Jot
 remembers that position when you close and reopen it or relaunch the app.
 

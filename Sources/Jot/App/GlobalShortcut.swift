@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class GlobalShortcut {
     private var hotKey: EventHotKeyRef?
+    private var registeredChoice: ShortcutChoice?
     private var handler: EventHandlerRef?
     private let action: () -> Void
 
@@ -26,7 +27,7 @@ final class GlobalShortcut {
     }
 
     func register(_ choice: ShortcutChoice) throws {
-        if let hotKey { UnregisterEventHotKey(hotKey) }
+        guard choice != registeredChoice else { return }
         let signature = OSType(0x4A4F5421) // JOT!
         let identifier = EventHotKeyID(signature: signature, id: 1)
         let values: (UInt32, UInt32) = switch choice {
@@ -34,7 +35,11 @@ final class GlobalShortcut {
         case .controlSpace: (UInt32(kVK_Space), UInt32(controlKey))
         case .commandShiftJ: (UInt32(kVK_ANSI_J), UInt32(cmdKey | shiftKey))
         }
-        let status = RegisterEventHotKey(values.0, values.1, identifier, GetApplicationEventTarget(), 0, &hotKey)
+        var replacement: EventHotKeyRef?
+        let status = RegisterEventHotKey(values.0, values.1, identifier, GetApplicationEventTarget(), 0, &replacement)
         guard status == noErr else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
+        if let hotKey { UnregisterEventHotKey(hotKey) }
+        hotKey = replacement
+        registeredChoice = choice
     }
 }

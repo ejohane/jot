@@ -6,6 +6,8 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     private let sessionStore: SessionStore
     private let rootAccess = RootAccessController()
     private let appUpdater = AppUpdater()
+    private let settingsModel = JotSettingsModel()
+    private var settingsController: SettingsWindowController?
     private let voiceDictation = VoiceDictation()
     private let tagIndex = TagIndex()
     private var noteRailIndex: NoteRailIndex!
@@ -31,6 +33,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     private var notebookRefreshPending = false
     private var notebookWatcherGeneration = UUID()
     private var writer: JotWriter!
+    private var writerGeneration = UUID()
     private var panelController: ComposerPanelController!
     private var shortcut: GlobalShortcut!
     private var statusItem: NSStatusItem!
@@ -51,7 +54,11 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         noteSearchIndex = NoteSearchIndex(root: rootURL)
         Task { await tagIndex.configure(root: rootURL); await refreshTags(force: true) }
         hasBlockingWriteError = session.activeJot != nil && rootURL == nil
-        writer = JotWriter(rootURL: rootURL) { [weak self] event in self?.handle(event) }
+        let initialWriterGeneration = writerGeneration
+        writer = JotWriter(rootURL: rootURL) { [weak self] event in
+            guard let self, self.writerGeneration == initialWriterGeneration else { return }
+            self.handle(event)
+        }
         panelController = ComposerPanelController(
             savedFrame: session.panelPositionWasUserChosen == true ? session.panelFrame : nil
         )
@@ -60,6 +67,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         panelController.bridge.delegate = self
         panelController.panelDelegate = self
         voiceDictation.onStateChange = { [weak self] state, message in
+            self?.refreshSettings()
             var payload: [String: Any] = ["version": 1, "type": "dictationState", "status": state.rawValue]
             if let message { payload["message"] = message }
             self?.panelController.send(payload)
@@ -99,6 +107,11 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         } else {
             shortcutRegistrationFailed = true
         }
+        settingsModel.chooseFolder = { [weak self] in self?.chooseRoot() }
+        settingsModel.revealFolder = { [weak self] in self?.openJotsFolder() }
+        settingsModel.changeShortcut = { [weak self] in self?.setShortcut($0) }
+        settingsModel.changeLaunchAtLogin = { [weak self] in self?.setLaunchAtLogin($0) }
+        settingsModel.checkForUpdates = { [weak self] in self?.appUpdater.checkForUpdates() }
         appUpdater.start()
         configureApplicationMenu()
         configureStatusItem()
@@ -635,7 +648,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 activeJot: session.activeJot,
                 hasBlockingWriteError: hasBlockingWriteError
             ) && !isOpeningNote
-        case #selector(chooseRoot), #selector(chooseICloud):
+        case #selector(chooseRoot):
             return !isOpeningNote && !isImportingImage && (voiceDictation.state == .idle || voiceDictation.state == .error)
         case #selector(revealCurrentJot):
             return session.activeJot != nil
@@ -701,32 +714,41 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         NSWorkspace.shared.open(rootURL)
     }
 
-    @objc private func chooseRoot() { chooseNotebook(storage: .local) }
-    @objc private func chooseICloud() { chooseNotebook(storage: .iCloud) }
+    @objc private func showSettings() {
+        refreshSettings()
+        if settingsController == nil { settingsController = SettingsWindowController(model: settingsModel) }
+        settingsController?.present()
+    }
 
-    private func chooseNotebook(storage: NotebookStorage) {
+    private func refreshSettings() {
+        settingsModel.folder = rootURL
+        settingsModel.storage = session.storage ?? .local
+        settingsModel.shortcut = session.shortcut
+        settingsModel.launchAtLogin = SMAppService.mainApp.status == .enabled
+        settingsModel.loginNeedsApproval = SMAppService.mainApp.status == .requiresApproval
+        settingsModel.canChooseFolder = !isOpeningNote && !isImportingImage
+            && (voiceDictation.state == .idle || voiceDictation.state == .error)
+    }
+
+    @objc private func chooseRoot() {
         guard !isOpeningNote, !isImportingImage,
               (voiceDictation.state == .idle || voiceDictation.state == .error) else { return }
-        guard let choice = rootAccess.chooseRoot(storage: storage) else { return }
-        let oldRoot = rootURL
-        if let oldRoot, oldRoot.standardizedFileURL != choice.url.standardizedFileURL {
-            let alert = NSAlert()
-            alert.messageText = "Transfer your notebook?"
-            alert.informativeText = "All jots and images will be copied to the selected folder. The original notebook is kept as a backup. New changes will save in the selected folder."
-            alert.addButton(withTitle: "Transfer Notebook")
-            alert.addButton(withTitle: "Cancel")
-            guard alert.runModal() == .alertFirstButtonReturn else { return }
-        }
-        if oldRoot == nil, let active = session.activeJot,
-           !active.path.hasPrefix(choice.url.path + "/") {
+        guard let choice = rootAccess.chooseRoot() else { return }
+        let sameRoot = rootURL?.resolvingSymlinksInPath().standardizedFileURL
+            == choice.url.resolvingSymlinksInPath().standardizedFileURL
+        guard !sameRoot else { return }
+        let restoring = rootURL == nil
+        if restoring, let active = session.activeJot,
+           !URL(fileURLWithPath: active.path).resolvingSymlinksInPath().path.hasPrefix(
+                choice.url.resolvingSymlinksInPath().path + "/") {
             let alert = NSAlert()
             alert.messageText = "Restore your notebook first"
-            alert.informativeText = "Choose the original Jots folder to restore access before transferring it. Your recovery writing is kept safe."
+            alert.informativeText = "Choose the original Jots folder to save your pending writing before opening another notebook. Your recovery copy is kept safe."
             alert.runModal()
             return
         }
         isOpeningNote = true
-        panelController.send(["version": 1, "type": "setEditingEnabled", "enabled": false])
+        refreshSettings()
         sendActionState()
         Task {
             let accessing = choice.url.startAccessingSecurityScopedResource()
@@ -735,54 +757,60 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 isOpeningNote = false
                 panelController.send(["version": 1, "type": "setEditingEnabled", "enabled": true])
                 sendActionState()
+                refreshSettings()
             }
             do {
-                if oldRoot != nil {
-                    guard await writer.flush(through: latestRevision) else { throw PersistenceError.writeFailed("Save the current jot before transferring the notebook.") }
+                // Capture the live editor, including changes not yet delivered by the bridge.
+                let captured = try await panelController.lockAndSnapshot()
+                session.recoveryText = captured.text
+                session.recoveryRevision = captured.revision
+                session.selection = captured.selection
+                session.viewport = captured.viewport
+                latestRevision = captured.revision
+                guard await persistSessionNow() else {
+                    throw PersistenceError.writeFailed("Your pending writing could not be saved. Try again before changing folders.")
                 }
-                let current = await writer.currentJot()
-                if let oldRoot {
-                    let sourceFiles = session.storage == .iCloud ? try await NotebookCloudInventory.snapshot(root: oldRoot) : []
-                    let destinationFiles = storage == .iCloud ? try await NotebookCloudInventory.snapshot(root: choice.url) : []
-                    try await Task.detached {
-                        try await NotebookTransfer.copyPrepared(from: oldRoot, to: choice.url, cloudFiles: sourceFiles + destinationFiles)
-                    }.value
+                if !restoring {
+                    await writer.receive(captured, flushImmediately: true)
+                    guard await writer.flush(through: latestRevision) else {
+                        throw PersistenceError.writeFailed("Save the current jot before opening another notebook.")
+                    }
                 }
-                var nextSession = session
-                if let current, let oldRoot {
-                    let prefix = oldRoot.resolvingSymlinksInPath().path + "/"
-                    let path = URL(fileURLWithPath: current.path).resolvingSymlinksInPath().path
-                    guard path.hasPrefix(prefix) else { throw PersistenceError.rootUnavailable }
-                    nextSession.activeJot = ActiveJot(id: current.id,
-                        path: choice.url.appendingPathComponent(String(path.dropFirst(prefix.count))).path,
-                        acknowledgedRevision: current.acknowledgedRevision)
-                }
-                var replacementWriter: JotWriter?
-                if oldRoot != nil {
-                    let candidate = JotWriter(rootURL: choice.url) { [weak self] event in self?.handle(event) }
-                    let restored = try await candidate.restore(nextSession.activeJot)
-                    nextSession.recoveryText = restored
-                    nextSession.acknowledgedData = Data(restored.utf8)
-                    nextSession.recoveryRevision = nextSession.activeJot?.acknowledgedRevision
-                    replacementWriter = candidate
-                }
+                let storage: NotebookStorage = FileManager.default.isUbiquitousItem(at: choice.url) ? .iCloud : .local
+                var nextSession = restoring ? session : session.openingNotebook(bookmark: choice.bookmark, storage: storage)
                 nextSession.rootBookmark = choice.bookmark
                 nextSession.storage = storage
+                let candidateGeneration = UUID()
+                let candidate = JotWriter(rootURL: choice.url) { [weak self] event in
+                    guard let self, self.writerGeneration == candidateGeneration else { return }
+                    self.handle(event)
+                }
+                if restoring {
+                    _ = try await candidate.restoreJournal(nextSession.activeJot, text: captured.text,
+                        revision: captured.revision, baseline: nextSession.acknowledgedData)
+                }
+                documentGeneration += 1
                 sessionGeneration += 1
                 try await sessionStore.save(nextSession, generation: sessionGeneration)
                 _ = rootAccess.setRoot(choice.url)
                 rootURL = choice.url
                 session = nextSession
+                writerGeneration = candidateGeneration
+                writer = candidate
+                noteSearchTask?.cancel()
+                latestNoteSearch = nil
+                latestRevision = restoring ? captured.revision : 0
+                hasBlockingWriteError = false
                 configureNotebookPresenter()
-                if let replacementWriter { writer = replacementWriter }
-                else { await writer.configureRoot(choice.url) }
-                let flushed = await writer.flush(through: latestRevision)
-                hasBlockingWriteError = !flushed
                 panelController.configureAttachmentRoot(choice.url)
                 railNoteIDs = []
                 latestRailID = nil
                 navigation.reset()
                 hasBlankCapture = session.activeJot == nil
+                if restoring {
+                    await writer.receive(captured, flushImmediately: true)
+                    hasBlockingWriteError = !(await writer.flush(through: latestRevision))
+                }
                 await noteRailIndex.configure(root: choice.url)
                 await noteSearchIndex.configure(root: choice.url)
                 await tagIndex.configure(root: choice.url)
@@ -790,22 +818,22 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 await refreshTags(force: true)
                 await persistSessionNow()
                 sendLoadSession(text: session.recoveryText ?? "")
+                if settingsController?.window?.isVisible == true { settingsController?.present() }
             } catch {
                 let alert = NSAlert()
-                alert.messageText = "The notebook could not be transferred"
-                alert.informativeText = "The source notebook is retained. \(error.localizedDescription)"
+                alert.messageText = "The folder could not be opened"
+                alert.informativeText = error.localizedDescription
                 alert.runModal()
             }
         }
     }
 
-    @objc private func changeShortcut(_ sender: NSMenuItem) {
-        guard let rawValue = sender.representedObject as? String,
-              let choice = ShortcutChoice(rawValue: rawValue) else { return }
+    private func setShortcut(_ choice: ShortcutChoice) {
+        defer { refreshSettings() }
         do {
             try shortcut.register(choice)
             session.shortcut = choice
-            updateShortcutChecks()
+            shortcutRegistrationFailed = false
             persistSessionSoon()
         } catch {
             let alert = NSAlert()
@@ -815,16 +843,12 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         }
     }
 
-    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        defer { refreshSettings() }
         do {
-            if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
-                session.launchAtLogin = false
-            } else {
-                try SMAppService.mainApp.register()
-                session.launchAtLogin = true
-            }
-            sender.state = session.launchAtLogin ? .on : .off
+            if enabled { try SMAppService.mainApp.register() }
+            else { try SMAppService.mainApp.unregister() }
+            session.launchAtLogin = SMAppService.mainApp.status == .enabled
             persistSessionSoon()
         } catch {
             let alert = NSAlert(error: error)
@@ -833,7 +857,13 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         }
     }
 
-    @objc private func selectAllFromMenu() { panelController.send(["version": 1, "type": "selectAll"]) }
+    @objc private func selectAllFromMenu() {
+        if let text = NSApp.keyWindow?.firstResponder as? NSText {
+            text.selectAll(nil)
+        } else {
+            panelController.send(["version": 1, "type": "selectAll"])
+        }
+    }
 
     @objc private func quit() { NSApp.terminate(nil) }
 
@@ -859,22 +889,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         menu.addItem(.separator())
         menu.addItem(item("Reveal Current Jot in Finder", action: #selector(revealCurrentJot), key: ""))
         menu.addItem(item("Open Jots Folder", action: #selector(openJotsFolder), key: ""))
-        menu.addItem(item("Change Jots Folder…", action: #selector(chooseRoot), key: ""))
-        menu.addItem(item("Use iCloud Notebook…", action: #selector(chooseICloud), key: ""))
-        let shortcutMenu = NSMenu()
-        for choice in ShortcutChoice.allCases {
-            let menuItem = item(choice.displayName, action: #selector(changeShortcut(_:)), key: "")
-            menuItem.representedObject = choice.rawValue
-            menuItem.state = choice == session.shortcut ? .on : .off
-            shortcutMenu.addItem(menuItem)
-        }
-        let shortcutItem = NSMenuItem(title: "Change Shortcut", action: nil, keyEquivalent: "")
-        shortcutItem.submenu = shortcutMenu
-        menu.addItem(shortcutItem)
-
-        let launchItem = item("Launch at Login", action: #selector(toggleLaunchAtLogin(_:)), key: "")
-        launchItem.state = session.launchAtLogin ? .on : .off
-        menu.addItem(launchItem)
+        menu.addItem(item("Settings…", action: #selector(showSettings), key: ","))
         menu.addItem(.separator())
         menu.addItem(item("About Jot", action: #selector(showAbout), key: ""))
         menu.addItem(appUpdater.menuItem())
@@ -890,10 +905,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         applicationMenu.addItem(item("About Jot", action: #selector(showAbout), key: ""))
         applicationMenu.addItem(appUpdater.menuItem())
         applicationMenu.addItem(.separator())
-        let changeFolder = item("Change Jots Folder…", action: #selector(chooseRoot), key: "j")
-        changeFolder.keyEquivalentModifierMask = [.command, .option]
-        applicationMenu.addItem(changeFolder)
-        applicationMenu.addItem(item("Use iCloud Notebook…", action: #selector(chooseICloud), key: ""))
+        applicationMenu.addItem(item("Settings…", action: #selector(showSettings), key: ","))
         applicationMenu.addItem(.separator())
         applicationMenu.addItem(item("Quit Jot", action: #selector(quit), key: "q"))
         applicationItem.submenu = applicationMenu
@@ -939,6 +951,8 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
         let windowItem = NSMenuItem()
         let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(responderItem("Close Window", action: #selector(NSWindow.performClose(_:)), key: "w"))
+        windowMenu.addItem(.separator())
         let fullScreen = item("Toggle Full Screen", action: #selector(toggleFullScreenFromMenu), key: "f")
         fullScreen.keyEquivalentModifierMask = [.control, .command]
         windowMenu.addItem(fullScreen)
@@ -960,14 +974,6 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
     private func responderItem(_ title: String, action: Selector, key: String) -> NSMenuItem {
         NSMenuItem(title: title, action: action, keyEquivalent: key)
-    }
-
-    private func updateShortcutChecks() {
-        guard let items = statusItem.menu?.items,
-              let shortcutMenu = items.first(where: { $0.title == "Change Shortcut" })?.submenu else { return }
-        for item in shortcutMenu.items {
-            item.state = (item.representedObject as? String) == session.shortcut.rawValue ? .on : .off
-        }
     }
 
     private func handle(_ event: WriterEvent) {
