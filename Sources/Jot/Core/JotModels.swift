@@ -33,6 +33,20 @@ struct PersistedSession: Codable, Equatable, Sendable {
     var recoveryText: String?
     var recoveryRevision: Int?
 
+    /// Opening a different notebook preserves app preferences, never document state.
+    func openingNotebook(bookmark: Data, storage: NotebookStorage) -> PersistedSession {
+        var next = self
+        next.rootBookmark = bookmark
+        next.storage = storage
+        next.activeJot = nil
+        next.selection = .start
+        next.viewport = .top
+        next.recoveryText = nil
+        next.recoveryRevision = nil
+        next.acknowledgedData = nil
+        return next
+    }
+
     static let empty = PersistedSession(
         activeJot: nil,
         selection: .start,

@@ -29,6 +29,11 @@ final class AppUpdater: NSObject {
         return item
     }
 
+    func checkForUpdates() {
+        if let controller { controller.checkForUpdates(nil) }
+        else { explainDevelopmentBuild() }
+    }
+
     @objc private func explainDevelopmentBuild() {
         let alert = NSAlert()
         alert.messageText = "Updates are available in release builds"

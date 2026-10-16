@@ -17,7 +17,11 @@ pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 "$ROOT_DIR/script/package_app.sh"
 
 open_app() {
-  /usr/bin/open -n "$APP_BUNDLE"
+  if [[ -n "${JOT_TEST_SESSION_PATH:-}" ]]; then
+    /usr/bin/open -n --env "JOT_TEST_SESSION_PATH=$JOT_TEST_SESSION_PATH" "$APP_BUNDLE"
+  else
+    /usr/bin/open -n "$APP_BUNDLE"
+  fi
 }
 
 case "$MODE" in
