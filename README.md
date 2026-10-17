@@ -237,3 +237,18 @@ into the table to edit the Markdown; move outside to render it again. Colons
 set left, center, or right alignment. Copying and saving preserve the original
 Markdown. There is no table insertion control in this version.
 
+
+## Open Markdown files and multiple windows
+
+Use **File → Open…** (`⌘O`), **Open File…** in Jot’s menu-bar menu, or Finder’s
+**Open With → Jot**. Files open in independent windows and autosave in their
+original locations. Opening the same file again focuses its existing window.
+
+Use **Open Jot in Window…**, or Option-click a notebook rail entry, to keep a
+notebook jot open separately. Option-Space still recalls quick capture. `⌘Return`
+finishes a jot only in quick capture; `⌘W` closes a document window. Jot restores
+open documents, window frames, cursor positions, and scroll positions after quitting.
+
+Outside changes reload when safe. If they overlap with pending edits, Jot preserves
+your writing and offers **Save My Version as a Copy**, keeping a sibling copy before
+reloading the original file’s outside version. See [verification evidence](docs/verification/document-windows.md).

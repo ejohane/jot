@@ -7,7 +7,7 @@ import { drawSelection, EditorView, keymap, tooltips } from "@codemirror/view";
 import { GFM } from "@lezer/markdown";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sendToNative, setBridgeSessionID, type EditorToNative, type NoteSearchResult } from "./bridge";
-import { clickableLinks } from "./links";
+import { clickableLinks, enableDocumentLinks } from "./links";
 import { editorTheme } from "./editorTheme";
 import { markdownPresentation } from "./presentation";
 import { markdownTables } from "./tables";
@@ -89,6 +89,7 @@ export function Editor() {
   };
   const host = useRef<HTMLDivElement>(null);
   const revisionRef = useRef(0);
+  const documentWindowRef = useRef(false);
   const sessionIDRef = useRef<string | undefined>(undefined);
   const sessionLoadGeneration = useRef(0);
   const noteIDRef = useRef<string | undefined>(undefined);
@@ -286,7 +287,7 @@ export function Editor() {
           ...["Mod-Enter", "Mod-n"].map(key => ({
             key,
             run: () => {
-              sendToNative({ version: 1, type: "finishAndNew", revision: revisionRef.current });
+              if (!documentWindowRef.current) sendToNative({ version: 1, type: "finishAndNew", revision: revisionRef.current });
               return true;
             },
           })),
@@ -502,6 +503,7 @@ export function Editor() {
             toggleInlineCode(view, message.focus !== false);
             break;
           case "loadSession": {
+            documentWindowRef.current = message.documentWindow === true;
             sessionIDRef.current = message.sessionID;
             setBridgeSessionID(message.sessionID);
             const generation = ++sessionLoadGeneration.current;
@@ -510,7 +512,7 @@ export function Editor() {
             nativeFileDropsRemaining = 0;
             if (panelOpenRef.current) changePanel(false);
             closeSearchPanel(view);
-            view.dispatch({ effects: [resetMobileInline.of(), clearDictation.of(), endImageImport.of(null), attachmentBaseURL.of(message.baseURL ?? "")] });
+            view.dispatch({ effects: [enableDocumentLinks.of(message.documentWindow === true), resetMobileInline.of(), clearDictation.of(), endImageImport.of(null), attachmentBaseURL.of(message.baseURL ?? "")] });
             setImportingImage(false);
             imageKeepsFrame = false;
             noteIDRef.current = message.noteID;
@@ -560,6 +562,18 @@ export function Editor() {
               view.scrollDOM.scrollTop = message.viewport.scrollTop;
               if (message.focus !== false && !panelOpenRef.current) view.focus();
               sendPreferredHeight(view);
+              if (message.documentWindow) view.requestMeasure({
+                read: () => message.viewport.scrollTop,
+                write: (top) => {
+                  if (sessionLoadGeneration.current !== generation) return;
+                  view.scrollDOM.scrollTop = top;
+                  requestAnimationFrame(() => {
+                    if (sessionLoadGeneration.current !== generation) return;
+                    view.scrollDOM.scrollTop = top;
+                    sendEditorState(view);
+                  });
+                },
+              });
             });
             setError(null);
             break;
@@ -660,13 +674,13 @@ export function Editor() {
   };
   const dictationActive = dictation.status === "downloading" || dictation.status === "recording" || dictation.status === "transcribing";
 
-  const openNote = (id: string) => {
+  const openNote = (id: string, newWindow = false) => {
     const pending = pendingBridgeSnapshot.current;
     if (pending) {
       if (!sendToNative(pending)) return;
       pendingBridgeSnapshot.current = null;
     }
-    sendToNative({ version: 1, type: "openNote", noteID: id, revision: revisionRef.current });
+    sendToNative({ version: 1, type: newWindow ? "openNoteWindow" : "openNote", noteID: id, revision: revisionRef.current });
   };
 
   const actions: Action[] = [

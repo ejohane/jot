@@ -5,22 +5,24 @@ import WebKit
 final class LocalResourceSchemeHandler: NSObject, WKURLSchemeHandler {
     private var attachmentTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
     private var attachmentRoot: URL?
+    private var documentImages = false
 
-    func configureAttachmentRoot(_ root: URL?) {
+    func configureAttachmentRoot(_ root: URL?, documentImages: Bool = false) {
+        self.documentImages = documentImages
         guard attachmentRoot != root else { return }
         attachmentTasks.values.forEach { $0.cancel() }
         attachmentTasks = [:]
         attachmentRoot = root
     }
 
-    nonisolated static func attachmentURL(path: String, root: URL) -> URL? {
+    nonisolated static func attachmentURL(path: String, root: URL, documentImages: Bool = false) -> URL? {
         let resolvedRoot = root.resolvingSymlinksInPath().standardizedFileURL
         let candidate = root.appendingPathComponent(path).standardizedFileURL
         let file = candidate.deletingLastPathComponent().resolvingSymlinksInPath()
             .appendingPathComponent(candidate.lastPathComponent).resolvingSymlinksInPath().standardizedFileURL
         guard file.path.hasPrefix(resolvedRoot.path + "/"),
-              file.pathComponents.contains("attachments"),
-              ["png", "jpg", "jpeg", "tiff"].contains(file.pathExtension.lowercased()) else { return nil }
+              (documentImages || file.pathComponents.contains("attachments")),
+              ["png", "jpg", "jpeg", "tiff", "gif", "webp"].contains(file.pathExtension.lowercased()) else { return nil }
         return file
     }
 
@@ -34,7 +36,7 @@ final class LocalResourceSchemeHandler: NSObject, WKURLSchemeHandler {
 
         if requestURL.host == "attachment" {
             guard let root = attachmentRoot,
-                  let file = Self.attachmentURL(path: String(requestURL.path.dropFirst()), root: root) else {
+                  let file = Self.attachmentURL(path: String(requestURL.path.dropFirst()), root: root, documentImages: documentImages) else {
                 urlSchemeTask.didFailWithError(URLError(.noPermissionsToReadFile))
                 return
             }

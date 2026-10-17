@@ -81,7 +81,7 @@ export function imageRanges(state: EditorState) {
     if (!destination) return;
     const raw = state.sliceDoc(destination.from, destination.to);
     const path = raw.startsWith("<") && raw.endsWith(">") ? raw.slice(1, -1) : raw;
-    if (!path.includes("attachments/") || /^[a-z]+:/i.test(path) || path.startsWith("/")) return;
+    if (/^[a-z]+:/i.test(path) || path.startsWith("/")) return;
     const label = state.sliceDoc(node.from + 2, destination.from).replace(/\]\($/, "");
     images.push({ from: node.from, to: node.to, path, label });
     return false;

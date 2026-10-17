@@ -19,6 +19,8 @@ protocol EditorBridgeDelegate: AnyObject {
     func editorRequestedFinish(revision: Int)
     func editorRequestedHide(revision: Int)
     func editorRequestedOpenNote(id: String, revision: Int)
+    func editorRequestedDocumentLink(path: String)
+    func editorRequestedNoteWindow(id: String)
     func editorRequestedNavigation(_ direction: NoteNavigationDirection)
     func editorRequestedRecovery(_ action: String)
     func editorRequestedDictationToggle()
@@ -53,6 +55,8 @@ final class EditorBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             }
         case "previewImage":
             if let path = body["path"] as? String { delegate?.editorRequestedImagePreview(path: path) }
+        case "openDocumentLink":
+            if let path = body["path"] as? String { delegate?.editorRequestedDocumentLink(path: path) }
         case "openBrowserURL":
             if let value = body["url"] as? String, let url = URL(string: value),
                ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
@@ -116,6 +120,8 @@ final class EditorBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             if let revision = integer(body["revision"]) { delegate?.editorRequestedFinish(revision: revision) }
         case "hide":
             if let revision = integer(body["revision"]) { delegate?.editorRequestedHide(revision: revision) }
+        case "openNoteWindow":
+            if let id = body["noteID"] as? String { delegate?.editorRequestedNoteWindow(id: id) }
         case "openNote":
             if let id = body["noteID"] as? String, let revision = integer(body["revision"]) {
                 delegate?.editorRequestedOpenNote(id: id, revision: revision)
@@ -173,4 +179,10 @@ final class EditorBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         if let value = value as? Double { return value }
         return (value as? NSNumber)?.doubleValue
     }
+}
+
+
+extension EditorBridgeDelegate {
+    func editorRequestedDocumentLink(path: String) {}
+    func editorRequestedNoteWindow(id: String) {}
 }

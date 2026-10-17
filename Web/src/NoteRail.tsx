@@ -19,7 +19,7 @@ function tickLength(index: number, centerY: number): number {
 export function NoteRail({ notes, activeID, onOpen }: {
   notes: RailNote[];
   activeID?: string;
-  onOpen: (id: string) => void;
+  onOpen: (id: string, newWindow?: boolean) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -173,7 +173,8 @@ export function NoteRail({ notes, activeID, onOpen }: {
                 onBlur={() => {
                   if (pointerY.current === null) { updateHovered(null); updateTracking(false); paintResting(); }
                 }}
-                onClick={() => onOpen(note.id)}
+                onClick={(event) => onOpen(note.id, event.altKey)}
+                title="Option-click to open in a separate window"
               ><span /></button>
             );
           })}

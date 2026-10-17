@@ -3,6 +3,7 @@ import ServiceManagement
 
 @MainActor
 final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegate, NSMenuItemValidation {
+    let documentWindows = DocumentWindows()
     private let sessionStore: SessionStore
     private let rootAccess = RootAccessController()
     private let appUpdater = AppUpdater()
@@ -64,6 +65,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         )
         panelController.configureAttachmentRoot(rootURL)
         configureNotebookPresenter()
+        panelController.onBecomeKey = { [weak self] in self?.documentWindows.captureDidBecomeKey() }
         panelController.bridge.delegate = self
         panelController.panelDelegate = self
         voiceDictation.onStateChange = { [weak self] state, message in
@@ -113,6 +115,20 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         settingsModel.changeLaunchAtLogin = { [weak self] in self?.setLaunchAtLogin($0) }
         settingsModel.checkForUpdates = { [weak self] in self?.appUpdater.checkForUpdates() }
         appUpdater.start()
+        documentWindows.capturePath = { [weak self] in self?.session.activeJot?.path }
+        documentWindows.focusCapture = { [weak self] in self?.show() }
+        documentWindows.configure = { [weak self] controller in
+            controller.openNote = { [weak self] id in self?.editorRequestedNoteWindow(id: id) }
+            controller.searchNotes = { [weak self] query, requestID, refresh, panel in
+                guard let self else { return }
+                Task {
+                    let results = await self.noteSearchIndex.search(query: query, refresh: refresh, currentID: nil, currentText: nil, discoveredURLs: self.cloudNoteURLs) ?? []
+                    panel.send(["version": 1, "type": "noteSearchResults", "requestID": requestID,
+                                "results": results.map { ["id": $0.id, "timestamp": Int($0.timestamp.timeIntervalSince1970 * 1000),
+                                    "title": $0.title, "excerpt": $0.excerpt, "titleMatches": [], "excerptMatches": []] as [String: Any] }])
+                }
+            }
+        }
         configureApplicationMenu()
         configureStatusItem()
     }
@@ -120,6 +136,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     func start() {
         panelController.loadEditor()
         panelController.showAndFocus()
+        Task { await documentWindows.restore() }
         tagRefreshTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2))
@@ -138,9 +155,10 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         tagRefreshTask?.cancel()
         voiceDictation.cancel()
         Task {
+            let documentsSafe = await documentWindows.prepareToTerminate()
             let flushed = await writer.flush(through: latestRevision)
             let savedRecovery = await persistSessionNow()
-            let mayTerminate = Self.mayTerminate(
+            let mayTerminate = documentsSafe && Self.mayTerminate(
                 flushed: flushed,
                 savedRecovery: savedRecovery,
                 hasRecoveryText: session.recoveryText != nil
@@ -438,6 +456,14 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         }
     }
 
+    func editorRequestedNoteWindow(id: String) {
+        Task {
+            let railEntry = await noteRailIndex.entry(id: id)
+            let searchEntry = await noteSearchIndex.entry(id: id)
+            if let entry = railEntry ?? searchEntry { documentWindows.open(URL(fileURLWithPath: entry.path)) }
+        }
+    }
+
     func editorRequestedOpenNote(id: String, revision: Int) {
         openNote(id: id, revision: revision, movement: .direct)
     }
@@ -467,6 +493,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 if session.storage == .iCloud {
                     try await Task.detached { try await NotebookCloudFile.prepare(URL(fileURLWithPath: entry.path)) }.value
                 }
+                if documentWindows.focusExisting(URL(fileURLWithPath: entry.path)) { return }
                 let result = try await writer.openExisting(id: id, path: entry.path, through: revision)
                 let source = currentLocation
                 let destination = NoteLocation.note(id)
@@ -644,7 +671,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
         case #selector(finishAndNewFromMenu):
-            return Self.finishAndNewIsEnabled(
+            return documentWindows.focused == nil && Self.finishAndNewIsEnabled(
                 activeJot: session.activeJot,
                 hasBlockingWriteError: hasBlockingWriteError
             ) && !isOpeningNote
@@ -653,11 +680,11 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         case #selector(revealCurrentJot):
             return session.activeJot != nil
         case #selector(navigateBackFromMenu):
-            return navigation.canGoBack && !isOpeningNote
+            return documentWindows.focused == nil && navigation.canGoBack && !isOpeningNote
         case #selector(navigateForwardFromMenu):
-            return navigation.canGoForward && !isOpeningNote
+            return documentWindows.focused == nil && navigation.canGoForward && !isOpeningNote
         case #selector(navigateLatestFromMenu):
-            return !isOpeningNote && (hasBlankCapture || latestRailID != nil)
+            return documentWindows.focused == nil && !isOpeningNote && (hasBlankCapture || latestRailID != nil)
         default:
             return true
         }
@@ -670,31 +697,39 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     @objc private func showJot() { show() }
 
     @objc private func toggleDictationFromMenu() {
-        panelController.showAndFocus()
-        voiceDictation.toggle()
+        if let document = documentWindows.focused { document.editorRequestedDictationToggle() }
+        else { panelController.showAndFocus(); voiceDictation.toggle() }
     }
 
-    @objc private func finishAndNewFromMenu() { editorRequestedFinish(revision: latestRevision) }
+    @objc private func finishAndNewFromMenu() {
+        guard documentWindows.focused == nil else { return }
+        editorRequestedFinish(revision: latestRevision)
+    }
+
+    @objc private func openMarkdownFile() { documentWindows.chooseFile() }
+    @objc private func openNotebookFileWindow() { documentWindows.chooseFile(directory: rootURL) }
+
+    private var focusedEditor: ComposerPanelController { documentWindows.focused?.panel ?? panelController }
 
     @objc private func showActionsFromMenu() {
-        panelController.showAndFocus()
-        panelController.send(["version": 1, "type": "toggleActionPanel"])
+        focusedEditor.showAndFocus()
+        focusedEditor.send(["version": 1, "type": "toggleActionPanel"])
     }
 
     @objc private func searchNotesFromMenu() {
-        panelController.showAndFocus()
-        panelController.send(["version": 1, "type": "showNoteSearch"])
+        focusedEditor.showAndFocus()
+        focusedEditor.send(["version": 1, "type": "showNoteSearch"])
     }
 
     @objc private func findInNoteFromMenu() {
-        panelController.showAndFocus()
-        panelController.send(["version": 1, "type": "findInNote"])
+        focusedEditor.showAndFocus()
+        focusedEditor.send(["version": 1, "type": "findInNote"])
     }
 
     @objc private func toggleInlineFormatFromMenu(_ sender: NSMenuItem) {
         guard let format = sender.representedObject as? String else { return }
-        if panelController.window?.isVisible != true { panelController.showAndFocus() }
-        panelController.send(["version": 1, "type": "toggleFormat", "format": format])
+        focusedEditor.showAndFocus()
+        focusedEditor.send(["version": 1, "type": "toggleFormat", "format": format])
     }
 
     @objc private func navigateLatestFromMenu() { navigate(.latest) }
@@ -861,7 +896,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         if let text = NSApp.keyWindow?.firstResponder as? NSText {
             text.selectAll(nil)
         } else {
-            panelController.send(["version": 1, "type": "selectAll"])
+            focusedEditor.send(["version": 1, "type": "selectAll"])
         }
     }
 
@@ -884,6 +919,8 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
         let menu = NSMenu()
         menu.addItem(item("Show Jot", action: #selector(showJot), key: ""))
+        menu.addItem(item("Open File…", action: #selector(openMarkdownFile), key: "o"))
+        menu.addItem(item("Open Jot in Window…", action: #selector(openNotebookFileWindow), key: ""))
         menu.addItem(item("Start / Stop Dictation", action: #selector(toggleDictationFromMenu), key: ""))
         menu.addItem(item("Finish & New", action: #selector(finishAndNewFromMenu), key: "\r"))
         menu.addItem(.separator())
@@ -910,6 +947,14 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         applicationMenu.addItem(item("Quit Jot", action: #selector(quit), key: "q"))
         applicationItem.submenu = applicationMenu
         mainMenu.addItem(applicationItem)
+
+        let fileItem = NSMenuItem()
+        let fileMenu = NSMenu(title: "File")
+        fileMenu.addItem(item("Open…", action: #selector(openMarkdownFile), key: "o"))
+        fileMenu.addItem(item("Open Jot in Window…", action: #selector(openNotebookFileWindow), key: ""))
+        fileMenu.addItem(item("Finish & New", action: #selector(finishAndNewFromMenu), key: "\r"))
+        fileItem.submenu = fileMenu
+        mainMenu.addItem(fileItem)
 
         let editItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
@@ -951,19 +996,24 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
         let windowItem = NSMenuItem()
         let windowMenu = NSMenu(title: "Window")
-        windowMenu.addItem(responderItem("Close Window", action: #selector(NSWindow.performClose(_:)), key: "w"))
+        windowMenu.addItem(item("Show Quick Capture", action: #selector(showJot), key: ""))
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(item("Close Window", action: #selector(closeFocusedWindow), key: "w"))
         windowMenu.addItem(.separator())
         let fullScreen = item("Toggle Full Screen", action: #selector(toggleFullScreenFromMenu), key: "f")
         fullScreen.keyEquivalentModifierMask = [.control, .command]
         windowMenu.addItem(fullScreen)
+        NSApp.windowsMenu = windowMenu
         windowItem.submenu = windowMenu
         mainMenu.addItem(windowItem)
 
         NSApp.mainMenu = mainMenu
     }
 
+    @objc private func closeFocusedWindow() { focusedEditor.window?.performClose(nil) }
+
     @objc private func toggleFullScreenFromMenu() {
-        panelController.window?.toggleFullScreen(nil)
+        focusedEditor.window?.toggleFullScreen(nil)
     }
 
     private func item(_ title: String, action: Selector, key: String) -> NSMenuItem {

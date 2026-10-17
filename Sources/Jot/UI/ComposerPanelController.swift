@@ -9,7 +9,7 @@ protocol ComposerPanelDelegate: AnyObject {
 
 final class ComposerPanel: NSPanel, NSDraggingDestination {
     override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
+    override var canBecomeMain: Bool { !isFloatingPanel }
     var onImageFileDrop: (([URL], NSPoint) -> Void)?
 
     func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
@@ -118,15 +118,21 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
     private var userPlacedPanel = false
     private var hasShown = false
     private var keyMonitor: Any?
+    private var menuObservers: [any NSObjectProtocol] = []
+    private var menuIsTracking = false
     private var actionPanelVisible = false
     private var frameBeforeActions: NSRect?
     private var imagePreview: NSWindowController?
     var preservesFrameForImages = false
     weak var panelDelegate: (any ComposerPanelDelegate)?
     var onEscape: (() -> Void)?
+    var onCloseRequested: (() -> Bool)?
+    var onBecomeKey: (() -> Void)?
+    private let isDocument: Bool
     var onImageFileDrop: (([URL], NSPoint) -> Void)?
 
-    init(savedFrame: String?) {
+    init(savedFrame: String?, documentURL: URL? = nil) {
+        isDocument = documentURL != nil
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
@@ -144,15 +150,19 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
             backing: .buffered,
             defer: false
         )
-        panel.title = "Jot"
-        panel.titleVisibility = .hidden
+        if let documentURL {
+            panel.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            panel.title = documentURL.lastPathComponent
+            panel.representedURL = documentURL
+        } else { panel.title = "Jot" }
+        panel.titleVisibility = documentURL == nil ? .hidden : .visible
         panel.titlebarAppearsTransparent = true
         panel.isMovable = true
         panel.isMovableByWindowBackground = true
-        panel.isFloatingPanel = true
-        panel.level = .floating
+        panel.isFloatingPanel = documentURL == nil
+        panel.level = documentURL == nil ? .floating : .normal
         panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenPrimary]
+        panel.collectionBehavior = documentURL == nil ? [.canJoinAllSpaces, .fullScreenPrimary] : [.fullScreenPrimary]
         panel.minSize = NSSize(width: 360, height: 180)
         let contentView = NSView(frame: initialFrame)
         webView.translatesAutoresizingMaskIntoConstraints = false
@@ -160,7 +170,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         contentView.setAccessibilityElement(false)
         dragView.setAccessibilityElement(false)
         contentView.addSubview(webView)
-        contentView.addSubview(dragView)
+        if documentURL == nil { contentView.addSubview(dragView) } else { contentView.addSubview(dragView); dragView.isHidden = true }
         NSLayoutConstraint.activate([
             webView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
@@ -173,6 +183,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         ])
         panel.contentView = contentView
         panel.isReleasedWhenClosed = false
+        panel.isExcludedFromWindowsMenu = documentURL == nil
         panel.registerForDraggedTypes([.fileURL])
 
         super.init(window: panel)
@@ -200,8 +211,16 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
                 userPlacedPanel = true
             }
         }
+        menuObservers = [
+            NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.menuIsTracking = true }
+            },
+            NotificationCenter.default.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.menuIsTracking = false }
+            },
+        ]
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, let panel = self.window,
+            guard let self, !self.menuIsTracking, let panel = self.window,
                   panel.isVisible, panel.isKeyWindow else { return event }
             // Handle this before WebKit's editor interprets Command-F as Find.
             if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == [.control, .command],
@@ -213,6 +232,11 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
             self.handleEscape()
             return nil
         }
+    }
+
+    isolated deinit {
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        for observer in menuObservers { NotificationCenter.default.removeObserver(observer) }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -255,6 +279,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         hasShown = true
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKey()
+        if isDocument { panel.makeMain() }
         webView.focusRingType = .none
         webView.evaluateJavaScript("document.querySelector('.cm-content')?.focus()")
     }
@@ -307,9 +332,14 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         return EditorSnapshot(revision: revision, text: text, selection: EditorSelection(anchor: anchor, head: head), viewport: EditorViewport(scrollTop: top))
     }
 
+    func unlockEditor(restoringFocus: Bool) {
+        send(["version": 1, "type": "setEditingEnabled", "enabled": true])
+        if restoringFocus { webView.evaluateJavaScript("document.querySelector('.cm-content')?.focus()") }
+    }
+
     func send(_ payload: [String: Any]) { bridge.send(payload) }
 
-    func configureAttachmentRoot(_ root: URL?) { resourceHandler.configureAttachmentRoot(root) }
+    func configureAttachmentRoot(_ root: URL?, documentImages: Bool = false) { resourceHandler.configureAttachmentRoot(root, documentImages: documentImages) }
 
     func previewImage(at url: URL) {
         guard let image = NSImage(contentsOf: url) else { return }
@@ -332,7 +362,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
     }
 
     func applyPreferredContentHeight(_ requestedHeight: CGFloat) {
-        guard !actionPanelVisible, !preservesFrameForImages, !userHasResized,
+        guard !isDocument, !actionPanelVisible, !preservesFrameForImages, !userHasResized,
               !isFullScreenTransition, let panel = window,
               !panel.styleMask.contains(.fullScreen) else { return }
         let contentHeight = min(max(requestedHeight, 180), 700)
@@ -350,6 +380,10 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         if userPlacedPanel { restoreVisiblePosition(panel) }
         isProgrammaticFrameChange = false
     }
+
+    func windowDidBecomeKey(_ notification: Notification) { onBecomeKey?() }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool { onCloseRequested?() ?? true }
 
     func windowDidResignKey(_ notification: Notification) {
         panelDelegate?.composerDidResignKey()
@@ -386,12 +420,12 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
 
     func windowDidExitFullScreen(_ notification: Notification) {
         isFullScreenTransition = false
-        window?.level = .floating
+        window?.level = isDocument ? .normal : .floating
     }
 
     func windowDidFailToEnterFullScreen(_ window: NSWindow) {
         isFullScreenTransition = false
-        window.level = .floating
+        window.level = isDocument ? .normal : .floating
     }
 
     func windowDidFailToExitFullScreen(_ window: NSWindow) {

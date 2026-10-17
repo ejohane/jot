@@ -6,6 +6,7 @@ export type Viewport = { scrollTop: number };
 export type EditorToNative = { sessionID?: string } & (
   | { version: 1; type: "editorReady" }
   | { version: 1; type: "showLibrary" }
+  | { version: 1; type: "openDocumentLink"; path: string }
   | { version: 1; type: "openBrowserURL"; url: string }
   | { version: 1; type: "importClipboardImage"; requestID: string }
   | { version: 1; type: "importDroppedImage"; requestID: string; data: string }
@@ -20,7 +21,7 @@ export type EditorToNative = { sessionID?: string } & (
   | { version: 1; type: "noteAction"; action: "revealInFinder" | "openNotesFolder" | "copyNote"; revision: number; text?: string }
   | { version: 1; type: "finishAndNew"; revision: number }
   | { version: 1; type: "hide"; revision: number }
-  | { version: 1; type: "openNote"; noteID: string; revision: number }
+  | { version: 1; type: "openNote" | "openNoteWindow"; noteID: string; revision: number }
   | { version: 1; type: "navigateLatest" | "navigateBack" | "navigateForward" }
   | { version: 1; type: "toggleDictation" }
   | { version: 1; type: "finishDictation" }
@@ -35,7 +36,7 @@ export type NativeToEditor =
   | { version: 1; type: "noteSearchResults"; requestID: number; results: NoteSearchResult[]; message?: string }
   | { version: 1; type: "toggleActionPanel" | "showNoteSearch" | "findInNote" | "escape" }
   | { version: 1; type: "actionState"; canNew: boolean; canReveal: boolean; canLatest: boolean; canBack: boolean; canForward: boolean }
-  | { version: 1; type: "loadSession"; focus?: boolean; sessionID?: string; baseURL?: string; text: string; noteID?: string; revision: number; selection: Selection; viewport: Viewport }
+  | { version: 1; type: "loadSession"; documentWindow?: boolean; focus?: boolean; sessionID?: string; baseURL?: string; text: string; noteID?: string; revision: number; selection: Selection; viewport: Viewport }
   | { version: 1; type: "beginImagePaste" | "selectAll" }
   | { version: 1; type: "imageImported"; requestID: string; path: string; baseURL: string }
   | { version: 1; type: "imageImportFailed"; requestID: string; message: string }
