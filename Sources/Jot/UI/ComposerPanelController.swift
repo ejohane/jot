@@ -151,11 +151,11 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
             defer: false
         )
         if let documentURL {
-            panel.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            panel.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
             panel.title = documentURL.lastPathComponent
             panel.representedURL = documentURL
         } else { panel.title = "Jot" }
-        panel.titleVisibility = documentURL == nil ? .hidden : .visible
+        panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         panel.isMovable = true
         panel.isMovableByWindowBackground = true
@@ -170,7 +170,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         contentView.setAccessibilityElement(false)
         dragView.setAccessibilityElement(false)
         contentView.addSubview(webView)
-        if documentURL == nil { contentView.addSubview(dragView) } else { contentView.addSubview(dragView); dragView.isHidden = true }
+        contentView.addSubview(dragView)
         NSLayoutConstraint.activate([
             webView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
