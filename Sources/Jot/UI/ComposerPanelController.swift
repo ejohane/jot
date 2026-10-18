@@ -155,7 +155,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
             panel.title = documentURL.lastPathComponent
             panel.representedURL = documentURL
         } else { panel.title = "Jot" }
-        panel.titleVisibility = .hidden
+        panel.titleVisibility = documentURL == nil ? .hidden : .visible
         panel.titlebarAppearsTransparent = true
         panel.isMovable = true
         panel.isMovableByWindowBackground = true
