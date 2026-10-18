@@ -51,6 +51,17 @@ plist = {
     'CFBundleShortVersionString': version, 'CFBundleVersion': build,
     'LSMinimumSystemVersion': '14.0', 'LSUIElement': True,
     'NSHighResolutionCapable': True, 'NSPrincipalClass': 'NSApplication',
+    'CFBundleDocumentTypes': [{
+        'CFBundleTypeName': 'Markdown document', 'CFBundleTypeRole': 'Editor',
+        'LSHandlerRank': 'Alternate', 'LSItemContentTypes': ['net.daringfireball.markdown'],
+        'CFBundleTypeExtensions': ['md', 'markdown', 'mdown', 'mkd', 'mkdn'],
+    }],
+    'UTImportedTypeDeclarations': [{
+        'UTTypeIdentifier': 'net.daringfireball.markdown', 'UTTypeDescription': 'Markdown document',
+        'UTTypeConformsTo': ['public.plain-text'],
+        'UTTypeTagSpecification': {'public.filename-extension': ['md', 'markdown', 'mdown', 'mkd', 'mkdn'],
+                                   'public.mime-type': 'text/markdown'},
+    }],
     'NSMicrophoneUsageDescription': 'Jot records your voice to transcribe it locally on this Mac.',
     'JotUpdatesEnabled': distribution == '1',
     'SUFeedURL': 'https://github.com/ejohane/jot/releases/latest/download/appcast.xml',

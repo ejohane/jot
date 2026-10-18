@@ -1,13 +1,23 @@
-import type { Range } from "@codemirror/state";
+import { StateEffect, StateField, type Range } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import { Decoration, EditorView, ViewPlugin } from "@codemirror/view";
 import { sendToNative } from "./bridge";
 
-function browserURL(value: string): string | null {
+export const enableDocumentLinks = StateEffect.define<boolean>();
+const documentLinks = StateField.define<boolean>({
+  create: () => false,
+  update: (value, transaction) => transaction.effects.reduce((current, effect) => effect.is(enableDocumentLinks) ? effect.value : current, value),
+});
+
+function browserURL(value: string, relative = false): string | null {
   try {
     const url = new URL(value.replace(/^<|>$/g, ""));
     return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
-  } catch { return null; }
+  } catch {
+    const path = value.replace(/^<|>$/g, "");
+    return relative && path && !path.startsWith("#") && !/^[a-z][a-z0-9+.-]*:/i.test(path)
+      ? "relative:" + path : null;
+  }
 }
 
 // Mark only presented links. Keyboard navigation into their source removes the
@@ -20,7 +30,7 @@ function decorations(view: EditorView) {
     if (node.name !== "Link" && node.name !== "Autolink" && !standaloneURL) return;
     const url = standaloneURL ? node.node : node.node.getChild("URL");
     if (!url) return;
-    const href = browserURL(view.state.sliceDoc(url.from, url.to));
+    const href = browserURL(view.state.sliceDoc(url.from, url.to), view.state.field(documentLinks, false));
     if (!href) return;
     const active = selection.empty
       ? selection.head > node.from && selection.head < node.to
@@ -43,11 +53,11 @@ function targetLink(event: MouseEvent): HTMLElement | null {
   return event.target instanceof Element ? event.target.closest<HTMLElement>(".cm-browser-link") : null;
 }
 
-export const clickableLinks = ViewPlugin.fromClass(class {
+const linkPlugin = ViewPlugin.fromClass(class {
   decorations;
   constructor(view: EditorView) { this.decorations = decorations(view); }
   update(update: import("@codemirror/view").ViewUpdate) {
-    if (update.docChanged || update.selectionSet || update.viewportChanged) this.decorations = decorations(update.view);
+    if (update.docChanged || update.selectionSet || update.viewportChanged || update.transactions.some(tr => tr.effects.some(effect => effect.is(enableDocumentLinks)))) this.decorations = decorations(update.view);
   }
 }, {
   decorations: value => value.decorations,
@@ -62,8 +72,11 @@ export const clickableLinks = ViewPlugin.fromClass(class {
       const href = targetLink(event)?.dataset.browserUrl;
       if (!href) return false;
       event.preventDefault();
-      sendToNative({ version: 1, type: "openBrowserURL", url: href });
+      if (href.startsWith("relative:")) sendToNative({ version: 1, type: "openDocumentLink", path: href.slice(9) });
+      else sendToNative({ version: 1, type: "openBrowserURL", url: href });
       return true;
     },
   },
 });
+
+export const clickableLinks = [documentLinks, linkPlugin];

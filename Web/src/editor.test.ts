@@ -1857,3 +1857,39 @@ describe("Markdown tables", () => {
     expect(view.dom.querySelector("table")).not.toBeNull();
   });
 });
+
+it.each(["n", "Enter"])("keeps an external document intact on Command-%s", async key => {
+  const { view, messages } = await makeConnectedEditor("External file");
+  await act(async () => window.JotNative?.receive({ version: 1, type: "loadSession", documentWindow: true,
+    text: "External file", noteID: "/project/readme.md", revision: 4,
+    selection: { anchor: 3, head: 3 }, viewport: { scrollTop: 0 } }));
+  messages.length = 0;
+  const modifier = /Mac/.test(navigator.platform) ? { metaKey: true } : { ctrlKey: true };
+  await act(async () => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key, ...modifier, bubbles: true, cancelable: true })));
+  expect(messages.filter(message => message.type === "finishAndNew")).toEqual([]);
+  expect(view.state.doc.toString()).toBe("External file");
+  expect(view.state.selection.main.head).toBe(3);
+});
+
+it("Option-clicking a notebook jot requests another window without replacing capture", async () => {
+  const { parent, view, messages } = await makeConnectedEditor("Keep capture here");
+  await act(async () => window.JotNative?.receive({ version: 1, type: "noteRail",
+    notes: [{ id: "other-note", timestamp: Date.now(), excerpt: "Another jot" }] }));
+  const tick = parent.querySelector(".note-tick")!;
+  await act(async () => tick.dispatchEvent(new MouseEvent("click", { altKey: true, bubbles: true })));
+  expect(messages).toContainEqual({ version: 1, type: "openNoteWindow", noteID: "other-note", revision: 1 });
+  expect(view.state.doc.toString()).toBe("Keep capture here");
+});
+
+it("opens a relative Markdown link from a file window without modifying source", async () => {
+  const source = "[Other file](notes/other.md)\n\nHere";
+  const { view, messages } = await makeConnectedEditor(source);
+  await act(async () => window.JotNative?.receive({ version: 1, type: "loadSession", documentWindow: true,
+    text: source, noteID: "/project/readme.md", revision: 0,
+    selection: { anchor: source.length, head: source.length }, viewport: { scrollTop: 0 } }));
+  const link = view.dom.querySelector<HTMLElement>(".cm-browser-link")!;
+  expect(link).not.toBeNull();
+  await act(async () => link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })));
+  expect(messages).toContainEqual({ version: 1, type: "openDocumentLink", path: "notes/other.md" });
+  expect(view.state.doc.toString()).toBe(source);
+});

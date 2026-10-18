@@ -4,6 +4,7 @@ import AppKit
 final class JotAppDelegate: NSObject, NSApplicationDelegate {
     private let sessionStore = SessionStore.live()
     private var coordinator: AppCoordinator?
+    private var pendingFiles: [URL] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -12,7 +13,14 @@ final class JotAppDelegate: NSObject, NSApplicationDelegate {
             let coordinator = AppCoordinator(session: session, sessionStore: sessionStore)
             self.coordinator = coordinator
             coordinator.start()
+            for url in pendingFiles { coordinator.documentWindows.open(url) }
+            pendingFiles = []
         }
+    }
+
+    func application(_ sender: NSApplication, open urls: [URL]) {
+        guard let coordinator else { pendingFiles.append(contentsOf: urls); return }
+        for url in urls { coordinator.documentWindows.open(url) }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

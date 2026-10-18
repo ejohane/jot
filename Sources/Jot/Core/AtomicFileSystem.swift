@@ -67,7 +67,9 @@ struct LocalJotFileSystem: JotFileSystem {
         if fileExists(at: temporaryURL) {
             try removeItem(at: temporaryURL)
         }
-        guard FileManager.default.createFile(atPath: temporaryURL.path, contents: nil) else {
+        let permissions = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.posixPermissions]
+        guard FileManager.default.createFile(atPath: temporaryURL.path, contents: nil,
+                                             attributes: permissions.map { [.posixPermissions: $0] }) else {
             throw CocoaError(.fileWriteUnknown)
         }
 
