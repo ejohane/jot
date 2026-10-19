@@ -32,7 +32,9 @@ struct PersistedSession: Codable, Equatable, Sendable {
     var launchAtLogin: Bool
     var recoveryText: String?
     var recoveryRevision: Int?
+    #if os(macOS)
     var keyboardShortcuts: [String: KeyChord]? = nil
+    #endif
 
     /// Opening a different notebook preserves app preferences, never document state.
     func openingNotebook(bookmark: Data, storage: NotebookStorage) -> PersistedSession {
