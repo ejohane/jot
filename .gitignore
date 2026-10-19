@@ -12,3 +12,5 @@ __pycache__/
 output/playwright/
 
 /artifacts/document-windows/
+
+/artifacts/zen/

@@ -1,3 +1,4 @@
+import { zenWriting, setZenMode, zenMode } from "./zen";
 import { mobileInlineEditing, mobileInlineEnabled, mobileFormatActive, resetMobileInline } from "./mobileInline";
 import { attachmentBaseURL, attachmentPresentation, beginImageImport, endImageImport, insertImportedImage, pendingImageImport } from "./attachments";
 import { deleteMarkupBackward, markdown } from "@codemirror/lang-markdown";
@@ -268,6 +269,7 @@ export function Editor() {
         formattingToolbar,
         dictationPreview,
         editorTheme,
+        zenWriting,
         // WebKit's native caret animates behind programmatic list indentation.
         drawSelection(),
         tooltips({ parent: document.body, tooltipSpace: () => ({ top: 8, left: 8, right: window.innerWidth - 8, bottom: window.innerHeight - 8 }) }),
@@ -421,6 +423,12 @@ export function Editor() {
       receive(message) {
         if (message.version !== 1) return;
         switch (message.type) {
+          case "zenMode":
+            if (window.jotMobileEditor || document.documentElement.classList.contains("ios")) break;
+            document.documentElement.classList.toggle("zen-mode", message.mode !== "off");
+            if (message.mode !== "off") changePanel(false);
+            view.dispatch({ effects: setZenMode.of(message.mode) });
+            break;
           case "setEditingEnabled":
             view.dispatch({ effects: editing.reconfigure([EditorState.readOnly.of(!message.enabled), EditorView.editable.of(message.enabled)]) });
             break;
@@ -559,16 +567,16 @@ export function Editor() {
             imageKeepsFrame = /!\[[^\n]*\]\([^\n]*attachments\//.test(message.text);
             requestAnimationFrame(() => {
               if (sessionLoadGeneration.current !== generation) return;
-              view.scrollDOM.scrollTop = message.viewport.scrollTop;
+              if (view.state.field(zenMode) === "off") view.scrollDOM.scrollTop = message.viewport.scrollTop;
               if (message.focus !== false && !panelOpenRef.current) view.focus();
               sendPreferredHeight(view);
-              if (message.documentWindow) view.requestMeasure({
+              if (message.documentWindow && view.state.field(zenMode) === "off") view.requestMeasure({
                 read: () => message.viewport.scrollTop,
                 write: (top) => {
-                  if (sessionLoadGeneration.current !== generation) return;
+                  if (sessionLoadGeneration.current !== generation || view.state.field(zenMode) !== "off") return;
                   view.scrollDOM.scrollTop = top;
                   requestAnimationFrame(() => {
-                    if (sessionLoadGeneration.current !== generation) return;
+                    if (sessionLoadGeneration.current !== generation || view.state.field(zenMode) !== "off") return;
                     view.scrollDOM.scrollTop = top;
                     sendEditorState(view);
                   });
@@ -661,6 +669,7 @@ export function Editor() {
       composer?.removeEventListener("dragleave", dragLeave, true);
       composer?.removeEventListener("drop", drop, true);
       viewRef.current = null;
+      document.documentElement.classList.remove("zen-mode");
       view.destroy();
       setBridgeSessionID(undefined);
       delete window.JotNative;

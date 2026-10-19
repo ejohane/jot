@@ -307,6 +307,11 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
     func applyActionPanelVisibility(_ visible: Bool) {
         guard let panel = window, visible != actionPanelVisible else { return }
         actionPanelVisible = visible
+        // Zen dismisses the palette on entry; AppKit owns the full-screen frame.
+        guard !isFullScreenTransition, !panel.styleMask.contains(.fullScreen) else {
+            frameBeforeActions = nil
+            return
+        }
         isProgrammaticFrameChange = true
         defer { isProgrammaticFrameChange = false }
         if visible, panel.frame.height < 430 {
@@ -337,7 +342,24 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         if restoringFocus { webView.evaluateJavaScript("document.querySelector('.cm-content')?.focus()") }
     }
 
-    func send(_ payload: [String: Any]) { bridge.send(payload) }
+    private(set) var zenFocus = "paragraph"
+
+    func setZenFocus(_ focus: String) {
+        guard ["sentence", "paragraph"].contains(focus) else { return }
+        zenFocus = focus
+        syncZenMode()
+    }
+
+    private func syncZenMode() {
+        bridge.send(["version": 1, "type": "zenMode",
+                     "mode": window?.styleMask.contains(.fullScreen) == true ? zenFocus : "off"])
+    }
+
+    func send(_ payload: [String: Any]) {
+        bridge.send(payload)
+        // Also restore presentation after a WebKit process reload/session load.
+        if payload["type"] as? String == "loadSession" { syncZenMode() }
+    }
 
     func configureAttachmentRoot(_ root: URL?, documentImages: Bool = false) { resourceHandler.configureAttachmentRoot(root, documentImages: documentImages) }
 
@@ -405,13 +427,19 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         recordFrame()
     }
 
+    func window(_ window: NSWindow, willUseFullScreenPresentationOptions proposedOptions: NSApplication.PresentationOptions) -> NSApplication.PresentationOptions {
+        proposedOptions.union(.autoHideToolbar)
+    }
+
     func windowWillEnterFullScreen(_ notification: Notification) {
         isFullScreenTransition = true
         window?.level = .normal
+        window?.titleVisibility = .hidden
     }
 
     func windowDidEnterFullScreen(_ notification: Notification) {
         isFullScreenTransition = false
+        syncZenMode()
     }
 
     func windowWillExitFullScreen(_ notification: Notification) {
@@ -420,16 +448,21 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
 
     func windowDidExitFullScreen(_ notification: Notification) {
         isFullScreenTransition = false
+        syncZenMode()
         window?.level = isDocument ? .normal : .floating
+        window?.titleVisibility = isDocument ? .visible : .hidden
     }
 
     func windowDidFailToEnterFullScreen(_ window: NSWindow) {
         isFullScreenTransition = false
+        syncZenMode()
         window.level = isDocument ? .normal : .floating
+        window.titleVisibility = isDocument ? .visible : .hidden
     }
 
     func windowDidFailToExitFullScreen(_ window: NSWindow) {
         isFullScreenTransition = false
+        syncZenMode()
     }
 
     private func recordFrame() {
