@@ -187,10 +187,14 @@ export const formattingToolbar = [
       if (!view.state.field(toolbarState).tooltip) return false;
       view.dispatch({ effects: visibility.of(false) }); return true;
     } },
-    { key: "Alt-F10", run: (view) => {
-      const tooltip = view.state.field(toolbarState).tooltip;
-      if (!tooltip) return false;
-      getTooltip(view, tooltip)?.dom.querySelector<HTMLButtonElement>("button")?.focus(); return true;
-    } },
+    { key: "Alt-F10", run: (view) => document.documentElement.dataset.nativeShortcuts ? false : focusFormattingToolbar(view) },
   ])),
 ];
+
+
+export function focusFormattingToolbar(view: EditorView): boolean {
+  const tooltip = view.state.field(toolbarState).tooltip;
+  if (!tooltip) return false;
+  getTooltip(view, tooltip)?.dom.querySelector<HTMLButtonElement>("button")?.focus();
+  return true;
+}

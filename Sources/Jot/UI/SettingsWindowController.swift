@@ -5,13 +5,11 @@ import SwiftUI
 final class JotSettingsModel: ObservableObject {
     @Published var folder: URL?
     @Published var storage: NotebookStorage = .local
-    @Published var shortcut: ShortcutChoice = .optionSpace
     @Published var launchAtLogin = false
     @Published var canChooseFolder = true
     @Published var loginNeedsApproval = false
     var chooseFolder: () -> Void = {}
     var revealFolder: () -> Void = {}
-    var changeShortcut: (ShortcutChoice) -> Void = { _ in }
     var changeLaunchAtLogin: (Bool) -> Void = { _ in }
     var checkForUpdates: () -> Void = {}
 }
@@ -19,8 +17,11 @@ final class JotSettingsModel: ObservableObject {
 /// Jot has an AppKit application lifecycle. Keep window ownership here and
 /// use native SwiftUI forms inside the standard macOS preferences toolbar.
 @MainActor
-final class SettingsWindowController: NSWindowController {
-    init(model: JotSettingsModel) {
+final class SettingsWindowController: NSWindowController, NSWindowDelegate {
+    private let shortcuts: KeyboardShortcuts
+
+    init(model: JotSettingsModel, shortcuts: KeyboardShortcuts) {
+        self.shortcuts = shortcuts
         let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
         let general = NSTabViewItem(viewController: NSHostingController(rootView: GeneralSettingsView(model: model)))
@@ -32,18 +33,27 @@ final class SettingsWindowController: NSWindowController {
         about.label = "About"
         about.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: "About")
         tabs.addTabViewItem(general)
+        let keyboard = NSTabViewItem(viewController: NSHostingController(rootView: ShortcutSettingsView(shortcuts: shortcuts)))
+        keyboard.viewController?.title = "Jot Settings"
+        keyboard.label = "Shortcuts"
+        keyboard.image = NSImage(systemSymbolName: "keyboard", accessibilityDescription: "Shortcuts")
+        tabs.addTabViewItem(keyboard)
         tabs.addTabViewItem(about)
         let window = NSWindow(contentViewController: tabs)
         window.title = "Jot Settings"
         window.styleMask = [.titled, .closable, .miniaturizable]
-        window.setContentSize(NSSize(width: 540, height: 390))
+        window.setContentSize(NSSize(width: 540, height: 580))
         window.toolbarStyle = .preference
         // The composer floats; keep its settings reachable above the editor.
         window.level = .floating
         window.isReleasedWhenClosed = false
         window.center()
         super.init(window: window)
+        window.delegate = self
     }
+
+    func windowWillClose(_ notification: Notification) { shortcuts.recording = nil }
+    func windowDidResignKey(_ notification: Notification) { shortcuts.recording = nil }
 
     required init?(coder: NSCoder) { nil }
 
@@ -88,15 +98,10 @@ private struct GeneralSettingsView: View {
                     Text("Allow Jot in System Settings → General → Login Items.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Picker("Open Jot shortcut", selection: Binding(get: { model.shortcut }, set: model.changeShortcut)) {
-                    ForEach(ShortcutChoice.allCases, id: \.self) { choice in
-                        Text(choice.displayName).tag(choice)
-                    }
-                }
             }
         }
         .formStyle(.grouped)
-        .frame(width: 540, height: 390)
+        .frame(width: 540, height: 580)
     }
 }
 
@@ -118,6 +123,6 @@ private struct AboutSettingsView: View {
             Button("Check for Updates…", action: model.checkForUpdates)
                 .padding(.top, 6)
         }
-        .frame(width: 540, height: 390)
+        .frame(width: 540, height: 580)
     }
 }

@@ -120,9 +120,12 @@ The action panel offers New Note, Search Notes, Reveal in Finder, Open Notes Fol
 Note search uses an in-memory cache of the local Markdown archive, refreshed when you open the palette. Search matches all typed words, prioritizes first-line and exact-phrase matches, and shows dates and highlighted excerpts. Moving through results does not open them; Return or a click saves the current note and opens the selected result using viewing history. Escape returns to the unchanged editor selection.
 
 Open **Settings…** from the Jot application menu, the menu-bar item, or **Command-,**.
-The separate native settings window has General and About panes. General shows
+The separate native settings window has General, Shortcuts, and About panes. General shows
 the notebook location with **Show in Finder** and **Choose Folder…**, launch at
-login, and the global shortcut. About shows the app version/build and checks for
+login. Shortcuts lets you record combinations for capture, navigation, formatting,
+voice, window, and editing commands. Changes apply immediately, persist across
+launches, and update menu and command hints. Conflicts are rejected; Restore Defaults
+resets all bindings. About shows the app version/build and checks for
 updates. Development builds explain that updates require a published release.
 
 **Choose Folder…** saves pending writing and opens the chosen folder as a different

@@ -1893,3 +1893,33 @@ it("opens a relative Markdown link from a file window without modifying source",
   expect(messages).toContainEqual({ version: 1, type: "openDocumentLink", path: "notes/other.md" });
   expect(view.state.doc.toString()).toBe(source);
 });
+
+
+describe("configured native shortcuts", () => {
+  it("removes fixed command aliases, keeps literal editing, and runs native history commands", async () => {
+    const { view, messages } = await makeConnectedEditor("Original");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "keyboardShortcuts", labels: { undo: "⌘U", newNote: "⇧⌘N" } }));
+    await act(async () => view.dispatch({ changes: { from: 8, insert: " edited" } }));
+    await act(async () => {
+      view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true, cancelable: true }));
+      view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true, cancelable: true }));
+      view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "n", metaKey: true, bubbles: true, cancelable: true }));
+    });
+    expect(view.state.doc.toString()).toBe("Original edited");
+    expect(messages.some(message => message.type === "finishAndNew")).toBe(false);
+    await act(async () => window.JotNative?.receive({ version: 1, type: "editorCommand", command: "undo" }));
+    expect(view.state.doc.toString()).toBe("Original");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "editorCommand", command: "redo" }));
+    expect(view.state.doc.toString()).toBe("Original edited");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "editorCommand", command: "selectAll" }));
+    expect(view.state.selection.main.to).toBe(15);
+  });
+
+  it("keeps Escape dismissals separate from a remapped Hide shortcut", async () => {
+    const { messages } = await makeConnectedEditor("Keep me");
+    await act(async () => window.JotNative?.receive({ version: 1, type: "escape", dismissOnly: true }));
+    expect(messages.some(message => message.type === "hide")).toBe(false);
+    await act(async () => window.JotNative?.receive({ version: 1, type: "escape", dismissOnly: false }));
+    expect(messages.some(message => message.type === "hide")).toBe(true);
+  });
+});

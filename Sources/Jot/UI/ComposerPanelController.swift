@@ -223,8 +223,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
             guard let self, !self.menuIsTracking, let panel = self.window,
                   panel.isVisible, panel.isKeyWindow else { return event }
             // Handle this before WebKit's editor interprets Command-F as Find.
-            if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == [.control, .command],
-               event.charactersIgnoringModifiers?.lowercased() == "f" {
+            if (self.keyboardBindings?[ShortcutAction.fullScreen.rawValue] ?? ShortcutAction.fullScreen.defaultChord).matches(event) {
                 panel.toggleFullScreen(nil)
                 return nil
             }
@@ -355,7 +354,23 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
                      "mode": window?.styleMask.contains(.fullScreen) == true ? zenFocus : "off"])
     }
 
+    var keyboardBindings: [String: KeyChord]? {
+        didSet { sendKeyboardBindings() }
+    }
+
+    private func sendKeyboardBindings() {
+        guard let keyboardBindings else { return }
+        bridge.send(["version": 1, "type": "keyboardShortcuts",
+                     "labels": keyboardBindings.mapValues { $0.displayName }])
+    }
+
     func send(_ payload: [String: Any]) {
+        if payload["type"] as? String == "loadSession" { sendKeyboardBindings() }
+        var payload = payload
+        if payload["type"] as? String == "escape", payload["dismissOnly"] == nil {
+            payload["dismissOnly"] = keyboardBindings?[ShortcutAction.hideJot.rawValue] != nil
+                && keyboardBindings?[ShortcutAction.hideJot.rawValue] != ShortcutAction.hideJot.defaultChord
+        }
         bridge.send(payload)
         // Also restore presentation after a WebKit process reload/session load.
         if payload["type"] as? String == "loadSession" { syncZenMode() }
