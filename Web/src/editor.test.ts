@@ -1904,6 +1904,9 @@ describe("configured native shortcuts", () => {
       view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true, cancelable: true }));
       view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true, cancelable: true }));
       view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "n", metaKey: true, bubbles: true, cancelable: true }));
+      for (const key of ["i", "[", "]"]) {
+        view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key, metaKey: true, bubbles: true, cancelable: true }));
+      }
     });
     expect(view.state.doc.toString()).toBe("Original edited");
     expect(messages.some(message => message.type === "finishAndNew")).toBe(false);

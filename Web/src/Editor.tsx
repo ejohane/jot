@@ -448,7 +448,7 @@ export function Editor() {
               { key: "Backspace", run: deleteMarkupBackward },
               { key: "Tab", run: indentListItem },
               { key: "Shift-Tab", run: outdentListItem },
-              ...defaultKeymap.filter(binding => binding.key !== "Mod-a" && binding.key !== "Mod-Enter"),
+              ...defaultKeymap.filter(binding => !["Mod-a", "Mod-Enter", "Mod-i", "Mod-[", "Mod-]"].includes(binding.key ?? "")),
             ])) });
             break;
           case "editorCommand": {
