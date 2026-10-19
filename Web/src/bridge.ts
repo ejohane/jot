@@ -31,6 +31,7 @@ export type EditorToNative = { sessionID?: string } & (
 export type NoteSearchResult = { id: string; timestamp: number; title: string; excerpt: string; titleMatches: Array<{ from: number; to: number }>; excerptMatches: Array<{ from: number; to: number }> };
 
 export type NativeToEditor =
+  | { version: 1; type: "zenMode"; mode: import("./zen").ZenMode }
   | { version: 1; type: "setEditingEnabled"; enabled: boolean }
   | { version: 1; type: "beginImageFileDrop"; dropID: string; count: number; x: number; y: number }
   | { version: 1; type: "noteSearchResults"; requestID: number; results: NoteSearchResult[]; message?: string }

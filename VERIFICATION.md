@@ -111,3 +111,37 @@ physical/hardware or assistive-technology evidence not produced in this run:
 - 250,000-character input-to-paint instrumentation and oldest-supported-Mac performance;
 - multiple-display and sleep/wake hardware behavior;
 - the remaining accessibility interaction corpus.
+
+## Full-screen Zen mode
+
+Entering native full screen enables paragraph dimming and typewriter centering.
+The native title is hidden and the title bar/toolbar auto-hides in Zen; exiting
+full screen restores the document title.
+Window → Zen: Focus Sentence switches to sentence dimming; Focus Paragraph switches
+back. Both choices keep the caret line vertically centered when typing or moving
+it. Manual scrolling remains available. Escape returns to the windowed editor.
+The focus choice belongs to the current window for its lifetime.
+
+Reproduce the automated checks:
+
+```sh
+npm --prefix Web ci
+npm --prefix Web test
+npm --prefix Web run build
+JOT_ZEN_PROOF_DIR="$PWD/artifacts/zen" swift test
+./script/build_and_run.sh --verify
+```
+
+`zen.test.ts` covers paragraph/sentence boundaries, multiline source, selections,
+empty documents, Unicode, headings, list items, and exact source preservation.
+`ZenWebKitTests` loads the built production bundle in macOS WebKit and checks caret
+geometry at the first, middle, and last positions of a long document, computed
+focus colors, hidden navigation, and exact source/selection round trips. Its
+layout case is opt-in via `JOT_ZEN_PROOF_DIR`; it writes `webkit-layout.json` there.
+The other native case guards palette dismissal during full-screen transitions.
+
+For native acceptance, open a disposable Markdown file in `dist/Jot.app`, enter
+full screen, exercise both Window-menu focus choices, type, and inspect the saved
+file bytes. Press Escape and confirm the populated window returns. Repeat entry
+from the green window button. Capture these states directly; a build or a WebKit
+layout check alone does not prove the native full-screen interaction.

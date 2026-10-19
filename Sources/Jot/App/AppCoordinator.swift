@@ -675,6 +675,10 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 activeJot: session.activeJot,
                 hasBlockingWriteError: hasBlockingWriteError
             ) && !isOpeningNote
+        case #selector(focusZenParagraph), #selector(focusZenSentence):
+            let mode = menuItem.action == #selector(focusZenSentence) ? "sentence" : "paragraph"
+            menuItem.state = focusedEditor.zenFocus == mode ? .on : .off
+            return true
         case #selector(chooseRoot):
             return !isOpeningNote && !isImportingImage && (voiceDictation.state == .idle || voiceDictation.state == .error)
         case #selector(revealCurrentJot):
@@ -1003,12 +1007,18 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         let fullScreen = item("Toggle Full Screen", action: #selector(toggleFullScreenFromMenu), key: "f")
         fullScreen.keyEquivalentModifierMask = [.control, .command]
         windowMenu.addItem(fullScreen)
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(item("Zen: Focus Paragraph", action: #selector(focusZenParagraph), key: ""))
+        windowMenu.addItem(item("Zen: Focus Sentence", action: #selector(focusZenSentence), key: ""))
         NSApp.windowsMenu = windowMenu
         windowItem.submenu = windowMenu
         mainMenu.addItem(windowItem)
 
         NSApp.mainMenu = mainMenu
     }
+
+    @objc private func focusZenParagraph() { focusedEditor.setZenFocus("paragraph") }
+    @objc private func focusZenSentence() { focusedEditor.setZenFocus("sentence") }
 
     @objc private func closeFocusedWindow() { focusedEditor.window?.performClose(nil) }
 

@@ -325,3 +325,26 @@ button, .cm-content { -webkit-font-smoothing: antialiased; }
 .cm-markdown-table th { font-weight: 650; background: var(--selection); }
 .cm-markdown-table code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
 .cm-table-link { color: var(--link); text-decoration: underline; text-underline-offset: 0.15em; }
+
+/* Full-screen writing: room above the first line and below the last line lets
+   every caret position reach the middle without changing the document. */
+html.zen-mode .editor { inset: 0; }
+html.zen-mode .editor .cm-scroller {
+  padding: 0 max(32px, calc((100% - 680px) / 2));
+  scrollbar-width: none;
+}
+html.zen-mode .cm-scroller::-webkit-scrollbar { display: none; }
+html.zen-mode .editor .cm-content {
+  padding-block: calc(50vh - 0.775em);
+  min-height: 100%;
+}
+html.zen-mode .cm-zen-dim, html.zen-mode .cm-zen-dim * {
+  color: color-mix(in srgb, var(--text) 40%, var(--background)) !important;
+}
+html.zen-mode .note-rail,
+html.zen-mode .command-controls,
+html.zen-mode .dictation-controls:not(.is-persistent),
+html.zen-mode .formatting-toolbar { display: none !important; }
+@media (prefers-contrast: more) {
+  html.zen-mode .cm-zen-dim, html.zen-mode .cm-zen-dim * { color: var(--secondary) !important; }
+}
