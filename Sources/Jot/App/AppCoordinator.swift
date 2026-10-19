@@ -43,8 +43,12 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     private var sessionGeneration = 0
     private var shortcutRegistrationFailed = false
     private var hasBlockingWriteError = false
+    private let keyboardShortcuts: KeyboardShortcuts
+    private let shortcutPanels = NSHashTable<ComposerPanelController>.weakObjects()
+    private var keyboardMonitor: Any?
 
     init(session: PersistedSession, sessionStore: SessionStore) {
+        self.keyboardShortcuts = KeyboardShortcuts(session: session)
         self.session = session
         self.sessionStore = sessionStore
         super.init()
@@ -95,29 +99,43 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             self.panelController.send(["version": 1, "type": "beginImageFileDrop", "dropID": dropID,
                                        "count": files.count, "x": point.x, "y": point.y])
         }
-        shortcut = GlobalShortcut { [weak self] in self?.showJot() }
-        let candidates = [session.shortcut] + ShortcutChoice.allCases.filter { $0 != session.shortcut }
-        if let registered = candidates.first(where: { choice in
-            do {
-                try shortcut.register(choice)
-                return true
-            } catch {
-                return false
+        shortcut = GlobalShortcut { [weak self] in
+            guard let self, self.keyboardShortcuts.recording == nil else { return }
+            self.showJot()
+        }
+        do { try shortcut.register(keyboardShortcuts[.showJot]) }
+        catch { shortcutRegistrationFailed = true }
+        configureShortcutPanel(panelController)
+        keyboardShortcuts.apply = { [weak self] bindings in
+            guard let self, let global = bindings[ShortcutAction.showJot.rawValue] else { return }
+            try self.shortcut.register(global)
+            self.shortcutRegistrationFailed = false
+            self.session.keyboardShortcuts = bindings
+            for panel in self.shortcutPanels.allObjects { panel.keyboardBindings = bindings }
+            self.updateShortcutMenus(bindings)
+            self.persistSessionSoon()
+        }
+        keyboardShortcuts.onRecordingChanged = { [weak self] recording in
+            guard let self else { return }
+            if recording { self.shortcut.unregister() }
+            else {
+                do { try self.shortcut.register(self.keyboardShortcuts[.showJot]); self.shortcutRegistrationFailed = false }
+                catch { self.keyboardShortcuts.error = "The global shortcut is unavailable. Choose another shortcut for Show Jot." }
             }
-        }) {
-            self.session.shortcut = registered
-        } else {
-            shortcutRegistrationFailed = true
+        }
+        keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            return self.handleShortcutEvent(event)
         }
         settingsModel.chooseFolder = { [weak self] in self?.chooseRoot() }
         settingsModel.revealFolder = { [weak self] in self?.openJotsFolder() }
-        settingsModel.changeShortcut = { [weak self] in self?.setShortcut($0) }
         settingsModel.changeLaunchAtLogin = { [weak self] in self?.setLaunchAtLogin($0) }
         settingsModel.checkForUpdates = { [weak self] in self?.appUpdater.checkForUpdates() }
         appUpdater.start()
         documentWindows.capturePath = { [weak self] in self?.session.activeJot?.path }
         documentWindows.focusCapture = { [weak self] in self?.show() }
         documentWindows.configure = { [weak self] controller in
+            self?.configureShortcutPanel(controller.panel)
             controller.openNote = { [weak self] id in self?.editorRequestedNoteWindow(id: id) }
             controller.searchNotes = { [weak self] query, requestID, refresh, panel in
                 guard let self else { return }
@@ -131,6 +149,11 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         }
         configureApplicationMenu()
         configureStatusItem()
+        updateShortcutMenus(keyboardShortcuts.bindings)
+    }
+
+    isolated deinit {
+        if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }
     }
 
     func start() {
@@ -755,14 +778,13 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
     @objc private func showSettings() {
         refreshSettings()
-        if settingsController == nil { settingsController = SettingsWindowController(model: settingsModel) }
+        if settingsController == nil { settingsController = SettingsWindowController(model: settingsModel, shortcuts: keyboardShortcuts) }
         settingsController?.present()
     }
 
     private func refreshSettings() {
         settingsModel.folder = rootURL
         settingsModel.storage = session.storage ?? .local
-        settingsModel.shortcut = session.shortcut
         settingsModel.launchAtLogin = SMAppService.mainApp.status == .enabled
         settingsModel.loginNeedsApproval = SMAppService.mainApp.status == .requiresApproval
         settingsModel.canChooseFolder = !isOpeningNote && !isImportingImage
@@ -864,21 +886,6 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
                 alert.informativeText = error.localizedDescription
                 alert.runModal()
             }
-        }
-    }
-
-    private func setShortcut(_ choice: ShortcutChoice) {
-        defer { refreshSettings() }
-        do {
-            try shortcut.register(choice)
-            session.shortcut = choice
-            shortcutRegistrationFailed = false
-            persistSessionSoon()
-        } catch {
-            let alert = NSAlert()
-            alert.messageText = "That shortcut is unavailable."
-            alert.informativeText = "Another application may already be using it."
-            alert.runModal()
         }
     }
 
@@ -1020,7 +1027,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     @objc private func focusZenParagraph() { focusedEditor.setZenFocus("paragraph") }
     @objc private func focusZenSentence() { focusedEditor.setZenFocus("sentence") }
 
-    @objc private func closeFocusedWindow() { focusedEditor.window?.performClose(nil) }
+    @objc private func closeFocusedWindow() { NSApp.keyWindow?.performClose(nil) }
 
     @objc private func toggleFullScreenFromMenu() {
         focusedEditor.window?.toggleFullScreen(nil)
@@ -1277,6 +1284,88 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
             return true
         } catch {
             return false
+        }
+    }
+}
+
+
+extension AppCoordinator {
+    private func configureShortcutPanel(_ panel: ComposerPanelController) {
+        shortcutPanels.add(panel)
+        panel.keyboardBindings = keyboardShortcuts.bindings
+    }
+
+    private func updateShortcutMenus(_ bindings: [String: KeyChord]) {
+        let selectors: [Selector: ShortcutAction] = [
+            #selector(showJot): .showJot, #selector(finishAndNewFromMenu): .finishAndNew,
+            #selector(showSettings): .settings, #selector(quit): .quit, #selector(chooseRoot): .changeFolder,
+            #selector(openMarkdownFile): .openFile, #selector(closeFocusedWindow): .closeWindow,
+            #selector(toggleFullScreenFromMenu): .fullScreen, #selector(showActionsFromMenu): .actions,
+            #selector(searchNotesFromMenu): .searchNotes, #selector(findInNoteFromMenu): .find,
+            #selector(toggleDictationFromMenu): .dictation, #selector(navigateLatestFromMenu): .latest,
+            #selector(navigateBackFromMenu): .back, #selector(navigateForwardFromMenu): .forward,
+            #selector(selectAllFromMenu): .selectAll,
+            Selector("undo:"): .undo, Selector("redo:"): .redo,
+            #selector(NSText.cut(_:)): .cut, #selector(NSText.copy(_:)): .copy, #selector(NSText.paste(_:)): .paste,
+        ]
+        func update(_ menu: NSMenu?) {
+            for item in menu?.items ?? [] {
+                var action = item.action.flatMap { selectors[$0] }
+                if item.action == #selector(toggleInlineFormatFromMenu(_:)) {
+                    action = (item.representedObject as? String) == "bold" ? .bold : .italic
+                }
+                if let action, let chord = bindings[action.rawValue] {
+                    item.keyEquivalent = chord.key
+                    item.keyEquivalentModifierMask = chord.flags
+                }
+                update(item.submenu)
+            }
+        }
+        update(NSApp.mainMenu)
+        update(statusItem.menu)
+    }
+
+    private func handleShortcutEvent(_ event: NSEvent) -> NSEvent? {
+        if let action = keyboardShortcuts.recording, event.window === settingsController?.window {
+            guard !event.isARepeat, let key = event.characters(byApplyingModifiers: []), key.count == 1 else { return nil }
+            keyboardShortcuts.assign(KeyChord(event.keyCode, key, event.modifierFlags), to: action)
+            return nil
+        }
+        guard NSApp.modalWindow == nil,
+              let action = ShortcutAction.allCases.first(where: { keyboardShortcuts[$0].matches(event) }),
+              action != .showJot else { return event }
+        let inEditor = shortcutPanels.allObjects.contains { $0.window === event.window }
+        guard inEditor || [.settings, .quit, .closeWindow].contains(action) else { return event }
+        if !event.isARepeat { performShortcut(action) }
+        return nil
+    }
+
+    private func performShortcut(_ action: ShortcutAction) {
+        switch action {
+        case .showJot: showJot()
+        case .finishAndNew, .newNote: finishAndNewFromMenu()
+        case .hideJot:
+            if focusedEditor.window?.styleMask.contains(.fullScreen) == true { focusedEditor.hide() }
+            else { focusedEditor.send(["version": 1, "type": "escape", "dismissOnly": false]) }
+        case .changeFolder: chooseRoot()
+        case .settings: showSettings()
+        case .quit: quit()
+        case .openFile: openMarkdownFile()
+        case .closeWindow: closeFocusedWindow()
+        case .fullScreen: toggleFullScreenFromMenu()
+        case .actions: showActionsFromMenu()
+        case .searchNotes: searchNotesFromMenu()
+        case .find: findInNoteFromMenu()
+        case .dictation: toggleDictationFromMenu()
+        case .latest: navigateLatestFromMenu()
+        case .back: navigateBackFromMenu()
+        case .forward: navigateForwardFromMenu()
+        case .bold, .italic:
+            focusedEditor.send(["version": 1, "type": "toggleFormat", "format": action.rawValue])
+        case .undo, .redo, .selectAll, .findNext, .findPrevious, .focusToolbar:
+            focusedEditor.send(["version": 1, "type": "editorCommand", "command": action.rawValue])
+        case .cut, .copy, .paste:
+            NSApp.sendAction(Selector(action.rawValue + ":"), to: nil, from: self)
         }
     }
 }

@@ -2,7 +2,7 @@ import { zenWriting, setZenMode, zenMode } from "./zen";
 import { mobileInlineEditing, mobileInlineEnabled, mobileFormatActive, resetMobileInline } from "./mobileInline";
 import { attachmentBaseURL, attachmentPresentation, beginImageImport, endImageImport, insertImportedImage, pendingImageImport } from "./attachments";
 import { deleteMarkupBackward, markdown } from "@codemirror/lang-markdown";
-import { defaultKeymap, history, historyKeymap, selectAll } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, selectAll, undo, redo } from "@codemirror/commands";
 import { Annotation, Compartment, EditorSelection, EditorState, Transaction } from "@codemirror/state";
 import { drawSelection, EditorView, keymap, tooltips } from "@codemirror/view";
 import { GFM } from "@lezer/markdown";
@@ -18,7 +18,7 @@ import { indentListItem, outdentListItem } from "./listIndent";
 import { continueMarkdownList } from "./listNewline";
 import { activeInlineFormats, selectedHeadingLevel, selectedTextStyle, setTextStyle, toggleInlineCode } from "./selectionFormatting";
 import { toggleInlineFormat } from "./formatting";
-import { formattingToolbar } from "./formattingToolbar";
+import { formattingToolbar, focusFormattingToolbar } from "./formattingToolbar";
 import { usePointerActivity } from "./usePointerActivity";
 import { NoteRail, type RailNote } from "./NoteRail";
 import { NoteSearchPanel } from "./NoteSearchPanel";
@@ -88,6 +88,7 @@ export function Editor() {
     if (mode === "notes") { setSearchResults([]); setSearchLoading(true); }
     changePanel(true);
   };
+  const [shortcutLabels, setShortcutLabels] = useState<Record<string, string>>({});
   const host = useRef<HTMLDivElement>(null);
   const revisionRef = useRef(0);
   const documentWindowRef = useRef(false);
@@ -253,6 +254,8 @@ export function Editor() {
       }
     };
 
+    let nativeShortcutRouting = false;
+    const nativeKeys = new Compartment();
     const editing = new Compartment();
     const state = EditorState.create({
       doc: "",
@@ -276,7 +279,7 @@ export function Editor() {
         EditorView.lineWrapping,
         noteHistory.of(history()),
         findInNote,
-        keymap.of([
+        nativeKeys.of(keymap.of([
           { key: "Mod-p", run: () => { showPalette("notes"); return true; } },
           { key: "Mod-k", run: () => { showPalette("actions"); return true; } },
           { key: "Mod-f", run: openSearchPanel },
@@ -313,7 +316,7 @@ export function Editor() {
           },
           ...defaultKeymap,
           ...historyKeymap,
-        ]),
+        ])),
         EditorView.domEventHandlers({
           compositionend: (_event, view) => {
             if (compositionDirty.current) {
@@ -401,6 +404,16 @@ export function Editor() {
     composer?.addEventListener("drop", drop, true);
     const documentKeyDown = (event: KeyboardEvent) => {
       if (event.isComposing) return;
+      if (nativeShortcutRouting) {
+        // Cocoa routes configured commands. Do not keep WebKit's old editing
+        // accelerators as hidden aliases in the Markdown editor.
+        if (event.target instanceof Element && event.target.closest(".cm-content")
+            && event.metaKey && !event.altKey && !event.ctrlKey
+            && ["a", "z", "y", "x", "c", "v"].includes(event.key.toLowerCase())) {
+          event.preventDefault(); event.stopPropagation();
+        }
+        return;
+      }
       if (event.metaKey && event.key.toLowerCase() === "p") {
         event.preventDefault(); event.stopPropagation(); showPalette("notes");
       } else if (event.metaKey && event.key.toLowerCase() === "k") {
@@ -423,6 +436,32 @@ export function Editor() {
       receive(message) {
         if (message.version !== 1) return;
         switch (message.type) {
+          case "keyboardShortcuts":
+            if (window.jotMobileEditor || document.documentElement.classList.contains("ios")) break;
+            nativeShortcutRouting = true;
+            document.documentElement.dataset.nativeShortcuts = "true";
+            setShortcutLabels(message.labels);
+            view.dispatch({ effects: nativeKeys.reconfigure(keymap.of([
+              { key: "Enter", run: continueMarkdownList },
+              { key: "Enter", run: insertLiteralNewline },
+              { key: "Shift-Enter", run: insertLiteralNewline },
+              { key: "Backspace", run: deleteMarkupBackward },
+              { key: "Tab", run: indentListItem },
+              { key: "Shift-Tab", run: outdentListItem },
+              ...defaultKeymap.filter(binding => !["Mod-a", "Mod-Enter", "Mod-i", "Mod-[", "Mod-]"].includes(binding.key ?? "")),
+            ])), annotations: loadSession.of(true) });
+            break;
+          case "editorCommand": {
+            const input = document.activeElement;
+            if (["undo", "redo", "selectAll"].includes(message.command)
+                && input instanceof HTMLInputElement) {
+              if (message.command === "selectAll") input.select();
+              else document.execCommand(message.command);
+            } else {
+              ({ undo, redo, selectAll, findNext, findPrevious, focusToolbar: focusFormattingToolbar })[message.command](view);
+            }
+            break;
+          }
           case "zenMode":
             if (window.jotMobileEditor || document.documentElement.classList.contains("ios")) break;
             document.documentElement.classList.toggle("zen-mode", message.mode !== "off");
@@ -455,7 +494,7 @@ export function Editor() {
           case "escape":
             if (panelOpenRef.current) changePanel(false);
             else if (searchPanelOpen(view.state)) { closeSearchPanel(view); view.focus(); }
-            else sendToNative({ version: 1, type: "hide", revision: revisionRef.current });
+            else if (!message.dismissOnly) sendToNative({ version: 1, type: "hide", revision: revisionRef.current });
             break;
           case "selectAll":
             selectAll(view);
@@ -670,6 +709,7 @@ export function Editor() {
       composer?.removeEventListener("drop", drop, true);
       viewRef.current = null;
       document.documentElement.classList.remove("zen-mode");
+      delete document.documentElement.dataset.nativeShortcuts;
       view.destroy();
       setBridgeSessionID(undefined);
       delete window.JotNative;
@@ -693,22 +733,22 @@ export function Editor() {
   };
 
   const actions: Action[] = [
-    { id: "new", label: "New Note", keywords: "create blank finish jot", icon: "M12 5v14M5 12h14", shortcut: ["⌘", "N"], group: 0,
+    { id: "new", label: "New Note", keywords: "create blank finish jot", icon: "M12 5v14M5 12h14", shortcut: shortcutLabels.newNote ? [shortcutLabels.newNote] : ["⌘", "N"], group: 0,
       disabledReason: !actionState.canNew ? documentEmpty ? "You’re already on a blank note." : "Wait for the current note to save before starting a new one." : undefined },
-    { id: "search", label: "Search Notes…", keywords: "browse find archive recent switch open", icon: "M11 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm5 13 5 5", shortcut: ["⌘", "P"], group: 0 },
+    { id: "search", label: "Search Notes…", keywords: "browse find archive recent switch open", icon: "M11 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm5 13 5 5", shortcut: shortcutLabels.searchNotes ? [shortcutLabels.searchNotes] : ["⌘", "P"], group: 0 },
     { id: "reveal", label: "Reveal in Finder", keywords: "file locate show folder markdown", icon: "M3 7h7l2 2h9v11H3V7ZM3 7V4h7l2 3M12 12v5m-2-2 2 2 2-2", group: 0,
       disabledReason: !actionState.canReveal ? "A saved note and an accessible notes folder are required." : undefined },
     { id: "folder", label: "Open Notes Folder", keywords: "finder jots directory files", icon: "M3 7V4h7l2 3h9v13H3V7Zm0 0h9", group: 0 },
     { id: "copy", label: "Copy Note", keywords: "clipboard markdown entire text", icon: "M9 5H5v16h12v-4M9 3h12v14H9V3Z", group: 1,
       disabledReason: documentEmpty ? "Write something first to copy this note." : undefined },
-    { id: "find", label: "Find in Note", keywords: "search text phrase", icon: "M11 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm5 13 5 5", shortcut: ["⌘", "F"], group: 1 },
-    { id: "dictation", label: dictation.status === "recording" ? "Finish Dictation" : "Start Dictation", keywords: "voice microphone speech transcribe record stop", icon: "M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0V5ZM5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8", shortcut: ["⇧", "⌘", "D"], group: 1,
+    { id: "find", label: "Find in Note", keywords: "search text phrase", icon: "M11 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm5 13 5 5", shortcut: shortcutLabels.find ? [shortcutLabels.find] : ["⌘", "F"], group: 1 },
+    { id: "dictation", label: dictation.status === "recording" ? "Finish Dictation" : "Start Dictation", keywords: "voice microphone speech transcribe record stop", icon: "M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0V5ZM5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8", shortcut: shortcutLabels.dictation ? [shortcutLabels.dictation] : ["⇧", "⌘", "D"], group: 1,
       disabledReason: dictation.status === "downloading" ? "The voice model is downloading." : dictation.status === "transcribing" ? "Dictation is finishing." : undefined },
-    { id: "latest", label: "Go to Latest Note", keywords: "current recent capture jot", icon: "M12 3v12m-4-4 4 4 4-4M5 17v4h14v-4", shortcut: ["⌘", "L"], group: 2,
+    { id: "latest", label: "Go to Latest Note", keywords: "current recent capture jot", icon: "M12 3v12m-4-4 4 4 4-4M5 17v4h14v-4", shortcut: shortcutLabels.latest ? [shortcutLabels.latest] : ["⌘", "L"], group: 2,
       disabledReason: !actionState.canLatest ? "No latest note is available yet." : undefined },
-    { id: "back", label: "Go Back", keywords: "previous history navigation", icon: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm4 9H8m4-4-4 4 4 4", shortcut: ["⌘", "["], group: 2,
+    { id: "back", label: "Go Back", keywords: "previous history navigation", icon: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm4 9H8m4-4-4 4 4 4", shortcut: shortcutLabels.back ? [shortcutLabels.back] : ["⌘", "["], group: 2,
       disabledReason: !actionState.canBack ? "No earlier note in your viewing history." : undefined },
-    { id: "forward", label: "Go Forward", keywords: "next history navigation", icon: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM8 12h8m-4-4 4 4-4 4", shortcut: ["⌘", "]"], group: 2,
+    { id: "forward", label: "Go Forward", keywords: "next history navigation", icon: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM8 12h8m-4-4 4 4-4 4", shortcut: shortcutLabels.forward ? [shortcutLabels.forward] : ["⌘", "]"], group: 2,
       disabledReason: !actionState.canForward ? "No later note in your viewing history." : undefined },
   ];
   const runAction = (id: string) => {
@@ -784,7 +824,7 @@ export function Editor() {
             className="chrome-button"
             type="button"
             aria-label="Start dictation"
-            title="Dictate locally (⌘⇧D)"
+            title={`Dictate locally (${shortcutLabels.dictation ?? "⌘⇧D"})`}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => sendToNative({ version: 1, type: "toggleDictation" })}
           >
@@ -801,7 +841,7 @@ export function Editor() {
           className="chrome-button"
           type="button"
           aria-label="Commands"
-          title="Commands (⌘K)"
+          title={`Commands (${shortcutLabels.actions ?? "⌘K"})`}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => showPalette("actions")}
         >

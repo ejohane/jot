@@ -31,11 +31,14 @@ export type EditorToNative = { sessionID?: string } & (
 export type NoteSearchResult = { id: string; timestamp: number; title: string; excerpt: string; titleMatches: Array<{ from: number; to: number }>; excerptMatches: Array<{ from: number; to: number }> };
 
 export type NativeToEditor =
+  | { version: 1; type: "keyboardShortcuts"; labels: Record<string, string> }
+  | { version: 1; type: "editorCommand"; command: "undo" | "redo" | "selectAll" | "findNext" | "findPrevious" | "focusToolbar" }
+  | { version: 1; type: "escape"; dismissOnly?: boolean }
   | { version: 1; type: "zenMode"; mode: import("./zen").ZenMode }
   | { version: 1; type: "setEditingEnabled"; enabled: boolean }
   | { version: 1; type: "beginImageFileDrop"; dropID: string; count: number; x: number; y: number }
   | { version: 1; type: "noteSearchResults"; requestID: number; results: NoteSearchResult[]; message?: string }
-  | { version: 1; type: "toggleActionPanel" | "showNoteSearch" | "findInNote" | "escape" }
+  | { version: 1; type: "toggleActionPanel" | "showNoteSearch" | "findInNote" }
   | { version: 1; type: "actionState"; canNew: boolean; canReveal: boolean; canLatest: boolean; canBack: boolean; canForward: boolean }
   | { version: 1; type: "loadSession"; documentWindow?: boolean; focus?: boolean; sessionID?: string; baseURL?: string; text: string; noteID?: string; revision: number; selection: Selection; viewport: Viewport }
   | { version: 1; type: "beginImagePaste" | "selectAll" }
