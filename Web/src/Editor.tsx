@@ -449,7 +449,7 @@ export function Editor() {
               { key: "Tab", run: indentListItem },
               { key: "Shift-Tab", run: outdentListItem },
               ...defaultKeymap.filter(binding => !["Mod-a", "Mod-Enter", "Mod-i", "Mod-[", "Mod-]"].includes(binding.key ?? "")),
-            ])) });
+            ])), annotations: loadSession.of(true) });
             break;
           case "editorCommand": {
             const input = document.activeElement;

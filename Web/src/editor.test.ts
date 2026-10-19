@@ -1899,6 +1899,7 @@ describe("configured native shortcuts", () => {
   it("removes fixed command aliases, keeps literal editing, and runs native history commands", async () => {
     const { view, messages } = await makeConnectedEditor("Original");
     await act(async () => window.JotNative?.receive({ version: 1, type: "keyboardShortcuts", labels: { undo: "⌘U", newNote: "⇧⌘N" } }));
+    expect(messages.filter(message => ["contentChanged", "editorStateChanged"].includes(message.type))).toEqual([]);
     await act(async () => view.dispatch({ changes: { from: 8, insert: " edited" } }));
     await act(async () => {
       view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true, cancelable: true }));
