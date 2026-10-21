@@ -17,39 +17,49 @@ struct JotKeyboardRail: View {
     private var layout: KeyboardRailLayout { isCustomizing ? draft : KeyboardRailLayout(storedValue: savedActions) }
 
     var body: some View {
-        HStack(spacing: 0) {
-            KeyboardRailIcons(
-                actions: layout.actions, isCustomizing: isCustomizing, enabled: enabled,
-                activeActions: activeActions, perform: perform, beginCustomizing: beginCustomizing,
-                remove: { action in animate { draft.remove(action) } },
-                move: { action, index in draft.move(action, to: index) }
-            )
-            .frame(height: isCustomizing ? 56 : 44)
-            if isCustomizing || layout.actions.isEmpty {
-                Button("Add action", systemImage: "plus") {
-                    if !isCustomizing { beginCustomizing() }
-                    showingActions = true
-                }
-                .labelStyle(.iconOnly)
-                .frame(width: 44, height: 44)
-                .accessibilityIdentifier("rail.add")
-            }
-            if isCustomizing {
-                Button("Done") {
-                    savedActions = draft.storedValue
-                    animate { isCustomizing = false }
-                    finished()
-                }
-                .font(.body.weight(.semibold))
-                .padding(.horizontal, 12)
-                .frame(minWidth: 60, minHeight: 44)
-                .accessibilityIdentifier("rail.done")
-            } else {
-                Button("Dismiss keyboard", systemImage: "keyboard.chevron.compact.down", action: dismissKeyboard)
+        GeometryReader { geometry in
+            let visibleActions = min(max(layout.actions.count, 1), 4)
+            let slotWidth = geometry.size.width / CGFloat(visibleActions + 1)
+            HStack(spacing: 0) {
+                KeyboardRailIcons(
+                    actions: layout.actions, isCustomizing: isCustomizing, enabled: enabled,
+                    activeActions: activeActions, perform: perform, beginCustomizing: beginCustomizing,
+                    remove: { action in animate { draft.remove(action) } },
+                    move: { action, index in draft.move(action, to: index) }
+                )
+                .frame(height: isCustomizing ? 56 : 44)
+                if isCustomizing || layout.actions.isEmpty {
+                    Button("Add action", systemImage: "plus") {
+                        if !isCustomizing { beginCustomizing() }
+                        showingActions = true
+                    }
                     .labelStyle(.iconOnly)
-                    .frame(width: 44, height: 44)
+                    .frame(width: isCustomizing ? 44 : slotWidth, height: 44)
+                    .accessibilityIdentifier("rail.add")
+                }
+                if isCustomizing {
+                    Button("Done") {
+                        savedActions = draft.storedValue
+                        animate { isCustomizing = false }
+                        finished()
+                    }
+                    .font(.body.weight(.semibold))
+                    .padding(.horizontal, 12)
+                    .frame(minWidth: 60, minHeight: 44)
+                    .accessibilityIdentifier("rail.done")
+                } else {
+                    Button(action: dismissKeyboard) {
+                        Image(systemName: "keyboard.chevron.compact.down")
+                            .frame(width: slotWidth, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Dismiss keyboard")
+                    .accessibilityIdentifier("rail.dismissKeyboard")
+                }
             }
+            .frame(height: geometry.size.height)
         }
+        .frame(height: isCustomizing ? 56 : 44)
         .buttonStyle(.plain)
         .font(.system(size: 21, weight: .semibold))
         .foregroundStyle(.primary)
@@ -124,6 +134,7 @@ private struct KeyboardRailIcons: UIViewRepresentable {
         private var configuration: KeyboardRailIcons?
         private var items: [KeyboardRailAction] = []
         private var moving = false
+        private var scrollStartOffset: CGFloat = 0
         private var lastDestination: IndexPath?
         private let feedback = UISelectionFeedbackGenerator()
         private lazy var hold = UILongPressGestureRecognizer(target: self, action: #selector(handleHold))
@@ -138,6 +149,7 @@ private struct KeyboardRailIcons: UIViewRepresentable {
             backgroundColor = .clear
             showsHorizontalScrollIndicator = false
             alwaysBounceHorizontal = false
+            decelerationRate = .fast
             dataSource = self
             delegate = self
             register(RailCell.self, forCellWithReuseIdentifier: "action")
@@ -146,7 +158,6 @@ private struct KeyboardRailIcons: UIViewRepresentable {
             addGestureRecognizer(hold)
             reorderPan.delegate = self
             addGestureRecognizer(reorderPan)
-            panGestureRecognizer.require(toFail: reorderPan)
             accessibilityIdentifier = "keyboardRail"
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -155,6 +166,8 @@ private struct KeyboardRailIcons: UIViewRepresentable {
             let changed = items != configuration.actions
             let modeChanged = self.configuration?.isCustomizing != configuration.isCustomizing
             self.configuration = configuration
+            // One pan recognizer owns horizontal interaction in both modes.
+            panGestureRecognizer.isEnabled = false
             if changed && !moving {
                 items = configuration.actions
                 reloadData()
@@ -164,13 +177,22 @@ private struct KeyboardRailIcons: UIViewRepresentable {
                     configure(cell, action: items[index])
                 }
             }
-            if modeChanged { collectionViewLayout.invalidateLayout() }
+            if modeChanged {
+                collectionViewLayout.invalidateLayout()
+                if !configuration.isCustomizing && !moving { setContentOffset(.zero, animated: false) }
+            }
+        }
+
+        override func touchesShouldCancel(in view: UIView) -> Bool {
+            // A swipe starting on an action button must still scroll the rail.
+            return true
         }
 
         override func layoutSubviews() {
             // Invalidate widths when Done appears, the device width changes, or text size changes.
             if let flow = collectionViewLayout as? UICollectionViewFlowLayout {
-                let width = max(48, bounds.width / CGFloat(max(items.count, 1)))
+                let visibleActions = min(max(items.count, 1), 4)
+                let width = bounds.width / CGFloat(visibleActions)
                 let size = CGSize(width: width, height: bounds.height)
                 if flow.itemSize != size { flow.itemSize = size }
             }
@@ -232,9 +254,15 @@ private struct KeyboardRailIcons: UIViewRepresentable {
 
         override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard let configuration, configuration.enabled else { return false }
-            if gestureRecognizer === reorderPan { return configuration.isCustomizing && actionAt(gestureRecognizer.location(in: self)) != nil }
+            if gestureRecognizer === reorderPan {
+                let velocity = reorderPan.velocity(in: self)
+                guard abs(velocity.x) > abs(velocity.y) else { return false }
+                return configuration.isCustomizing
+                    ? actionAt(gestureRecognizer.location(in: self)) != nil
+                    : contentSize.width > bounds.width + 1
+            }
             if gestureRecognizer === hold { return actionAt(gestureRecognizer.location(in: self)) != nil }
-            return true
+            return super.gestureRecognizerShouldBegin(gestureRecognizer)
         }
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
             // Minus buttons must be tappable without beginning a reorder.
@@ -261,6 +289,10 @@ private struct KeyboardRailIcons: UIViewRepresentable {
             }
         }
         @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+            guard configuration?.isCustomizing == true else {
+                scrollRail(gesture)
+                return
+            }
             switch gesture.state {
             case .began: startMovement(at: gesture.location(in: self))
             case .changed: if moving { updateInteractiveMovementTargetPosition(gesture.location(in: self)) }
@@ -269,6 +301,29 @@ private struct KeyboardRailIcons: UIViewRepresentable {
             default: break
             }
         }
+        private func scrollRail(_ gesture: UIPanGestureRecognizer) {
+            let maximum = max(0, contentSize.width - bounds.width)
+            switch gesture.state {
+            case .began:
+                scrollStartOffset = contentOffset.x
+            case .changed:
+                let offset = scrollStartOffset - gesture.translation(in: self).x
+                setContentOffset(CGPoint(x: min(maximum, max(0, offset)), y: 0), animated: false)
+            case .ended, .cancelled, .failed:
+                guard let flow = collectionViewLayout as? UICollectionViewFlowLayout,
+                      flow.itemSize.width > 0 else { return }
+                let velocity = gesture.state == .ended ? gesture.velocity(in: self).x : 0
+                let projected = contentOffset.x - velocity * 0.12
+                let snapped = (projected / flow.itemSize.width).rounded() * flow.itemSize.width
+                let destination = CGPoint(x: min(maximum, max(0, snapped)), y: 0)
+                UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.22,
+                               delay: 0, options: [.curveEaseOut, .beginFromCurrentState]) {
+                    self.contentOffset = destination
+                }
+            default: break
+            }
+        }
+
         private func startMovement(at point: CGPoint) {
             guard !moving, let index = actionAt(point), configuration?.isCustomizing == true else { return }
             moving = beginInteractiveMovementForItem(at: index)
