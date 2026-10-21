@@ -14,6 +14,8 @@
 		2F4406D3BA2D6D43C13EC3C2 /* AtomicFileSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE6DFEF0570A055C98D5A22B /* AtomicFileSystem.swift */; };
 		328ADD316A524BB5989AB037 /* InlineTags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 490A800820E242AED47A58C5 /* InlineTags.swift */; };
 		332CA49C9E84B81CC887D47D /* JotPagingSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7FFFE97F710F04683ECF47D /* JotPagingSurface.swift */; };
+		3DECEF353D32CCD4197E1D9E /* KeyboardRailLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = B495DA3BFE56A8F8D2D80E29 /* KeyboardRailLayout.swift */; };
+		424A8007A9F7D7BAE459376D /* JotKeyboardRail.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD6ED9835149E45186B9B346 /* JotKeyboardRail.swift */; };
 		42E3CFE32EFABA8E610BD263 /* LocalResourceSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFF44449D7BA8B92435AFB6B /* LocalResourceSchemeHandler.swift */; };
 		43A805F516684C7DE8A95BEA /* SpeechRecognitionCallbacks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F48D737EB9BC930C88FCB7F /* SpeechRecognitionCallbacks.swift */; };
 		532AC49BC41A52D8F588CEEE /* JotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 314C89545B2CD0908590922B /* JotStore.swift */; };
@@ -30,6 +32,7 @@
 		A9B1C4A59B175DF9AB1FFC4E /* CaptureLaunchPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 402D160A11287DF76F99417F /* CaptureLaunchPolicy.swift */; };
 		B1CE350BA36295D8E32E461A /* NoteNavigationHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = E366AAE5E061CB4AF0B46820 /* NoteNavigationHistory.swift */; };
 		BEA49D3507E171BCA4AB82E6 /* NotebookConflictArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBF17E95D5A2120197C43EBF /* NotebookConflictArchive.swift */; };
+		DDD575583E4B965F5A2427C5 /* KeyboardRailUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C28D4ADE935229A99D3D002 /* KeyboardRailUITests.swift */; };
 		DF038F73300ABBB288FD55BC /* dist in Resources */ = {isa = PBXBuildFile; fileRef = B9943DCF1318316CB8472944 /* dist */; };
 		E09D0F1E4472D9690921280C /* JotModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 729063AE400D5214F0838183 /* JotModels.swift */; };
 		E173B9AE89429E79624C2F4B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DF1CA692EEDF2A07E3413580 /* Assets.xcassets */; };
@@ -37,6 +40,16 @@
 		EF6484E53701C9E1510B94A4 /* NotebookAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CE2CF9F9998E322A653DA33 /* NotebookAttachment.swift */; };
 		F988AFFF19F21E5441CFD135 /* PhoneEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 708873236499D04E946BFCFB /* PhoneEditor.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		8F31D0A78B40E742AC1D563A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0BFAAC283D4060336A199C73 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 433F6FB356B7D963507C82B4;
+			remoteInfo = JotIOS;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		0F48D737EB9BC930C88FCB7F /* SpeechRecognitionCallbacks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognitionCallbacks.swift; sourceTree = "<group>"; };
@@ -54,16 +67,21 @@
 		70BC150176EC42F2A3C6E204 /* AppContainerNotePath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainerNotePath.swift; sourceTree = "<group>"; };
 		7152B88C332BFECD62196C29 /* NotebookStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotebookStorage.swift; sourceTree = "<group>"; };
 		729063AE400D5214F0838183 /* JotModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JotModels.swift; sourceTree = "<group>"; };
+		74E2CE7936085C8411A3C925 /* JotIOSUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = JotIOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7EAF7BD2A85D8D5BFC53B4ED /* PhoneDictation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneDictation.swift; sourceTree = "<group>"; };
+		8C28D4ADE935229A99D3D002 /* KeyboardRailUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardRailUITests.swift; sourceTree = "<group>"; };
 		91F858A491EAFDEC9508D18F /* JotPathAllocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JotPathAllocator.swift; sourceTree = "<group>"; };
 		A7FFFE97F710F04683ECF47D /* JotPagingSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JotPagingSurface.swift; sourceTree = "<group>"; };
 		AD4EA89BE2B54A2EB8ADAE03 /* TagIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagIndex.swift; sourceTree = "<group>"; };
+		B495DA3BFE56A8F8D2D80E29 /* KeyboardRailLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardRailLayout.swift; sourceTree = "<group>"; };
 		B9943DCF1318316CB8472944 /* dist */ = {isa = PBXFileReference; lastKnownFileType = folder; name = dist; path = ../../Web/dist; sourceTree = SOURCE_ROOT; };
 		BE6DFEF0570A055C98D5A22B /* AtomicFileSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AtomicFileSystem.swift; sourceTree = "<group>"; };
 		C05FB4CC3E69F7B0A0B106C7 /* JotApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JotApp.swift; sourceTree = "<group>"; };
 		CBF17E95D5A2120197C43EBF /* NotebookConflictArchive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotebookConflictArchive.swift; sourceTree = "<group>"; };
+		CC61FADADC993D34221C1486 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		D4DC5B9BAE9D0E5A7A3E4CDD /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
 		DA233786EA7A57D7051F45BB /* JotWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JotWriter.swift; sourceTree = "<group>"; };
+		DD6ED9835149E45186B9B346 /* JotKeyboardRail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JotKeyboardRail.swift; sourceTree = "<group>"; };
 		DF1CA692EEDF2A07E3413580 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E366AAE5E061CB4AF0B46820 /* NoteNavigationHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteNavigationHistory.swift; sourceTree = "<group>"; };
 		EED603993843F7BF53D5B82A /* NoteRailIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteRailIndex.swift; sourceTree = "<group>"; };
@@ -77,6 +95,7 @@
 			children = (
 				DF1CA692EEDF2A07E3413580 /* Assets.xcassets */,
 				C05FB4CC3E69F7B0A0B106C7 /* JotApp.swift */,
+				DD6ED9835149E45186B9B346 /* JotKeyboardRail.swift */,
 				59CEA9AEB464CE5618C1431E /* JotPageTitle.swift */,
 				A7FFFE97F710F04683ECF47D /* JotPagingSurface.swift */,
 				314C89545B2CD0908590922B /* JotStore.swift */,
@@ -86,12 +105,22 @@
 			path = JotIOS;
 			sourceTree = "<group>";
 		};
+		27B4343E3D099035D2DF5990 /* JotIOSUITests */ = {
+			isa = PBXGroup;
+			children = (
+				CC61FADADC993D34221C1486 /* Info.plist */,
+				8C28D4ADE935229A99D3D002 /* KeyboardRailUITests.swift */,
+			);
+			path = JotIOSUITests;
+			sourceTree = "<group>";
+		};
 		49E26AC6EB17BDAEE8605B05 = {
 			isa = PBXGroup;
 			children = (
 				B9943DCF1318316CB8472944 /* dist */,
 				E7E60931630255B71B455D02 /* Core */,
 				17F826998196B128B8C8CCDF /* JotIOS */,
+				27B4343E3D099035D2DF5990 /* JotIOSUITests */,
 				D4EA63CF4CD89CC411C0583B /* UI */,
 				F057B2CB9EB71AC9CABA9E72 /* Products */,
 			);
@@ -116,6 +145,7 @@
 				729063AE400D5214F0838183 /* JotModels.swift */,
 				91F858A491EAFDEC9508D18F /* JotPathAllocator.swift */,
 				DA233786EA7A57D7051F45BB /* JotWriter.swift */,
+				B495DA3BFE56A8F8D2D80E29 /* KeyboardRailLayout.swift */,
 				4CE2CF9F9998E322A653DA33 /* NotebookAttachment.swift */,
 				31FDF5DCE5DCAB5961EA428A /* NotebookCloudFile.swift */,
 				4E2F8C5E776E6175B0F57B54 /* NotebookCloudInventory.swift */,
@@ -138,6 +168,7 @@
 			isa = PBXGroup;
 			children = (
 				100E8C1DD1A1443831049614 /* JotIOS.app */,
+				74E2CE7936085C8411A3C925 /* JotIOSUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -163,6 +194,24 @@
 			productReference = 100E8C1DD1A1443831049614 /* JotIOS.app */;
 			productType = "com.apple.product-type.application";
 		};
+		543543CDFB53FAA296B4552D /* JotIOSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 01404D5992A6631547C3AF6B /* Build configuration list for PBXNativeTarget "JotIOSUITests" */;
+			buildPhases = (
+				CBFFCF6F8C948250B4E8A85C /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				071CC4E38FD25A94D04BA59D /* PBXTargetDependency */,
+			);
+			name = JotIOSUITests;
+			packageProductDependencies = (
+			);
+			productName = JotIOSUITests;
+			productReference = 74E2CE7936085C8411A3C925 /* JotIOSUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -175,6 +224,11 @@
 					433F6FB356B7D963507C82B4 = {
 						DevelopmentTeam = TRA7965NM5;
 						ProvisioningStyle = Automatic;
+					};
+					543543CDFB53FAA296B4552D = {
+						DevelopmentTeam = TRA7965NM5;
+						ProvisioningStyle = Automatic;
+						TestTargetID = 433F6FB356B7D963507C82B4;
 					};
 				};
 			};
@@ -193,6 +247,7 @@
 			projectRoot = "";
 			targets = (
 				433F6FB356B7D963507C82B4 /* JotIOS */,
+				543543CDFB53FAA296B4552D /* JotIOSUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -210,6 +265,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		CBFFCF6F8C948250B4E8A85C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DDD575583E4B965F5A2427C5 /* KeyboardRailUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D31FE9EE2FAD0BBE6815EEA2 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -219,12 +282,14 @@
 				A9B1C4A59B175DF9AB1FFC4E /* CaptureLaunchPolicy.swift in Sources */,
 				328ADD316A524BB5989AB037 /* InlineTags.swift in Sources */,
 				2876C82820A5EDEE6C07EB35 /* JotApp.swift in Sources */,
+				424A8007A9F7D7BAE459376D /* JotKeyboardRail.swift in Sources */,
 				E09D0F1E4472D9690921280C /* JotModels.swift in Sources */,
 				22F666623721000DA56BEDF1 /* JotPageTitle.swift in Sources */,
 				332CA49C9E84B81CC887D47D /* JotPagingSurface.swift in Sources */,
 				743858E817785DBBD5DCF549 /* JotPathAllocator.swift in Sources */,
 				532AC49BC41A52D8F588CEEE /* JotStore.swift in Sources */,
 				7F00A0C50FB2554C15CAA05C /* JotWriter.swift in Sources */,
+				3DECEF353D32CCD4197E1D9E /* KeyboardRailLayout.swift in Sources */,
 				42E3CFE32EFABA8E610BD263 /* LocalResourceSchemeHandler.swift in Sources */,
 				B1CE350BA36295D8E32E461A /* NoteNavigationHistory.swift in Sources */,
 				9C21E1E5C068C73D36D5B777 /* NoteRailIndex.swift in Sources */,
@@ -246,7 +311,32 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		071CC4E38FD25A94D04BA59D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 433F6FB356B7D963507C82B4 /* JotIOS */;
+			targetProxy = 8F31D0A78B40E742AC1D563A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		012C5EA6B43B342B7B9EE4D0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				INFOPLIST_FILE = JotIOSUITests/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.erikjohansson.Jot.ios.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = JotIOS;
+			};
+			name = Debug;
+		};
 		4A3E9865D16ADE4146305E1B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -302,6 +392,23 @@
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		4D2D05FA89BF609CE09F9A85 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				INFOPLIST_FILE = JotIOSUITests/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.erikjohansson.Jot.ios.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = JotIOS;
 			};
 			name = Release;
 		};
@@ -411,6 +518,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		01404D5992A6631547C3AF6B /* Build configuration list for PBXNativeTarget "JotIOSUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				012C5EA6B43B342B7B9EE4D0 /* Debug */,
+				4D2D05FA89BF609CE09F9A85 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		600A7E22AF4C1E191F1CFC6B /* Build configuration list for PBXProject "JotIOS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

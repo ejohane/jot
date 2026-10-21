@@ -14,6 +14,8 @@ targets:
     sources:
       - JotIOS
       - path: ../../Sources/Jot/Core
+        excludes:
+          - DocumentWorkspace.swift
       - path: ../../Sources/Jot/UI/LocalResourceSchemeHandler.swift
       - path: ../../Web/dist
         type: folder
@@ -43,8 +45,21 @@ targets:
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+  JotIOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [JotIOSUITests]
+    dependencies:
+      - target: JotIOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.erikjohansson.Jot.ios.uitests
+    info:
+      path: JotIOSUITests/Info.plist
 schemes:
   JotIOS:
     build:
       targets:
         JotIOS: all
+    test:
+      targets: [JotIOSUITests]

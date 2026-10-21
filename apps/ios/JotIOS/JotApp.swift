@@ -21,6 +21,9 @@ struct JotRootView: View {
     @Bindable var store: JotStore
     @State private var keyboardVisible = false
     @State private var formatPanelVisible = false
+    @State private var railCustomizing = false
+    @State private var photoPickerPresented = false
+    @State private var headingsPresented = false
     @State private var reviewChromeHidden = false
     private var chromeHidden: Bool { keyboardVisible || reviewChromeHidden || formatPanelVisible }
     @State private var pickedPhoto: PhotosPickerItem?
@@ -47,55 +50,74 @@ struct JotRootView: View {
         }
     }
 
-    private var keyboardControls: some View {
-        HStack(spacing: 0) {
-            HStack(spacing: 0) {
-            Button {
-                formatPanelVisible = true
-                store.webView?.endEditing(true)
-            } label: { Image(systemName: "textformat").frame(width: 52, height: 44) }
-                .accessibilityLabel("Format")
-                .disabled(navigationDisabled)
-            Spacer(minLength: 12)
-            Button { store.send(["version": 1, "type": "setTextStyle", "style": "task"]) } label: { Image(systemName: "checklist").frame(width: 44, height: 44) }
-                .accessibilityLabel("Checklist")
-                .disabled(navigationDisabled)
-            Spacer(minLength: 12)
-            PhotosPicker(selection: Binding(get: { pickedPhoto }, set: { value in
-                if let token = photoLoadToken { store.cancelPhotoLoad(token) }
-                photoLoadToken = value == nil ? nil : store.beginPhotoLoad()
-                pickedPhoto = photoLoadToken == nil ? nil : value
-            }), matching: .images) {
-                Image(systemName: "photo").frame(width: 44, height: 44)
-            }.accessibilityLabel("Add image").disabled(!store.canEdit || store.importingImage || store.storageBusy || store.reconciling || store.dictation.active)
-            Spacer(minLength: 12)
-            if store.dictation.active {
-                Button { store.dictation.finish() } label: { Image(systemName: "checkmark").frame(width: 44, height: 44) }
-                    .accessibilityLabel("Keep dictation").disabled(!store.canEdit || store.storageBusy || store.reconciling || store.dictation.state != .recording)
-                Button { store.dictation.cancel() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
-                    .accessibilityLabel("Cancel dictation")
-                .disabled(!store.canEdit || store.storageBusy || store.reconciling)
-            } else {
-                Button { store.toggleDictation() } label: { Image(systemName: "mic.fill").frame(width: 44, height: 44) }
-                    .accessibilityLabel("Start dictation").disabled(!store.canEdit || store.importingImage || store.storageBusy || store.reconciling)
-            }
-            }
-            Spacer(minLength: 12)
-            if store.dictation.state == .preparing || store.dictation.state == .finishing { ProgressView().controlSize(.small) }
-            if store.importingImage { ProgressView().controlSize(.small) }
-            Button { store.webView?.endEditing(true) } label: { Image(systemName: "keyboard.chevron.compact.down").frame(width: 44, height: 44) }
-                .accessibilityLabel("Dismiss keyboard")
-                .disabled(!store.canEdit || store.storageBusy || store.reconciling)
+    private var selectedRailActions: Set<KeyboardRailAction> {
+        var result = Set<KeyboardRailAction>()
+        if store.boldActive { result.insert(.bold) }
+        if store.italicActive { result.insert(.italic) }
+        if store.activeFormats.contains("strikethrough") { result.insert(.strikethrough) }
+        if store.activeFormats.contains("code") { result.insert(.code) }
+        if store.textStyle == "task" { result.insert(.checklist) }
+        if store.textStyle == "bullet" { result.insert(.bulletList) }
+        if store.textStyle == "number" { result.insert(.numberedList) }
+        if store.textStyle == "quote" { result.insert(.quote) }
+        if (store.headingLevel ?? 0) > 0 { result.insert(.headings) }
+        return result
+    }
+
+    private func performRailAction(_ action: KeyboardRailAction) {
+        guard !navigationDisabled, !railCustomizing else { return }
+        switch action {
+        case .format:
+            formatPanelVisible = true
+            store.webView?.endEditing(true)
+        case .headings: headingsPresented = true
+        case .image: photoPickerPresented = true
+        case .dictation: store.toggleDictation()
+        case .bold, .italic, .strikethrough:
+            store.send(["version": 1, "type": "toggleFormat", "format": action.rawValue])
+        case .code: store.send(["version": 1, "type": "toggleCode"])
+        case .checklist, .bulletList, .numberedList, .quote:
+            let styles: [KeyboardRailAction: String] = [.checklist: "task", .bulletList: "bullet", .numberedList: "number", .quote: "quote"]
+            guard let style = styles[action] else { return }
+            store.send(["version": 1, "type": "setTextStyle", "style": store.textStyle == style ? "paragraph" : style])
+        case .indent, .outdent:
+            store.send(["version": 1, "type": "changeListIndent", "direction": action == .indent ? "in" : "out"])
+        case .undo, .redo:
+            store.send(["version": 1, "type": "editorCommand", "command": action.rawValue])
         }
-        .buttonStyle(.plain)
-        .font(.system(size: 21, weight: .semibold))
-        .tint(.primary)
-        .padding(.horizontal, 4)
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity)
-        .modifier(KeyboardBarSurface())
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
+    }
+
+    private var keyboardControls: some View {
+        VStack(spacing: 0) {
+            if store.dictation.active {
+                HStack {
+                    Text("Dictation").font(.subheadline)
+                    Spacer()
+                    if store.dictation.state == .preparing || store.dictation.state == .finishing { ProgressView().controlSize(.small) }
+                    Button("Keep", systemImage: "checkmark") { store.dictation.finish() }
+                        .disabled(!store.canEdit || store.storageBusy || store.reconciling || store.dictation.state != .recording)
+                    Button("Cancel", systemImage: "xmark") { store.dictation.cancel() }
+                        .disabled(!store.canEdit || store.storageBusy || store.reconciling)
+                }
+                .buttonStyle(.bordered)
+                .padding(.horizontal, 16)
+            }
+            if store.importingImage { ProgressView("Adding image…").font(.footnote) }
+            JotKeyboardRail(isCustomizing: $railCustomizing, enabled: !navigationDisabled,
+                            activeActions: selectedRailActions, perform: performRailAction,
+                            dismissKeyboard: { store.webView?.endEditing(true) }, finished: { store.focus() })
+        }
+        .photosPicker(isPresented: $photoPickerPresented, selection: Binding(get: { pickedPhoto }, set: { value in
+            if let token = photoLoadToken { store.cancelPhotoLoad(token) }
+            photoLoadToken = value == nil ? nil : store.beginPhotoLoad()
+            pickedPhoto = photoLoadToken == nil ? nil : value
+        }), matching: .images)
+        .confirmationDialog("Headings", isPresented: $headingsPresented, titleVisibility: .visible) {
+            Button("Heading 1") { store.send(["version": 1, "type": "setTextStyle", "style": "heading1"]) }
+            Button("Heading 2") { store.send(["version": 1, "type": "setTextStyle", "style": "heading2"]) }
+            Button("Heading 3") { store.send(["version": 1, "type": "setTextStyle", "style": "heading3"]) }
+            Button("Body") { store.send(["version": 1, "type": "setTextStyle", "style": "paragraph"]) }
+        }
     }
 
     var body: some View {
@@ -132,9 +154,9 @@ struct JotRootView: View {
                                 .padding(.bottom, 8)
                             } else {
                                 keyboardControls
-                                    .opacity(keyboardVisible ? 1 : 0)
-                                    .allowsHitTesting(keyboardVisible)
-                                    .accessibilityHidden(!keyboardVisible)
+                                    .opacity(keyboardVisible || railCustomizing ? 1 : 0)
+                                    .allowsHitTesting(keyboardVisible || railCustomizing)
+                                    .accessibilityHidden(!keyboardVisible && !railCustomizing)
                             }
                         }
                 }
@@ -156,7 +178,7 @@ struct JotRootView: View {
         }
         .onChange(of: store.session.active?.id) { previous, _ in
             reviewChromeHidden = false
-            if previous != nil { formatPanelVisible = false }
+            if previous != nil { formatPanelVisible = false; railCustomizing = false }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             guard !store.showLibrary && !store.showSettings && store.imagePreview == nil else { return }
@@ -167,6 +189,9 @@ struct JotRootView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             keyboardVisible = false
             reviewChromeHidden = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            railCustomizing = false
         }
         .task(id: pickedPhoto) {
             guard let pickedPhoto, let token = photoLoadToken else { return }
@@ -391,7 +416,7 @@ private struct JotFormatPanel: View {
     }
 }
 
-private struct KeyboardBarSurface: ViewModifier {
+struct KeyboardBarSurface: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
