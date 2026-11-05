@@ -38,6 +38,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     private var panelController: ComposerPanelController!
     private var shortcut: GlobalShortcut!
     private var statusItem: NSStatusItem!
+    private var statusMenu: NSMenu?
     private var latestRevision = 0
     private var documentGeneration = 0
     private var sessionGeneration = 0
@@ -158,7 +159,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
     func start() {
         panelController.loadEditor()
-        panelController.showAndFocus()
+        panelController.showQuickCapture()
         Task { await documentWindows.restore() }
         tagRefreshTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -721,7 +722,22 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         activeJot != nil && !hasBlockingWriteError
     }
 
-    @objc private func showJot() { show() }
+    @objc private func showJot() {
+        panelController.showQuickCapture()
+        Task { await reconcileNotebookNote(); await refreshRail() }
+    }
+
+    @objc private func statusItemClicked() {
+        if NSApp.currentEvent?.type == .rightMouseUp, let statusMenu, let button = statusItem.button {
+            statusItem.menu = statusMenu
+            button.performClick(nil)
+            statusItem.menu = nil
+        } else if panelController.isAnchored && panelController.window?.isVisible == true {
+            panelController.hide()
+        } else { showJot() }
+    }
+
+    @objc private func popOutCapture() { panelController.popOut() }
 
     @objc private func toggleDictationFromMenu() {
         if let document = documentWindows.focused { document.editorRequestedDictationToggle() }
@@ -942,7 +958,14 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         menu.addItem(item("About Jot", action: #selector(showAbout), key: ""))
         menu.addItem(appUpdater.menuItem())
         menu.addItem(item("Quit Jot", action: #selector(quit), key: "q"))
-        statusItem.menu = menu
+        statusMenu = menu
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(statusItemClicked)
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        panelController.captureAnchor = { [weak self] in
+            guard let button = self?.statusItem.button, let window = button.window else { return nil }
+            return window.convertToScreen(button.convert(button.bounds, to: nil))
+        }
     }
 
     private func configureApplicationMenu() {
@@ -1008,6 +1031,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
         let windowItem = NSMenuItem()
         let windowMenu = NSMenu(title: "Window")
         windowMenu.addItem(item("Show Quick Capture", action: #selector(showJot), key: ""))
+        windowMenu.addItem(item("Pop Out Note", action: #selector(popOutCapture), key: ""))
         windowMenu.addItem(.separator())
         windowMenu.addItem(item("Close Window", action: #selector(closeFocusedWindow), key: "w"))
         windowMenu.addItem(.separator())
@@ -1030,6 +1054,7 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
     @objc private func closeFocusedWindow() { NSApp.keyWindow?.performClose(nil) }
 
     @objc private func toggleFullScreenFromMenu() {
+        if focusedEditor.isAnchored { focusedEditor.popOut() }
         focusedEditor.window?.toggleFullScreen(nil)
     }
 
@@ -1322,7 +1347,7 @@ extension AppCoordinator {
             }
         }
         update(NSApp.mainMenu)
-        update(statusItem.menu)
+        update(statusMenu)
     }
 
     private func handleShortcutEvent(_ event: NSEvent) -> NSEvent? {

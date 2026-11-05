@@ -57,7 +57,7 @@ struct PersistedSession: Codable, Equatable, Sendable {
         panelFrame: nil,
         panelPositionWasUserChosen: nil,
         rootBookmark: nil,
-        shortcut: .optionSpace,
+        shortcut: .commandShiftJ,
         launchAtLogin: false,
         recoveryText: nil,
         recoveryRevision: nil

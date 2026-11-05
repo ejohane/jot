@@ -113,7 +113,7 @@ enum ShortcutAction: String, CaseIterable, Sendable {
         case .back: KeyChord(33, "[", .command)
         case .forward: KeyChord(30, "]", .command)
         case .focusToolbar: KeyChord(109, String(UnicodeScalar(NSF10FunctionKey)!), .option)
-        case .showJot: KeyChord(49, " ", .option)
+        case .showJot: KeyChord(38, "j", [.command, .shift])
         case .finishAndNew: KeyChord(36, "\r", .command)
         case .hideJot: KeyChord(53, "\u{1b}", [])
         case .changeFolder: KeyChord(38, "j", [.command, .option])
