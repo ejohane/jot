@@ -55,6 +55,54 @@ final class WindowDragContainerView: NSView {
     }
 }
 
+/// A single editor surface; only its window chrome changes when detached.
+final class CaptureBubbleView: NSView {
+    var anchored = false { didSet { needsLayout = true } }
+    var pointerX: CGFloat = 280 { didSet { needsLayout = true } }
+
+    override func layout() {
+        super.layout()
+        wantsLayer = true
+        guard anchored else { layer?.mask = nil; return }
+        let top = bounds.height - 12
+        let width = bounds.width
+        let radius: CGFloat = 24
+        let x = min(max(pointerX, 48), width - 48)
+        // One outline: the shoulders flow directly into the editor's top edge.
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: radius, y: 0))
+        path.addLine(to: CGPoint(x: width - radius, y: 0))
+        path.addQuadCurve(to: CGPoint(x: width, y: radius), control: CGPoint(x: width, y: 0))
+        path.addLine(to: CGPoint(x: width, y: top - radius))
+        path.addQuadCurve(to: CGPoint(x: width - radius, y: top), control: CGPoint(x: width, y: top))
+        path.addLine(to: CGPoint(x: x + 24, y: top))
+        path.addCurve(to: CGPoint(x: x, y: bounds.height),
+                      control1: CGPoint(x: x + 10, y: top), control2: CGPoint(x: x + 6, y: bounds.height))
+        path.addCurve(to: CGPoint(x: x - 24, y: top),
+                      control1: CGPoint(x: x - 6, y: bounds.height), control2: CGPoint(x: x - 10, y: top))
+        path.addLine(to: CGPoint(x: radius, y: top))
+        path.addQuadCurve(to: CGPoint(x: 0, y: top - radius), control: CGPoint(x: 0, y: top))
+        path.addLine(to: CGPoint(x: 0, y: radius))
+        path.addQuadCurve(to: CGPoint(x: radius, y: 0), control: .zero)
+        path.closeSubpath()
+        let mask = CAShapeLayer()
+        mask.path = path
+        layer?.mask = mask
+        updateSurfaceColor()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateSurfaceColor()
+    }
+
+    private func updateSurfaceColor() {
+        // Match the editor surface, including the area above the WKWebView.
+        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        layer?.backgroundColor = (dark ? NSColor.black : NSColor(calibratedRed: 248 / 255, green: 248 / 255, blue: 247 / 255, alpha: 1)).cgColor
+    }
+}
+
 @MainActor
 final class AttachmentWebView: WKWebView {
     var onImagePaste: (() -> Void)?
@@ -129,6 +177,12 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
     var onCloseRequested: (() -> Bool)?
     var onBecomeKey: (() -> Void)?
     private let isDocument: Bool
+    private(set) var isAnchored = false
+    var captureAnchor: (() -> NSRect?)?
+    private var detachedFrame: NSRect?
+    private var editorTop: NSLayoutConstraint!
+    private let popOutButton = NSButton()
+    private var nativeToolbar: NSToolbar?
     var onImageFileDrop: (([URL], NSPoint) -> Void)?
 
     init(savedFrame: String?, documentURL: URL? = nil) {
@@ -146,7 +200,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         let initialFrame = NSRect(x: 0, y: 0, width: 560, height: 260)
         let panel = ComposerPanel(
             contentRect: initialFrame,
-            styleMask: [.titled, .closable, .resizable, .fullSizeContentView, .nonactivatingPanel],
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -164,17 +218,18 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = documentURL == nil ? [.canJoinAllSpaces, .fullScreenPrimary] : [.fullScreenPrimary]
         panel.minSize = NSSize(width: 360, height: 180)
-        let contentView = NSView(frame: initialFrame)
+        let contentView = CaptureBubbleView(frame: initialFrame)
         webView.translatesAutoresizingMaskIntoConstraints = false
         dragView.translatesAutoresizingMaskIntoConstraints = false
         contentView.setAccessibilityElement(false)
         dragView.setAccessibilityElement(false)
         contentView.addSubview(webView)
         contentView.addSubview(dragView)
+        editorTop = webView.topAnchor.constraint(equalTo: contentView.topAnchor)
         NSLayoutConstraint.activate([
             webView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            webView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            editorTop,
             webView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             dragView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: WindowDragContainerView.trafficLightClearance),
             dragView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
@@ -195,6 +250,25 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         toolbar.showsBaselineSeparator = false
         panel.toolbarStyle = .unifiedCompact
         panel.toolbar = toolbar
+        nativeToolbar = toolbar
+        if !isDocument {
+            popOutButton.image = NSImage(systemSymbolName: "arrow.up.right.square", accessibilityDescription: "Pop Out Note")
+            popOutButton.bezelStyle = .inline
+            popOutButton.isBordered = false
+            popOutButton.toolTip = "Pop Out Note into a Mac window"
+            popOutButton.setAccessibilityLabel("Pop Out Note")
+            popOutButton.target = self
+            popOutButton.action = #selector(popOut)
+            popOutButton.translatesAutoresizingMaskIntoConstraints = false
+            popOutButton.isHidden = true
+            contentView.addSubview(popOutButton)
+            NSLayoutConstraint.activate([
+                popOutButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+                popOutButton.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 24),
+                popOutButton.widthAnchor.constraint(equalToConstant: 28),
+                popOutButton.heightAnchor.constraint(equalToConstant: 28),
+            ])
+        }
         bridge.webView = webView
         webView.navigationDelegate = bridge
         webView.onImagePaste = { [weak self] in self?.send(["version": 1, "type": "beginImagePaste"]) }
@@ -209,6 +283,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
             if frame.width > 0, frame.height > 0 {
                 panel.setFrame(frame, display: false)
                 userPlacedPanel = true
+                detachedFrame = frame
             }
         }
         menuObservers = [
@@ -224,6 +299,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
                   panel.isVisible, panel.isKeyWindow else { return event }
             // Handle this before WebKit's editor interprets Command-F as Find.
             if (self.keyboardBindings?[ShortcutAction.fullScreen.rawValue] ?? ShortcutAction.fullScreen.defaultChord).matches(event) {
+                if self.isAnchored { self.popOut() }
                 panel.toggleFullScreen(nil)
                 return nil
             }
@@ -263,10 +339,97 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { [] }
 
+    func showQuickCapture() {
+        guard !isDocument, let panel = window, !isFullScreenTransition else { return }
+        if panel.styleMask.contains(.fullScreen) { showAndFocus(); return }
+        if !isAnchored && hasShown { detachedFrame = panel.frame }
+        isProgrammaticFrameChange = true
+        isAnchored = true
+        frameBeforeActions = nil
+        panel.toolbar = nil
+        panel.styleMask = [.borderless]
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.isMovable = false
+        panel.isMovableByWindowBackground = false
+        (panel as? NSPanel)?.isFloatingPanel = true
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        (panel.contentView as? CaptureBubbleView)?.anchored = true
+        editorTop.constant = 12
+        dragView.isHidden = true
+        popOutButton.isHidden = false
+        userHasResized = false
+        positionCapture()
+        isProgrammaticFrameChange = false
+        let animate = !panel.isVisible && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        panel.alphaValue = animate ? 0 : 1
+        showAndFocus()
+        if animate {
+            let final = panel.frame
+            panel.setFrame(final.insetBy(dx: 8, dy: 4).offsetBy(dx: 0, dy: 4), display: true)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = 1
+                panel.animator().setFrame(final, display: true)
+            }
+        }
+    }
+
+    private func positionCapture() {
+        guard let panel = window, let anchor = captureAnchor?(),
+              let screen = NSScreen.screens.first(where: { $0.frame.intersects(anchor) }) else { return }
+        let frame = Self.anchoredFrame(size: NSSize(width: 560, height: panel.frame.height), anchor: anchor, visibleFrame: screen.visibleFrame)
+        panel.setFrame(frame, display: true)
+        (panel.contentView as? CaptureBubbleView)?.pointerX = anchor.midX - frame.minX
+    }
+
+    static func anchoredFrame(size: NSSize, anchor: NSRect, visibleFrame: NSRect) -> NSRect {
+        let proposed = NSRect(x: anchor.midX - size.width / 2, y: min(anchor.minY, visibleFrame.maxY) - size.height,
+                              width: size.width, height: size.height)
+        return clampedFrame(proposed, to: visibleFrame.insetBy(dx: 8, dy: 0))
+    }
+
+    @objc func popOut() {
+        guard isAnchored, let panel = window else { return }
+        isProgrammaticFrameChange = true
+        isAnchored = false
+        frameBeforeActions = nil
+        panel.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        panel.titleVisibility = .visible
+        panel.titlebarAppearsTransparent = false
+        panel.title = "Jot"
+        panel.toolbar = nativeToolbar
+        panel.isOpaque = true
+        panel.backgroundColor = .windowBackgroundColor
+        panel.isMovable = true
+        panel.isMovableByWindowBackground = false
+        (panel as? NSPanel)?.isFloatingPanel = false
+        panel.level = .normal
+        panel.collectionBehavior = [.fullScreenPrimary]
+        panel.isExcludedFromWindowsMenu = false
+        (panel.contentView as? CaptureBubbleView)?.anchored = false
+        editorTop.constant = 0
+        popOutButton.isHidden = true
+        // The system title bar owns window dragging in the detached presentation.
+        dragView.isHidden = true
+        if let detachedFrame { panel.setFrame(detachedFrame, display: true) }
+        else { panel.center() }
+        userPlacedPanel = true
+        userHasResized = true
+        isProgrammaticFrameChange = false
+        showAndFocus()
+        panel.makeMain()
+    }
+
     func showAndFocus() {
         guard let panel = window else { return }
         isProgrammaticFrameChange = true
-        if panel.styleMask.contains(.fullScreen) || isFullScreenTransition {
+        if isAnchored {
+            positionCapture()
+        } else if panel.styleMask.contains(.fullScreen) || isFullScreenTransition {
             // AppKit owns the frame while the window occupies its full screen space.
         } else if userPlacedPanel {
             restoreVisiblePosition(panel)
@@ -402,19 +565,20 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         guard !isDocument, !actionPanelVisible, !preservesFrameForImages, !userHasResized,
               !isFullScreenTransition, let panel = window,
               !panel.styleMask.contains(.fullScreen) else { return }
-        let contentHeight = min(max(requestedHeight, 180), 700)
+        let contentHeight = min(max(requestedHeight + (isAnchored ? 12 : 0), isAnchored ? 260 : 180), 700)
         let frameHeight = panel.frameRect(forContentRect: NSRect(x: 0, y: 0, width: panel.contentLayoutRect.width, height: contentHeight)).height
         guard abs(panel.frame.height - frameHeight) > 1 else { return }
         var frame = panel.frame
         frame.size.height = frameHeight
-        if userPlacedPanel {
+        if isAnchored || userPlacedPanel {
             frame.origin.y = panel.frame.maxY - frameHeight
         } else if let visibleFrame = activeVisibleFrame() {
             frame = Self.centeredFrame(frame, in: visibleFrame)
         }
         isProgrammaticFrameChange = true
         panel.setFrame(frame, display: true, animate: false)
-        if userPlacedPanel { restoreVisiblePosition(panel) }
+        if isAnchored { positionCapture() }
+        else if userPlacedPanel { restoreVisiblePosition(panel) }
         isProgrammaticFrameChange = false
     }
 
@@ -423,18 +587,19 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
     func windowShouldClose(_ sender: NSWindow) -> Bool { onCloseRequested?() ?? true }
 
     func windowDidResignKey(_ notification: Notification) {
+        if isAnchored && !menuIsTracking { hide() }
         panelDelegate?.composerDidResignKey()
     }
 
     func windowDidMove(_ notification: Notification) {
-        guard hasShown, !isProgrammaticFrameChange, !isFullScreenTransition,
+        guard hasShown, !isAnchored, !isProgrammaticFrameChange, !isFullScreenTransition,
               window?.styleMask.contains(.fullScreen) != true else { return }
         frameBeforeActions = nil
         userPlacedPanel = true
         recordFrame()
     }
     func windowDidResize(_ notification: Notification) {
-        guard hasShown, !isProgrammaticFrameChange, !isFullScreenTransition,
+        guard hasShown, !isAnchored, !isProgrammaticFrameChange, !isFullScreenTransition,
               window?.styleMask.contains(.fullScreen) != true else { return }
         frameBeforeActions = nil
         userHasResized = true
@@ -464,15 +629,15 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
     func windowDidExitFullScreen(_ notification: Notification) {
         isFullScreenTransition = false
         syncZenMode()
-        window?.level = isDocument ? .normal : .floating
-        window?.titleVisibility = isDocument ? .visible : .hidden
+        window?.level = (window as? NSPanel)?.isFloatingPanel == true ? .floating : .normal
+        window?.titleVisibility = isDocument || (window as? NSPanel)?.isFloatingPanel == false ? .visible : .hidden
     }
 
     func windowDidFailToEnterFullScreen(_ window: NSWindow) {
         isFullScreenTransition = false
         syncZenMode()
-        window.level = isDocument ? .normal : .floating
-        window.titleVisibility = isDocument ? .visible : .hidden
+        window.level = (window as? NSPanel)?.isFloatingPanel == true ? .floating : .normal
+        window.titleVisibility = isDocument || (window as? NSPanel)?.isFloatingPanel == false ? .visible : .hidden
     }
 
     func windowDidFailToExitFullScreen(_ window: NSWindow) {

@@ -31,8 +31,8 @@ final class JotAppDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        coordinator?.show()
+    nonisolated func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        Task { @MainActor [weak self] in self?.coordinator?.show() }
         return true
     }
 }
