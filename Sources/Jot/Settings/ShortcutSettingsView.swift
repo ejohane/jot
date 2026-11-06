@@ -12,6 +12,7 @@ struct ShortcutSettingsView: View {
             Form {
                 Section("Capture") {
                     row(.showJot, detail: "Available from any app")
+                    row(.popOutNote, detail: "Detach quick capture into a regular window")
                     row(.finishAndNew)
                     row(.newNote)
                     row(.hideJot)

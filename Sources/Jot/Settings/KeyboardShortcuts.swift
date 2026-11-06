@@ -57,7 +57,7 @@ struct KeyChord: Codable, Equatable, Sendable {
 }
 
 enum ShortcutAction: String, CaseIterable, Sendable {
-    case showJot, finishAndNew, hideJot, changeFolder, settings, quit
+    case showJot, finishAndNew, hideJot, changeFolder, settings, quit, popOutNote
     case undo, redo, cut, copy, paste, selectAll
     case newNote, openFile, closeWindow, fullScreen, actions, searchNotes, find, findNext, findPrevious
     case bold, italic, dictation, latest, back, forward, focusToolbar
@@ -80,6 +80,7 @@ enum ShortcutAction: String, CaseIterable, Sendable {
         case .back: "Go Back"
         case .forward: "Go Forward"
         case .focusToolbar: "Focus Formatting Toolbar"
+        case .popOutNote: "Pop Out Note"
         case .showJot: "Show Jot"
         case .finishAndNew: "Finish & New"
         case .hideJot: "Hide Jot"
@@ -114,6 +115,7 @@ enum ShortcutAction: String, CaseIterable, Sendable {
         case .forward: KeyChord(30, "]", .command)
         case .focusToolbar: KeyChord(109, String(UnicodeScalar(NSF10FunctionKey)!), .option)
         case .showJot: KeyChord(38, "j", [.command, .shift])
+        case .popOutNote: KeyChord(36, "\r", [.command, .shift])
         case .finishAndNew: KeyChord(36, "\r", .command)
         case .hideJot: KeyChord(53, "\u{1b}", [])
         case .changeFolder: KeyChord(38, "j", [.command, .option])

@@ -348,3 +348,14 @@ html.zen-mode .formatting-toolbar { display: none !important; }
 @media (prefers-contrast: more) {
   html.zen-mode .cm-zen-dim, html.zen-mode .cm-zen-dim * { color: var(--secondary) !important; }
 }
+
+/* Keep quick capture to one writing row until its text needs more room. */
+.pinned-capture .composer { --editor-top-inset: 0px; --editor-bottom-inset: 0px; }
+.pinned-capture .editor { left: 46px; right: 90px; }
+.pinned-capture .cm-scroller { padding: 8px 0; }
+.pinned-capture .cm-content { min-height: 0; align-self: flex-start; }
+.pinned-capture .dictation-controls { left: 8px; }
+.pinned-capture .command-controls { right: 48px; }
+.pinned-capture .note-rail { top: 48px; bottom: 48px; }
+.pinned-capture .composer:has(.status-error, .dictation-controls.is-persistent) { --editor-bottom-inset: 46px; }
+.pinned-capture .cm-attachment-image img { max-height: 240px; }

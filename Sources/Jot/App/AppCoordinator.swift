@@ -694,6 +694,8 @@ final class AppCoordinator: NSObject, EditorBridgeDelegate, ComposerPanelDelegat
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
+        case #selector(popOutCapture):
+            return panelController.isAnchored && panelController.window?.isVisible == true
         case #selector(finishAndNewFromMenu):
             return documentWindows.focused == nil && Self.finishAndNewIsEnabled(
                 activeJot: session.activeJot,
@@ -1322,6 +1324,7 @@ extension AppCoordinator {
 
     private func updateShortcutMenus(_ bindings: [String: KeyChord]) {
         let selectors: [Selector: ShortcutAction] = [
+            #selector(popOutCapture): .popOutNote,
             #selector(showJot): .showJot, #selector(finishAndNewFromMenu): .finishAndNew,
             #selector(showSettings): .settings, #selector(quit): .quit, #selector(chooseRoot): .changeFolder,
             #selector(openMarkdownFile): .openFile, #selector(closeFocusedWindow): .closeWindow,
@@ -1368,6 +1371,7 @@ extension AppCoordinator {
     private func performShortcut(_ action: ShortcutAction) {
         switch action {
         case .showJot: showJot()
+        case .popOutNote: popOutCapture()
         case .finishAndNew, .newNote: finishAndNewFromMenu()
         case .hideJot:
             if focusedEditor.window?.styleMask.contains(.fullScreen) == true { focusedEditor.hide() }
