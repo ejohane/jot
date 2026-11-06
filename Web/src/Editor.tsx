@@ -179,7 +179,8 @@ export function Editor() {
 
     const sendPreferredHeight = (view: EditorView) => {
       requestAnimationFrame(() => {
-        if (imageKeepsFrame || view.state.field(pendingImageImport) || /!\[[^\n]*\]\([^\n]*attachments\//.test(view.state.doc.toString())) return;
+        const pinned = document.documentElement.classList.contains("pinned-capture");
+        if (!pinned && (imageKeepsFrame || view.state.field(pendingImageImport) || /!\[[^\n]*\]\([^\n]*attachments\//.test(view.state.doc.toString()))) return;
         const composer = host.current?.parentElement;
         if (!composer) return;
         const { paddingTop, paddingBottom } = getComputedStyle(view.scrollDOM);
@@ -190,7 +191,7 @@ export function Editor() {
           version: 1,
           type: "preferredHeightChanged",
           height: view.contentDOM.scrollHeight + parseFloat(paddingTop) + parseFloat(paddingBottom)
-            + topInset + bottomInset,
+            + topInset + bottomInset + (pinned ? view.dom.clientHeight - view.scrollDOM.clientHeight : 0),
         });
       });
     };
@@ -424,6 +425,11 @@ export function Editor() {
         requestAnimationFrame(() => openSearchPanel(view));
       }
     };
+    const pinnedResize = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(() => {
+      if (document.documentElement.classList.contains("pinned-capture")) sendPreferredHeight(view);
+    });
+    pinnedResize?.observe(view.contentDOM);
+    pinnedResize?.observe(view.scrollDOM);
     document.addEventListener("keydown", documentKeyDown, true);
     sendPreferredHeight(view);
     window.JotNative = {
@@ -462,6 +468,11 @@ export function Editor() {
             }
             break;
           }
+          case "pinnedCapture":
+            document.documentElement.classList.toggle("pinned-capture", message.enabled);
+            view.requestMeasure();
+            sendPreferredHeight(view);
+            break;
           case "zenMode":
             if (window.jotMobileEditor || document.documentElement.classList.contains("ios")) break;
             document.documentElement.classList.toggle("zen-mode", message.mode !== "off");
@@ -708,7 +719,8 @@ export function Editor() {
       composer?.removeEventListener("dragleave", dragLeave, true);
       composer?.removeEventListener("drop", drop, true);
       viewRef.current = null;
-      document.documentElement.classList.remove("zen-mode");
+      pinnedResize?.disconnect();
+      document.documentElement.classList.remove("zen-mode", "pinned-capture");
       delete document.documentElement.dataset.nativeShortcuts;
       view.destroy();
       setBridgeSessionID(undefined);

@@ -180,6 +180,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
     private(set) var isAnchored = false
     var captureAnchor: (() -> NSRect?)?
     private var detachedFrame: NSRect?
+    private var quickCaptureHeight: CGFloat = 62
     private var editorTop: NSLayoutConstraint!
     private let popOutButton = NSButton()
     private var nativeToolbar: NSToolbar?
@@ -357,7 +358,9 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         (panel.contentView as? CaptureBubbleView)?.anchored = true
+        panel.minSize = NSSize(width: 360, height: 56)
         editorTop.constant = 12
+        syncCapturePresentation()
         dragView.isHidden = true
         popOutButton.isHidden = false
         userHasResized = false
@@ -381,7 +384,8 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
     private func positionCapture() {
         guard let panel = window, let anchor = captureAnchor?(),
               let screen = NSScreen.screens.first(where: { $0.frame.intersects(anchor) }) else { return }
-        let frame = Self.anchoredFrame(size: NSSize(width: 560, height: panel.frame.height), anchor: anchor, visibleFrame: screen.visibleFrame)
+        let height = actionPanelVisible ? 430 : min(quickCaptureHeight, 360, screen.visibleFrame.height * 0.45)
+        let frame = Self.anchoredFrame(size: NSSize(width: 560, height: height), anchor: anchor, visibleFrame: screen.visibleFrame)
         panel.setFrame(frame, display: true)
         (panel.contentView as? CaptureBubbleView)?.pointerX = anchor.midX - frame.minX
     }
@@ -412,11 +416,13 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         panel.isExcludedFromWindowsMenu = false
         (panel.contentView as? CaptureBubbleView)?.anchored = false
         editorTop.constant = 0
+        panel.minSize = NSSize(width: 360, height: 180)
+        syncCapturePresentation()
         popOutButton.isHidden = true
         // The system title bar owns window dragging in the detached presentation.
         dragView.isHidden = true
         if let detachedFrame { panel.setFrame(detachedFrame, display: true) }
-        else { panel.center() }
+        else { panel.setContentSize(NSSize(width: 560, height: 260)); panel.center() }
         userPlacedPanel = true
         userHasResized = true
         isProgrammaticFrameChange = false
@@ -469,6 +475,7 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
     func applyActionPanelVisibility(_ visible: Bool) {
         guard let panel = window, visible != actionPanelVisible else { return }
         actionPanelVisible = visible
+        if isAnchored { positionCapture(); return }
         // Zen dismisses the palette on entry; AppKit owns the full-screen frame.
         guard !isFullScreenTransition, !panel.styleMask.contains(.fullScreen) else {
             frameBeforeActions = nil
@@ -518,7 +525,11 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
     }
 
     var keyboardBindings: [String: KeyChord]? {
-        didSet { sendKeyboardBindings() }
+        didSet {
+            sendKeyboardBindings()
+            let chord = keyboardBindings?[ShortcutAction.popOutNote.rawValue] ?? ShortcutAction.popOutNote.defaultChord
+            popOutButton.toolTip = "Pop Out Note into a Mac window (\(chord.displayName))"
+        }
     }
 
     private func sendKeyboardBindings() {
@@ -528,7 +539,10 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
     }
 
     func send(_ payload: [String: Any]) {
-        if payload["type"] as? String == "loadSession" { sendKeyboardBindings() }
+        if payload["type"] as? String == "loadSession" {
+            sendKeyboardBindings()
+            syncCapturePresentation()
+        }
         var payload = payload
         if payload["type"] as? String == "escape", payload["dismissOnly"] == nil {
             payload["dismissOnly"] = keyboardBindings?[ShortcutAction.hideJot.rawValue] != nil
@@ -561,24 +575,32 @@ final class ComposerPanelController: NSWindowController, NSWindowDelegate, NSToo
         panel.makeKeyAndOrderFront(nil)
     }
 
+    private func syncCapturePresentation() {
+        bridge.send(["version": 1, "type": "pinnedCapture", "enabled": isAnchored])
+    }
+
     func applyPreferredContentHeight(_ requestedHeight: CGFloat) {
+        if isAnchored {
+            quickCaptureHeight = max(56, ceil(requestedHeight) + 12)
+            positionCapture()
+            return
+        }
         guard !isDocument, !actionPanelVisible, !preservesFrameForImages, !userHasResized,
               !isFullScreenTransition, let panel = window,
               !panel.styleMask.contains(.fullScreen) else { return }
-        let contentHeight = min(max(requestedHeight + (isAnchored ? 12 : 0), isAnchored ? 260 : 180), 700)
+        let contentHeight = min(max(requestedHeight, 180), 700)
         let frameHeight = panel.frameRect(forContentRect: NSRect(x: 0, y: 0, width: panel.contentLayoutRect.width, height: contentHeight)).height
         guard abs(panel.frame.height - frameHeight) > 1 else { return }
         var frame = panel.frame
         frame.size.height = frameHeight
-        if isAnchored || userPlacedPanel {
+        if userPlacedPanel {
             frame.origin.y = panel.frame.maxY - frameHeight
         } else if let visibleFrame = activeVisibleFrame() {
             frame = Self.centeredFrame(frame, in: visibleFrame)
         }
         isProgrammaticFrameChange = true
         panel.setFrame(frame, display: true, animate: false)
-        if isAnchored { positionCapture() }
-        else if userPlacedPanel { restoreVisiblePosition(panel) }
+        if userPlacedPanel { restoreVisiblePosition(panel) }
         isProgrammaticFrameChange = false
     }
 

@@ -34,6 +34,7 @@ export type NativeToEditor =
   | { version: 1; type: "keyboardShortcuts"; labels: Record<string, string> }
   | { version: 1; type: "editorCommand"; command: "undo" | "redo" | "selectAll" | "findNext" | "findPrevious" | "focusToolbar" }
   | { version: 1; type: "escape"; dismissOnly?: boolean }
+  | { version: 1; type: "pinnedCapture"; enabled: boolean }
   | { version: 1; type: "zenMode"; mode: import("./zen").ZenMode }
   | { version: 1; type: "setEditingEnabled"; enabled: boolean }
   | { version: 1; type: "beginImageFileDrop"; dropID: string; count: number; x: number; y: number }

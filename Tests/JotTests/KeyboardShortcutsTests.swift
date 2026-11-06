@@ -72,4 +72,24 @@ final class KeyboardShortcutsTests: XCTestCase {
         XCTAssertFalse(chord.matches(try event([.command])))
         XCTAssertFalse(chord.matches(try event([.command, .shift, .option])))
     }
+    func testPopOutShortcutIsDistinctFromFinishAndCanBeRemapped() throws {
+        var session = PersistedSession.empty
+        let shortcuts = KeyboardShortcuts(session: session)
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: [.command, .shift], timestamp: 0, windowNumber: 0, context: nil,
+            characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        XCTAssertTrue(shortcuts[.popOutNote].matches(event))
+        XCTAssertFalse(shortcuts[.finishAndNew].matches(event))
+        let remapped = KeyChord(35, "p", [.command, .shift])
+        shortcuts.assign(remapped, to: .popOutNote)
+        XCTAssertNil(shortcuts.error)
+        session.keyboardShortcuts = shortcuts.bindings
+        let restored = KeyboardShortcuts(session: try JSONDecoder().decode(PersistedSession.self, from: JSONEncoder().encode(session)))
+        XCTAssertEqual(restored[.popOutNote], remapped)
+        XCTAssertFalse(restored[.popOutNote].matches(event))
+        restored.assign(restored[.finishAndNew], to: .popOutNote)
+        XCTAssertNotNil(restored.error)
+        XCTAssertEqual(restored[.popOutNote], remapped)
+    }
+
 }
